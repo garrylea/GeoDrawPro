@@ -1,6 +1,6 @@
 import React from 'react';
 import { Shape, ShapeType } from '../types';
-import { getShapeCenter } from '../utils/mathUtils';
+import { getShapeCenter, getSmoothSvgPath } from '../utils/mathUtils';
 
 interface ShapeRendererProps {
   shape: Shape;
@@ -8,13 +8,22 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType } = shape;
   if (!points || points.length === 0) return null;
+
+  // Determine Dash Array based on strokeType
+  let dashArray = 'none';
+  if (strokeType === 'dashed') {
+      dashArray = `${strokeWidth * 4},${strokeWidth * 2}`; // e.g., 8,4
+  } else if (strokeType === 'dotted') {
+      dashArray = `${strokeWidth},${strokeWidth * 2}`; // e.g., 2,4
+  }
 
   const commonProps = {
     fill,
     stroke: isSelected ? '#3b82f6' : stroke, 
     strokeWidth: isSelected ? Math.max(strokeWidth, 2) : strokeWidth,
+    strokeDasharray: isSelected ? 'none' : dashArray, // Don't dash the selection highlight
     opacity: 0.9,
     vectorEffect: 'non-scaling-stroke', 
     strokeLinejoin: 'round' as const,
@@ -55,6 +64,13 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       element = <polygon points={pts} {...commonProps} />;
       break;
 
+    case ShapeType.FREEHAND:
+        if (points.length < 2) return null;
+        // Use smooth path algorithm instead of raw polyline
+        const pathData = getSmoothSvgPath(points);
+        element = <path d={pathData} {...commonProps} fill="none" />;
+        break;
+
     case ShapeType.POINT:
         element = <circle cx={p0.x} cy={p0.y} r={Math.max(4, strokeWidth * 2)} fill={stroke} stroke={isSelected ? '#3b82f6' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
         break;
@@ -86,12 +102,12 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
     <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }}>
       {isSelected && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
-             {/* Clone element with thicker stroke for halo. For Text, apply stroke to create outline effect */}
+             {/* Clone element with thicker stroke for halo. */}
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
                  strokeWidth: (strokeWidth || 1) + 6, 
                  fill: type === ShapeType.TEXT ? 'none' : 'none',
-                 // For text, we need stroke to be visible for halo effect
+                 strokeDasharray: 'none' // Selection halo is always solid
              })}
           </g>
       )}

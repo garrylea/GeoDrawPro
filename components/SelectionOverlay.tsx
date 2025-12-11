@@ -29,8 +29,16 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
     rx: 2, 
   };
 
+  // Logic to determine handles
   let handles = points;
   let showBoundingBox = [ShapeType.RECTANGLE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.SQUARE].includes(type);
+
+  // FIX: For Freehand, do NOT show handles for every single point (too many boxes).
+  // Freehand is treated as a single object for moving/rotating, but not vertex editing for now.
+  if (type === ShapeType.FREEHAND) {
+      handles = [];
+      showBoundingBox = true; // Show box instead to indicate selection area
+  }
 
   // Use rotated corners to place pivot anchors correctly in world space
   const rotatedCorners = getRotatedCorners(shape);
@@ -64,7 +72,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
 
   return (
     <g className="selection-overlay pointer-events-none" transform={transform}>
-      {/* Dashed Border for Box Shapes */}
+      {/* Dashed Border for Box Shapes OR Freehand */}
       {showBoundingBox && (
         <rect
             x={minX}

@@ -6,7 +6,7 @@ import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser } from 'lucide-react';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -15,7 +15,15 @@ export default function App() {
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
-  const [currentStyle, setCurrentStyle] = useState(DEFAULT_SHAPE_PROPS);
+  
+  // Extended style state with strokeType
+  const [currentStyle, setCurrentStyle] = useState<{
+      fill: string; stroke: string; strokeWidth: number; strokeType: 'solid' | 'dashed' | 'dotted'
+  }>({
+      ...DEFAULT_SHAPE_PROPS,
+      strokeType: 'solid'
+  });
+
   const [axisConfig, setAxisConfig] = useState<AxisConfig>({
     visible: true,
     ticks: 5,
@@ -60,15 +68,31 @@ export default function App() {
   const [lastEditedVertexIdx, setLastEditedVertexIdx] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
+  // Initialize with window size, but update immediately via ResizeObserver to fit the actual container
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
-  // Handle Window Resize
+  // Handle Canvas Resize (Responsive to Sidebar/Window changes)
   useEffect(() => {
-    const handleResize = () => {
-      setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    const updateCanvasSize = () => {
+        if (svgRef.current) {
+            const { clientWidth, clientHeight } = svgRef.current;
+            setCanvasSize({ width: clientWidth, height: clientHeight });
+        }
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+    // Initial sizing
+    updateCanvasSize();
+
+    // Use ResizeObserver to detect changes to the SVG container (flexbox adjustments)
+    const observer = new ResizeObserver(() => {
+        updateCanvasSize();
+    });
+
+    if (svgRef.current) {
+        observer.observe(svgRef.current);
+    }
+
+    return () => observer.disconnect();
   }, []);
 
   // Ensure input gets focus
@@ -201,6 +225,12 @@ export default function App() {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
+    
+    // Freehand doesn't snap while drawing usually
+    if (tool === ToolType.FREEHAND && isDragging) {
+        setSnapIndicator(null);
+        return raw;
+    }
 
     if (snap) {
         const { point, snapped } = getSnapPoint(raw, shapes, Array.from(selectedIds));
@@ -239,6 +269,7 @@ export default function App() {
 
       saveHistory(); // Save before reflection
 
+      // Center based on actual canvas size, not window size
       const centerX = canvasSize.width / 2;
       const centerY = canvasSize.height / 2;
 
@@ -397,7 +428,7 @@ export default function App() {
         const id = generateId();
         const newShape: Shape = {
             id, type: ShapeType.TEXT, points: [pos], text: '', 
-            fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0
+            fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
         };
         setShapes(prev => [...prev, newShape]);
         setTextEditing({ id, x: pos.x, y: pos.y, text: '' });
@@ -415,7 +446,7 @@ export default function App() {
             const id = generateId();
             const newShape: Shape = {
                 id, type: ShapeType.LINE, points: [pos, pos],
-                fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0
+                fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
             };
             setShapes(prev => [...prev, newShape]);
             setActiveShapeId(id);
@@ -425,7 +456,7 @@ export default function App() {
             const id = generateId();
             const newShape: Shape = {
                 id, type: ShapeType.LINE, points: [pendingLineStart, pos],
-                fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0
+                fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
             };
             setShapes(prev => [...prev, newShape]);
             setPendingLineStart(null);
@@ -446,6 +477,7 @@ export default function App() {
       case ToolType.CIRCLE:
       case ToolType.ELLIPSE: points = [pos, pos]; break;
       case ToolType.TRIANGLE: points = [pos, pos, pos]; break;
+      case ToolType.FREEHAND: points = [pos]; break;
       default: points = [pos, pos];
     }
 
@@ -456,6 +488,7 @@ export default function App() {
       fill: currentStyle.fill,
       stroke: currentStyle.stroke,
       strokeWidth: currentStyle.strokeWidth,
+      strokeType: currentStyle.strokeType,
       rotation: 0
     };
 
@@ -577,6 +610,12 @@ export default function App() {
             let newPoints = [...s.points];
 
             if (s.type === ShapeType.POINT) {
+            } else if (s.type === ShapeType.FREEHAND) {
+                // Throttle points: only add if distance > 2px to reduce density
+                const lastPoint = s.points[s.points.length - 1];
+                if (distance(lastPoint, currentPos) > 2) {
+                    newPoints = [...s.points, currentPos];
+                }
             } else if (s.type === ShapeType.LINE) {
                 newPoints[1] = currentPos;
             } else if (s.type === ShapeType.TRIANGLE) {
@@ -877,7 +916,7 @@ export default function App() {
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
-        <aside className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-3 z-10 shadow-sm">
+        <aside className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-3 z-10 shadow-sm shrink-0">
             {TOOL_CONFIG.map((t) => (
                 <button
                     key={t.id}
@@ -904,6 +943,10 @@ export default function App() {
                 onMouseLeave={handleMouseUp}
             >
                 <rect width="100%" height="100%" fill="white" />
+                {/* 
+                  AxisLayer now receives the width/height of the SVG container (main area), 
+                  not the window width. This centers the axes in the visible white space. 
+                */}
                 <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
 
                 {shapes.map((shape) => (
@@ -1021,7 +1064,7 @@ export default function App() {
             </div>
         </main>
 
-        <aside className="w-72 bg-white border-l border-gray-200 flex flex-col z-10 shadow-sm overflow-y-auto">
+        <aside className="w-72 bg-white border-l border-gray-200 flex flex-col z-10 shadow-sm overflow-y-auto shrink-0">
              <div className="p-5 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Grid3X3 size={16} /> Coordinate System</h3>
                 <div className="space-y-3">
@@ -1073,23 +1116,49 @@ export default function App() {
                 <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Settings2 size={16} /> Appearance</h3>
                 <div className="space-y-6">
                     <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Fill</label>
-                        <div className="flex flex-wrap gap-2">
-                            {COLORS.map(c => (
-                                <button key={c} onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, fill: c})); updateShapes(selectedIds, {fill: c}); }} className="w-6 h-6 rounded-full border border-gray-200" style={{ backgroundColor: c }} />
-                            ))}
-                        </div>
+                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Style</label>
+                         <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
+                             <button 
+                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'solid'})); updateShapes(selectedIds, {strokeType: 'solid'}); }}
+                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'solid' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
+                             >
+                                 <Minus size={14} /> Solid
+                             </button>
+                             <button 
+                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'dashed'})); updateShapes(selectedIds, {strokeType: 'dashed'}); }}
+                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'dashed' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
+                             >
+                                 <MoreHorizontal size={14} /> Dash
+                             </button>
+                             <button 
+                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'dotted'})); updateShapes(selectedIds, {strokeType: 'dotted'}); }}
+                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'dotted' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
+                             >
+                                 <MoreHorizontal size={14} className="opacity-50" /> Dot
+                             </button>
+                         </div>
                     </div>
+
                     <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke</label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke Color</label>
                         <div className="flex flex-wrap gap-2">
                             {COLORS.slice(1).map(c => (
                                 <button key={c} onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, stroke: c})); updateShapes(selectedIds, {stroke: c}); }} className="w-6 h-6 rounded-full border border-gray-200" style={{ backgroundColor: c }} />
                             ))}
                         </div>
                     </div>
+
                     <div>
-                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Width</label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Fill Color</label>
+                        <div className="flex flex-wrap gap-2">
+                            {COLORS.map(c => (
+                                <button key={c} onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, fill: c})); updateShapes(selectedIds, {fill: c}); }} className="w-6 h-6 rounded-full border border-gray-200" style={{ backgroundColor: c }} />
+                            ))}
+                        </div>
+                    </div>
+                    
+                    <div>
+                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Width</label>
                          <input type="range" min="1" max="10" value={currentStyle.strokeWidth} onChange={(e) => { saveHistory(); setCurrentStyle(p => ({...p, strokeWidth: Number(e.target.value)})); updateShapes(selectedIds, {strokeWidth: Number(e.target.value)}); }} className="w-full h-2 bg-gray-200 rounded-lg accent-brand-600" />
                     </div>
                 </div>

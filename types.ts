@@ -7,7 +7,8 @@ export enum ToolType {
   CIRCLE = 'CIRCLE',
   ELLIPSE = 'ELLIPSE',
   TRIANGLE = 'TRIANGLE',
-  TEXT = 'TEXT'
+  TEXT = 'TEXT',
+  FREEHAND = 'FREEHAND'
 }
 
 export enum ShapeType {
@@ -18,7 +19,8 @@ export enum ShapeType {
   CIRCLE = 'CIRCLE',
   ELLIPSE = 'ELLIPSE',
   TRIANGLE = 'TRIANGLE',
-  TEXT = 'TEXT'
+  TEXT = 'TEXT',
+  FREEHAND = 'FREEHAND'
 }
 
 export interface Point {
@@ -35,11 +37,13 @@ export interface Shape {
   // Triangle: [p1, p2, p3]
   // Rect/Circle: [p1 (top-left), p2 (bottom-right)]
   // Text: [p1 (position)]
+  // Freehand: [p1, p2, p3, ..., pn]
   
   text?: string; // For ShapeType.TEXT
   fill: string;
   stroke: string;
   strokeWidth: number;
+  strokeType?: 'solid' | 'dashed' | 'dotted'; // New property for line style
   rotation: number; // In degrees
 }
 
