@@ -1,3 +1,6 @@
+
+import { Shape } from '../types';
+
 /**
  * Exports an SVG element to a PNG or JPG file.
  * Crops the output to the bounding box of the drawn shapes + padding.
@@ -113,4 +116,45 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
   };
 
   image.src = imgSrc;
+};
+
+/**
+ * Saves the current shapes state to a .geo (JSON) file.
+ */
+export const saveProject = (shapes: Shape[], filename: string) => {
+    const data = JSON.stringify(shapes, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.geo`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+/**
+ * Loads shapes from a user-selected .geo file.
+ */
+export const loadProject = (file: File): Promise<Shape[]> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const result = e.target?.result as string;
+                const shapes = JSON.parse(result);
+                if (Array.isArray(shapes)) {
+                    resolve(shapes);
+                } else {
+                    reject(new Error("Invalid file format: content is not an array"));
+                }
+            } catch (err) {
+                reject(err);
+            }
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsText(file);
+    });
 };

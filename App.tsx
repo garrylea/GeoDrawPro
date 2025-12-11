@@ -5,9 +5,9 @@ import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './consta
 import { AxisLayer } from './components/AxisLayer';
 import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
-import { exportCanvas } from './utils/exportUtils';
+import { exportCanvas, saveProject, loadProject } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, simplifyToQuadratic } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator } from 'lucide-react';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator, Save, FolderOpen } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -67,6 +67,9 @@ export default function App() {
   // Text Editing State
   const [textEditing, setTextEditing] = useState<{ id: string; x: number; y: number; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // File Input Ref for Loading Projects
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Selection Box State
   const [selectionBox, setSelectionBox] = useState<{start: Point, current: Point} | null>(null);
@@ -147,6 +150,20 @@ export default function App() {
           const target = e.target as HTMLElement;
           if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
           if (textEditing) return;
+
+          // Save Shortcut (Ctrl+S or Cmd+S)
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+              e.preventDefault();
+              handleSaveProject();
+              return;
+          }
+
+          // Open Shortcut (Ctrl+O or Cmd+O)
+          if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+              e.preventDefault();
+              handleOpenProjectClick();
+              return;
+          }
 
           // Undo Shortcut (Ctrl+Z or Cmd+Z)
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -468,6 +485,39 @@ export default function App() {
 
       setShapes(prevShapes => [...prevShapes, newShape]);
   };
+
+  // --- Project IO ---
+  const handleSaveProject = () => {
+      const filename = prompt("Enter project name:", "my-geodraw-project");
+      if (filename) {
+          saveProject(shapes, filename);
+      }
+  };
+
+  const handleOpenProjectClick = () => {
+      if (shapes.length > 0) {
+          if (!confirm("Opening a new project will clear current unsaved changes. Continue?")) return;
+      }
+      fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+          const loadedShapes = await loadProject(file);
+          setShapes(loadedShapes);
+          setHistory([]); // Reset undo history for new project
+          setSelectedIds(new Set());
+          setTool(ToolType.SELECT);
+          // Clear input so same file can be selected again if needed
+          e.target.value = '';
+      } catch (err) {
+          alert("Failed to load project: " + err);
+      }
+  };
+
 
   // --- Mouse Handlers ---
 
@@ -1116,6 +1166,13 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col bg-gray-50 text-slate-800 font-sans">
+      <input 
+        type="file" 
+        accept=".geo,.json" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        className="hidden" 
+      />
       
       <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20 shadow-sm shrink-0">
         <div className="flex items-center gap-2">
@@ -1123,6 +1180,16 @@ export default function App() {
            <h1 className="font-bold text-lg text-slate-700">GeoDraw Pro</h1>
         </div>
         <div className="flex items-center gap-3">
+             <button onClick={handleOpenProjectClick} className="btn-secondary text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-2" title="Open Project (Ctrl+O)">
+               <FolderOpen size={16} /> Open
+             </button>
+
+             <button onClick={handleSaveProject} className="btn-secondary text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-2" title="Save Project (Ctrl+S)">
+               <Save size={16} /> Save
+             </button>
+
+             <div className="h-6 w-px bg-gray-300 mx-1"></div>
+
              <button onClick={undo} className="btn-secondary text-slate-600 hover:bg-slate-100 disabled:opacity-50 flex items-center justify-center gap-2" disabled={history.length === 0} title="Undo (Ctrl+Z)">
                <Undo size={16} /> Undo
              </button>
