@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { Shape, ShapeType } from '../types';
-import { getShapeCenter, getSmoothSvgPath } from '../utils/mathUtils';
+import { Shape, ShapeType, Point } from '../types';
+import { getShapeCenter, getSmoothSvgPath, distance } from '../utils/mathUtils';
 
 interface ShapeRendererProps {
   shape: Shape;
@@ -9,7 +9,23 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels } = shape;
+  
+  // MARKER SPECIAL HANDLING
+  if (type === ShapeType.MARKER) {
+      if (!pathData) return null;
+      return (
+          <path 
+              d={pathData} 
+              fill="none" 
+              stroke={isSelected ? '#3b82f6' : '#ef4444'} // Markers usually Red or Black. Let's make them Red by default to stand out, or follow props.
+              strokeWidth={2} 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+          />
+      );
+  }
+
   if (!points || points.length === 0) return null;
 
   // Determine Dash Array based on strokeType
@@ -39,6 +55,85 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   const y = Math.min(p0.y, p1.y);
   const width = Math.abs(p1.x - p0.x);
   const height = Math.abs(p1.y - p0.y);
+
+  // --- Smart Labeling Logic ---
+  let labelElements: React.ReactNode[] = [];
+  
+  // Only render labels if they exist
+  if (labels && labels.length > 0) {
+      // Helper to calculate label position: Vertex + (Vertex - Center).normalized * padding
+      const renderLabel = (vertex: Point, label: string, index: number, center: Point) => {
+          if (!label) return null;
+          
+          // Vector from center to vertex
+          const dx = vertex.x - center.x;
+          const dy = vertex.y - center.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          
+          // Padding offset (push label away from shape)
+          const padding = 20; 
+          
+          // If length is 0 (single point), just offset up-right
+          const offsetX = len > 0 ? (dx / len) * padding : 15;
+          const offsetY = len > 0 ? (dy / len) * padding : -15;
+
+          const labelX = vertex.x + offsetX;
+          const labelY = vertex.y + offsetY;
+
+          // Counter-rotate the text so it stays upright relative to the screen,
+          // negating the group's rotation.
+          const counterRotate = `rotate(${-rotation}, ${labelX}, ${labelY})`;
+
+          return (
+              <text
+                  key={`lbl-${index}`}
+                  x={labelX}
+                  y={labelY}
+                  fill={stroke} // Use shape color for label
+                  fontSize={14}
+                  fontWeight="bold"
+                  fontFamily="sans-serif"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  transform={counterRotate}
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                  {label}
+              </text>
+          );
+      };
+
+      const center = getShapeCenter(points);
+
+      // Determine vertices based on shape type
+      if (type === ShapeType.TRIANGLE && points.length >= 3) {
+          labels.forEach((l, i) => {
+              if (points[i]) labelElements.push(renderLabel(points[i], l, i, center));
+          });
+      } else if (type === ShapeType.LINE) {
+          labels.forEach((l, i) => {
+             if (points[i]) labelElements.push(renderLabel(points[i], l, i, center));
+          });
+      } else if ((type === ShapeType.RECTANGLE || type === ShapeType.SQUARE) && labels.length >= 4) {
+          // Logic for Rect corners: TL, TR, BR, BL
+          // Points are just diagonal [p0, p1], so we must derive 4 corners
+          const corners = [
+              { x: x, y: y },         // TL
+              { x: x + width, y: y }, // TR
+              { x: x + width, y: y + height }, // BR
+              { x: x, y: y + height } // BL
+          ];
+          corners.forEach((c, i) => {
+              if (labels[i]) labelElements.push(renderLabel(c, labels[i], i, { x: x + width/2, y: y + height/2 }));
+          });
+      } else if (type === ShapeType.POINT) {
+           labels.forEach((l, i) => {
+               // For single point, just offset slightly
+               labelElements.push(renderLabel(points[0], l, i, { x: points[0].x - 1, y: points[0].y + 1 }));
+           });
+      }
+  }
+  // -----------------------------
 
   switch (type) {
     case ShapeType.RECTANGLE:
@@ -105,7 +200,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
         
         // Generate Ticks
         const ticks = [];
-        const labels = [];
+        const labelsP = [];
         for (let i = 0; i <= 180; i++) {
             const rad = (Math.PI * i) / 180;
             // Note: SVG Y is down, so we subtract Math.sin for "up"
@@ -133,8 +228,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
             if (i % 15 === 0 && i !== 180 && i !== 0) {
                  const xText = cx - (radius - 25) * cos;
                  const yText = cy - (radius - 25) * sin;
-                 // Inner scale labels (optional, usually protractors have two scales. Let's stick to one 0-180 for simplicity)
-                 labels.push(
+                 labelsP.push(
                      <text 
                         key={`l-${i}`} 
                         x={xText} y={yText} 
@@ -153,7 +247,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
 
         element = (
             <g>
-                {/* Plastic Body Background */}
                 <path 
                     d={`M ${x} ${cy} A ${radius} ${radius} 0 0 1 ${x + width} ${cy} Z`} 
                     fill="#bae6fd" 
@@ -161,25 +254,11 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
                     stroke={stroke} 
                     strokeWidth={2}
                 />
-                {/* Inner cutout (optional, aesthetics) */}
-                <path 
-                    d={`M ${cx - radius * 0.4} ${cy} A ${radius * 0.4} ${radius * 0.4} 0 0 1 ${cx + radius * 0.4} ${cy} Z`} 
-                    fill="none" 
-                    stroke={stroke} 
-                    strokeWidth={1}
-                    opacity="0.5"
-                />
-                
-                {/* Base Line */}
                 <line x1={cx - radius} y1={cy} x2={cx + radius} y2={cy} stroke={stroke} strokeWidth={2} />
-                
-                {/* Center Mark */}
                 <line x1={cx} y1={cy - 10} x2={cx} y2={cy} stroke="#ef4444" strokeWidth={2} />
                 <circle cx={cx} cy={cy} r={3} fill="#ef4444" />
-
-                {/* Ticks and Labels */}
                 {ticks}
-                {labels}
+                {labelsP}
             </g>
         );
         break;
@@ -195,16 +274,16 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
     <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }}>
       {isSelected && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
-             {/* Clone element with thicker stroke for halo. */}
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
                  strokeWidth: (strokeWidth || 1) + 6, 
                  fill: type === ShapeType.TEXT || type === ShapeType.PROTRACTOR ? 'none' : 'none',
-                 strokeDasharray: 'none' // Selection halo is always solid
+                 strokeDasharray: 'none' 
              })}
           </g>
       )}
       {element}
+      {labelElements}
     </g>
   );
 };

@@ -1,5 +1,5 @@
 
-import { Point, Shape, ShapeType } from '../types';
+import { Point, Shape, ShapeType, MarkerType } from '../types';
 
 export const distance = (p1: Point, p2: Point) => {
   return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
@@ -276,13 +276,6 @@ export const getSmoothSvgPath = (points: Point[]): string => {
   return d;
 };
 
-/**
- * Simplifies a jagged freehand path into a smooth 3-point quadratic curve.
- * Logic: 
- * 1. Keep Start and End points.
- * 2. Find the "Apex" point (point furthest from the line connecting start-end).
- * 3. Return [Start, Apex, End] which getSmoothSvgPath will render as a nice curve.
- */
 export const simplifyToQuadratic = (points: Point[]): Point[] => {
     if (points.length <= 3) return points;
 
@@ -311,12 +304,269 @@ export const simplifyToQuadratic = (points: Point[]): Point[] => {
     }
 
     if (apexIndex !== -1) {
-        // We actually want the curve to pass *near* the apex, but if we use it strictly as a Control Point 
-        // in a Quadratic Bezier (Start -> Control -> End), the curve passes roughly halfway between Control and Chord.
-        // To make the curve pass closer to the actual drawn apex, we might want to push the control point out further.
-        // But for "Smoothing", using the actual max point as the Control Point usually yields a very pleasing, stable arc.
         return [start, points[apexIndex], end];
     }
 
     return [start, end];
+};
+
+// --- Smart Shape Recognition ---
+
+// Ramer-Douglas-Peucker algorithm for simplifying polyline
+export const simplifyPath = (points: Point[], epsilon: number): Point[] => {
+    if (points.length < 3) return points;
+
+    let dmax = 0;
+    let index = 0;
+    const end = points.length - 1;
+
+    // Find point furthest from the line segment [start, end]
+    for (let i = 1; i < end; i++) {
+        // Perpendicular distance calculation
+        const p = points[i];
+        const p1 = points[0];
+        const p2 = points[end];
+        
+        let d = 0;
+        const norm = Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2);
+        if (norm === 0) {
+            d = distance(p, p1);
+        } else {
+            // |(y2-y1)x0 - (x2-x1)y0 + x2y1 - y2x1| / sqrt((y2-y1)^2 + (x2-x1)^2)
+            d = Math.abs((p2.y - p1.y) * p.x - (p2.x - p1.x) * p.y + p2.x * p1.y - p2.y * p1.x) / Math.sqrt(norm);
+        }
+
+        if (d > dmax) {
+            index = i;
+            dmax = d;
+        }
+    }
+
+    if (dmax > epsilon) {
+        const recResults1 = simplifyPath(points.slice(0, index + 1), epsilon);
+        const recResults2 = simplifyPath(points.slice(index, end + 1), epsilon);
+        return [...recResults1.slice(0, recResults1.length - 1), ...recResults2];
+    } else {
+        return [points[0], points[end]];
+    }
+};
+
+export interface RecognizedShape {
+    type: ShapeType;
+    points: Point[];
+}
+
+export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null => {
+    if (points.length < 10) return null; // Too few points to guess
+
+    const start = points[0];
+    const end = points[points.length - 1];
+    
+    // 1. Calculate Bounding Box
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    const distStartEnd = distance(start, end);
+    const perimeter = points.reduce((acc, p, i) => i === 0 ? 0 : acc + distance(points[i-1], p), 0);
+    const diagonal = Math.sqrt(width*width + height*height);
+
+    // 2. Is it a Line?
+    const lineSimplified = simplifyPath(points, 20);
+    if (lineSimplified.length <= 3 && distStartEnd > diagonal * 0.75) {
+        return { type: ShapeType.LINE, points: [start, end] };
+    }
+
+    // 3. Is it Closed? (Circle, Rect, Triangle)
+    const isClosed = distStartEnd < perimeter * 0.25;
+    
+    if (isClosed) {
+        // Dynamic epsilon logic: proportional to size. 
+        // 4% of diagonal is a good balance for detecting corners in rough sketches.
+        const epsilon = Math.max(10, diagonal * 0.04);
+        const polySimplified = simplifyPath(points, epsilon);
+        
+        // Count corners. If shape is closed, first and last point are effectively same corner.
+        // We ensure simplified path represents a closed loop for logic.
+        let corners = polySimplified.length;
+        if (distance(polySimplified[0], polySimplified[corners-1]) < epsilon) {
+            corners -= 1; // Start/End merged
+        }
+
+        // --- POLYGON CHECKS FIRST ---
+        // (Fixes issue where rough rectangles were identified as circles)
+        
+        if (corners === 3) {
+            return { 
+                type: ShapeType.TRIANGLE, 
+                points: [polySimplified[0], polySimplified[1], polySimplified[2]] 
+            };
+        }
+        
+        if (corners === 4 || corners === 5) {
+            // It's a Quadrilateral.
+            // For standard "Smart Sketch", we convert to Axis-Aligned Bounding Box (Rect/Square)
+            const ratio = width / height;
+            const isSquare = ratio > 0.85 && ratio < 1.15;
+            
+            return { 
+                type: isSquare ? ShapeType.SQUARE : ShapeType.RECTANGLE, 
+                points: [{ x: minX, y: minY }, { x: maxX, y: maxY }]
+            };
+        }
+
+        // --- CIRCLE CHECK SECOND ---
+        // Only if it has many corners (or very few that didn't match poly), check for roundness
+        
+        const center = { x: minX + width/2, y: minY + height/2 };
+        const distances = points.map(p => distance(p, center));
+        const avgRadius = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const variance = distances.reduce((a, b) => a + Math.pow(b - avgRadius, 2), 0) / distances.length;
+        const stdDev = Math.sqrt(variance);
+        
+        // Coefficient of variation.
+        if (stdDev / avgRadius < 0.22) {
+            const size = (width + height) / 2;
+            const r = size / 2;
+            return { 
+                type: ShapeType.CIRCLE, 
+                points: [{ x: center.x - r, y: center.y - r }, { x: center.x + r, y: center.y + r }] 
+            };
+        }
+    }
+
+    // Fallback: Return null (keep as freehand)
+    return null;
+};
+
+// --- MARKER GEOMETRY CALCULATIONS ---
+
+/**
+ * Recalculates the geometry (pathData) of a marker shape based on its current targets.
+ * Returns a NEW shape object if updates are needed, or null if dependencies are missing.
+ */
+export const recalculateMarker = (marker: Shape, allShapes: Shape[]): Shape | null => {
+    if (marker.type !== ShapeType.MARKER || !marker.markerConfig) return null;
+    
+    const { type, targets } = marker.markerConfig;
+    let newPath = '';
+    
+    // Helper to get actual points of a target
+    const getTargetPoints = (targetIdx: number): Point[] | null => {
+        if (!targets[targetIdx]) return null;
+        const parent = allShapes.find(s => s.id === targets[targetIdx].shapeId);
+        if (!parent) return null;
+        
+        // If parent is Box, we need rotated corners
+        // For standard polygons (Tri/Line), corners = points.
+        const corners = getRotatedCorners(parent);
+        const indices = targets[targetIdx].pointIndices;
+        
+        // Map indices to actual corner points
+        return indices.map(i => corners[i % corners.length]);
+    };
+
+    if (type === 'perpendicular') {
+        // Needs 3 points forming a corner (A-B-C, B is vertex) OR intersection of 2 lines.
+        let pA: Point, pB: Point, pC: Point;
+
+        if (targets.length === 1 && targets[0].pointIndices.length === 3) {
+            // Case 1: Single Shape Corner (e.g. Rectangle Corner or Triangle Corner)
+            // indices [prev, curr, next]
+            const pts = getTargetPoints(0);
+            if (!pts) return null;
+            [pA, pB, pC] = pts;
+        } else if (targets.length === 2) {
+             // Case 2: 2 Intersecting Lines
+             const l1 = getTargetPoints(0);
+             const l2 = getTargetPoints(1);
+             if (!l1 || !l2) return null;
+             
+             // Check if any point is shared (connected lines)
+             const shared = l1.find(p1 => l2.some(p2 => distance(p1, p2) < 1));
+             if (shared) {
+                 pB = shared;
+                 pA = l1.find(p => p !== shared) || l1[0];
+                 pC = l2.find(p => p !== shared) || l2[0];
+             } else {
+                 return null;
+             }
+        } else {
+            return null;
+        }
+        
+        // Draw square at pB
+        const size = 15;
+        const angleBA = Math.atan2(pA.y - pB.y, pA.x - pB.x);
+        const angleBC = Math.atan2(pC.y - pB.y, pC.x - pB.x);
+        
+        const d1 = { x: Math.cos(angleBA) * size, y: Math.sin(angleBA) * size };
+        const d2 = { x: Math.cos(angleBC) * size, y: Math.sin(angleBC) * size };
+        
+        const p1 = { x: pB.x + d1.x, y: pB.y + d1.y };
+        const p2 = { x: pB.x + d2.x, y: pB.y + d2.y };
+        const p3 = { x: p1.x + d2.x, y: p1.y + d2.y };
+        
+        newPath = `M ${p1.x} ${p1.y} L ${p3.x} ${p3.y} L ${p2.x} ${p2.y}`;
+    
+    } else if (type === 'parallel_arrow') {
+        // Target is a segment (2 points)
+        const pts = getTargetPoints(0);
+        if (!pts || pts.length < 2) return null;
+        
+        const p1 = pts[0];
+        const p2 = pts[1];
+        const mid = { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 };
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        
+        // Draw Arrow
+        const arrowSize = 8;
+        // Arrow pointing along the line
+        const tip = { x: mid.x + Math.cos(angle) * arrowSize, y: mid.y + Math.sin(angle) * arrowSize };
+        const back = { x: mid.x - Math.cos(angle) * arrowSize, y: mid.y - Math.sin(angle) * arrowSize };
+        
+        const wingAngle1 = angle + Math.PI * 0.8; // 144 deg
+        const wingAngle2 = angle - Math.PI * 0.8;
+        
+        const wing1 = { x: tip.x + Math.cos(wingAngle1) * arrowSize, y: tip.y + Math.sin(wingAngle1) * arrowSize };
+        const wing2 = { x: tip.x + Math.cos(wingAngle2) * arrowSize, y: tip.y + Math.sin(wingAngle2) * arrowSize };
+        
+        newPath = `M ${wing1.x} ${wing1.y} L ${tip.x} ${tip.y} L ${wing2.x} ${wing2.y} M ${back.x} ${back.y} L ${tip.x} ${tip.y}`;
+
+    } else if (type === 'equal_tick') {
+        // Target is a segment
+        const pts = getTargetPoints(0);
+        if (!pts || pts.length < 2) return null;
+        
+        const p1 = pts[0];
+        const p2 = pts[1];
+        const mid = { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 };
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        const perp = angle + Math.PI / 2;
+        
+        const size = 6;
+        const t1 = { x: mid.x + Math.cos(perp) * size, y: mid.y + Math.sin(perp) * size };
+        const t2 = { x: mid.x - Math.cos(perp) * size, y: mid.y - Math.sin(perp) * size };
+        
+        newPath = `M ${t1.x} ${t1.y} L ${t2.x} ${t2.y}`;
+
+    } else if (type === 'angle_arc') {
+        if (targets.length === 1 && targets[0].pointIndices.length === 3) {
+             const [pA, pB, pC] = getTargetPoints(0)!;
+             // Draw double arc
+             newPath = getAngleCurve(pB, pA, pC, 20);
+             newPath += " " + getAngleCurve(pB, pA, pC, 25);
+        }
+    }
+
+    // Only update if path changed
+    if (newPath !== marker.pathData) {
+        return { ...marker, pathData: newPath };
+    }
+    return null;
 };

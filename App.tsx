@@ -1,13 +1,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ToolType, Shape, ShapeType, Point, AxisConfig } from './types';
+import { ToolType, Shape, ShapeType, Point, AxisConfig, MarkerType, MarkerConfig } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
 import { AxisLayer } from './components/AxisLayer';
 import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas, saveProject, loadProject, isElectron } from './utils/exportUtils';
-import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, simplifyToQuadratic } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator, Save, FolderOpen } from 'lucide-react';
+import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, simplifyToQuadratic, recognizeFreehandShape, recalculateMarker } from './utils/mathUtils';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator, Save, FolderOpen, CaseUpper, Sparkles, CornerRightUp, ArrowRight, Hash, MoveHorizontal } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -54,6 +54,12 @@ export default function App() {
   
   // Angle Marking State
   const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
+  
+  // Auto Labeling State
+  const [autoLabelMode, setAutoLabelMode] = useState(false);
+  
+  // Smart Sketch State
+  const [smartSketchMode, setSmartSketchMode] = useState(false);
 
   // Drag Context for complex movement (Groups + Connections)
   const [dragContext, setDragContext] = useState<{
@@ -129,7 +135,20 @@ export default function App() {
   const deleteSelected = () => {
       if (selectedIds.size === 0) return;
       saveHistory();
-      setShapes(prev => prev.filter(s => !selectedIds.has(s.id)));
+      // Remove selected shapes AND any markers that depend on them
+      const idsToDelete = new Set(selectedIds);
+      
+      // Find dependent markers
+      shapes.forEach(s => {
+          if (s.type === ShapeType.MARKER && s.markerConfig) {
+              const deps = s.markerConfig.targets.map(t => t.shapeId);
+              if (deps.some(d => idsToDelete.has(d))) {
+                  idsToDelete.add(s.id);
+              }
+          }
+      });
+
+      setShapes(prev => prev.filter(s => !idsToDelete.has(s.id)));
       setSelectedIds(new Set());
   };
 
@@ -282,12 +301,37 @@ export default function App() {
     setMarkingAnglesMode(false);
   };
 
+  /**
+   * Helper to update shapes AND recalculate any dependent markers.
+   */
   const updateShapes = (ids: Set<string>, updates: Partial<Shape> | ((s: Shape) => Shape)) => {
-    setShapes(prev => prev.map(s => {
-        if (!ids.has(s.id)) return s;
-        if (typeof updates === 'function') return updates(s);
-        return { ...s, ...updates };
-    }));
+    let updatedShapes: Shape[] = [];
+    
+    setShapes(prev => {
+        updatedShapes = prev.map(s => {
+            if (!ids.has(s.id)) return s;
+            if (typeof updates === 'function') return updates(s);
+            return { ...s, ...updates };
+        });
+
+        // RECALCULATE MARKERS
+        // We iterate through all shapes, finding markers.
+        // If a marker depends on one of the `ids` that changed, we recalc it.
+        // Optimization: recalc all markers is cheap enough for now (hundreds of shapes).
+        // A better optimization would be to find dependent markers first.
+        
+        return updatedShapes.map(s => {
+            if (s.type === ShapeType.MARKER) {
+                // Check if marker depends on updated shapes
+                const depends = s.markerConfig?.targets.some(t => ids.has(t.shapeId));
+                if (depends) {
+                    const recalculated = recalculateMarker(s, updatedShapes);
+                    return recalculated || s;
+                }
+            }
+            return s;
+        });
+    });
   };
 
   // --- Operations (Symmetry / Reflection) ---
@@ -422,6 +466,152 @@ export default function App() {
       }));
   };
 
+  // --- SMART MARKERS ---
+  const handleAddMarker = (type: MarkerType) => {
+      if (selectedIds.size === 0) return;
+      saveHistory();
+
+      const selectedShapes = shapes.filter(s => selectedIds.has(s.id));
+      const newMarkers: Shape[] = [];
+
+      // HELPER: Add new marker
+      const createMarker = (config: MarkerConfig) => {
+          const id = generateId();
+          const marker: Shape = {
+              id, type: ShapeType.MARKER, points: [],
+              fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0,
+              markerConfig: config
+          };
+          const updated = recalculateMarker(marker, shapes);
+          if (updated) newMarkers.push(updated);
+      };
+
+      if (type === 'perpendicular') {
+          // Logic 1: Two Intersecting Lines
+          if (selectedShapes.length === 2) {
+             createMarker({
+                 type: 'perpendicular',
+                 targets: [
+                     { shapeId: selectedShapes[0].id, pointIndices: [0, 1] }, 
+                     { shapeId: selectedShapes[1].id, pointIndices: [0, 1] }
+                 ]
+             });
+          }
+          // Logic 2: Single Shape (Triangle or Rect)
+          else if (selectedShapes.length === 1) {
+              const s = selectedShapes[0];
+              // Get Corners
+              const corners = getRotatedCorners(s);
+              
+              if ([ShapeType.RECTANGLE, ShapeType.SQUARE].includes(s.type)) {
+                  // Mark Bottom-Left Corner (index 3) using points [2, 3, 0]
+                  // Rect corners: 0(TL), 1(TR), 2(BR), 3(BL)
+                  createMarker({
+                      type: 'perpendicular',
+                      targets: [{ shapeId: s.id, pointIndices: [2, 3, 0] }]
+                  });
+              } 
+              else if (s.type === ShapeType.TRIANGLE && s.points.length === 3) {
+                  // Find Right Angle
+                  const angles = calculateTriangleAngles(getRotatedCorners(s));
+                  // Find index closest to 90
+                  const angleArr = [angles.A, angles.B, angles.C];
+                  const idx90 = angleArr.findIndex(a => Math.abs(a - 90) < 5); // 5 degree tolerance
+                  
+                  if (idx90 !== -1) {
+                      // Indices for corners: 
+                      // 0 (A): [2,0,1]
+                      // 1 (B): [0,1,2]
+                      // 2 (C): [1,2,0]
+                      const prev = (idx90 - 1 + 3) % 3;
+                      const next = (idx90 + 1) % 3;
+                      createMarker({
+                          type: 'perpendicular',
+                          targets: [{ shapeId: s.id, pointIndices: [prev, idx90, next] }]
+                      });
+                  } else {
+                      // Fallback: Just mark corner 0 if no clear 90 degree angle? 
+                      // Or tell user? Let's just default to corner B (usually bottom left in drawing order)
+                      createMarker({
+                          type: 'perpendicular',
+                          targets: [{ shapeId: s.id, pointIndices: [0, 1, 2] }]
+                      });
+                  }
+              }
+          }
+      } 
+      else if (type === 'parallel_arrow' || type === 'equal_tick') {
+          // CYCLE LOGIC:
+          // Check if selected shape already has this marker type on edge X.
+          // If so, add to edge X+1.
+          
+          selectedShapes.forEach(s => {
+              // Determine number of edges
+              let numEdges = 0;
+              if (s.type === ShapeType.LINE) numEdges = 1;
+              else if (s.type === ShapeType.TRIANGLE) numEdges = 3;
+              else if (s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE) numEdges = 4;
+              
+              if (numEdges === 0) return;
+
+              // Find existing markers of this type attached to this shape
+              const existing = shapes.filter(m => 
+                  m.type === ShapeType.MARKER && 
+                  m.markerConfig?.type === type &&
+                  m.markerConfig.targets[0].shapeId === s.id
+              );
+              
+              // Find used edges (by checking first point index of target)
+              const usedEdgeIndices = existing.map(m => m.markerConfig!.targets[0].pointIndices[0]);
+              
+              // Find next available edge
+              // Logic: Find Max used index. Next is (max + 1) % edges.
+              // If none used, start at 0.
+              
+              let nextEdge = 0;
+              if (usedEdgeIndices.length > 0) {
+                  // Actually, let's just cycle. If 0 is used, try 1. If 1 used, try 2.
+                  // If all used, add double marker? No, just overlap or ignore.
+                  // Simple cycle: look at the *last created* marker's edge and increment?
+                  // Easier: Just find the first edge index 0..N that is NOT in usedEdgeIndices?
+                  // No, user might want to add Arrow to ALL sides.
+                  // So we strictly cycle: Last added was 0 -> Add 1. Last was 1 -> Add 2.
+                  
+                  // Sort used indices
+                  const maxUsed = Math.max(...usedEdgeIndices);
+                  nextEdge = (maxUsed + 1) % numEdges;
+              }
+              
+              // Define indices for the edge.
+              // For Poly (N points): Edge i connects i and (i+1)%N.
+              const idx1 = nextEdge;
+              const idx2 = (nextEdge + 1) % numEdges; // Implicitly works for Rect (4 pts) and Tri (3 pts)
+              
+              // Special case for Line: It only has 1 edge (indices 0,1).
+              if (s.type === ShapeType.LINE) {
+                  if (usedEdgeIndices.length > 0) {
+                      // Already marked. Maybe remove it? Or Add double arrow?
+                      // For now, let's just do nothing or replace?
+                      // Let's allow adding another marker (maybe user wants 2 arrows)
+                      // But effectively it overlaps. 
+                      // Let's just create it.
+                  }
+                  createMarker({
+                      type: type,
+                      targets: [{ shapeId: s.id, pointIndices: [0, 1] }]
+                  });
+              } else {
+                  createMarker({
+                      type: type,
+                      targets: [{ shapeId: s.id, pointIndices: [idx1, idx2] }]
+                  });
+              }
+          });
+      }
+      
+      setShapes(prev => [...prev, ...newMarkers]);
+  };
+
   // Insert Math Symbol
   const handleSymbolClick = (symbol: string) => {
       // Case 1: Active Text Editing
@@ -448,27 +638,53 @@ export default function App() {
 
   const handleCornerClick = (shapeId: string, vertexIndex: number) => {
       saveHistory();
+      
+      // If marking angles mode, create a Smart Marker (Angle Arc) instead of static path
+      if (markingAnglesMode) {
+          const s = shapes.find(shape => shape.id === shapeId);
+          if (!s) return;
+          
+          let indices = [0,0,0];
+          // Determine 3 indices forming the corner: [prev, curr, next]
+          const len = s.type === ShapeType.TRIANGLE ? 3 : (s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE ? 4 : 0);
+          if (len === 0) return;
+          
+          const prev = (vertexIndex - 1 + len) % len;
+          const next = (vertexIndex + 1) % len;
+          indices = [prev, vertexIndex, next];
+          
+          const mConfig: MarkerConfig = {
+              type: 'angle_arc',
+              targets: [{ shapeId: shapeId, pointIndices: indices }]
+          };
+          
+          const id = generateId();
+          const marker: Shape = {
+              id, type: ShapeType.MARKER, points: [],
+              fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0,
+              markerConfig: mConfig
+          };
+          const updated = recalculateMarker(marker, shapes);
+          if (updated) setShapes(prev => [...prev, updated]);
+          
+          return;
+      }
 
+      // Legacy fallback (Static Path)
       const s = shapes.find(shape => shape.id === shapeId);
       if (!s) return;
-
       let corners: Point[] = [];
-      
       if (s.type === ShapeType.TRIANGLE) {
           corners = bakeRotation(s).points;
       } else if ([ShapeType.RECTANGLE, ShapeType.SQUARE].includes(s.type)) {
           corners = getRotatedCorners(s);
       } else {
-          // Fallback or other shapes
           return;
       }
-
       if (vertexIndex >= corners.length) return;
-
       const curr = corners[vertexIndex];
       const prev = corners[(vertexIndex - 1 + corners.length) % corners.length];
       const next = corners[(vertexIndex + 1) % corners.length];
-      
       const radius = 25; 
       const pathData = getAngleCurve(curr, prev, next, radius);
 
@@ -482,7 +698,6 @@ export default function App() {
           strokeWidth: 2,
           rotation: 0
       };
-
       setShapes(prevShapes => [...prevShapes, newShape]);
   };
 
@@ -620,8 +835,14 @@ export default function App() {
             setDragStartPos(pos);
             setIsDragging(true);
             const id = generateId();
+            
+            // Auto Label Logic
+            let labels: string[] | undefined;
+            if (autoLabelMode) labels = ['A', 'B'];
+
             const newShape: Shape = {
                 id, type: ShapeType.LINE, points: [pos, pos],
+                labels: labels,
                 fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
             };
             setShapes(prev => [...prev, newShape]);
@@ -630,8 +851,13 @@ export default function App() {
             return;
         } else {
             const id = generateId();
+             // Auto Label Logic
+            let labels: string[] | undefined;
+            if (autoLabelMode) labels = ['A', 'B'];
+
             const newShape: Shape = {
                 id, type: ShapeType.LINE, points: [pendingLineStart, pos],
+                labels: labels,
                 fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
             };
             setShapes(prev => [...prev, newShape]);
@@ -646,13 +872,24 @@ export default function App() {
 
     const id = generateId();
     let points: Point[] = [];
+    let labels: string[] | undefined = undefined;
+
     switch (tool) {
-      case ToolType.POINT: points = [pos]; break;
+      case ToolType.POINT: 
+        points = [pos]; 
+        if(autoLabelMode) labels = ['A'];
+        break;
       case ToolType.RECTANGLE:
       case ToolType.SQUARE:
+        points = [pos, pos]; 
+        if(autoLabelMode) labels = ['A', 'B', 'C', 'D'];
+        break;
       case ToolType.CIRCLE:
       case ToolType.ELLIPSE: points = [pos, pos]; break;
-      case ToolType.TRIANGLE: points = [pos, pos, pos]; break;
+      case ToolType.TRIANGLE: 
+        points = [pos, pos, pos]; 
+        if(autoLabelMode) labels = ['A', 'B', 'C'];
+        break;
       case ToolType.FREEHAND: points = [pos]; break;
       default: points = [pos, pos];
     }
@@ -661,6 +898,7 @@ export default function App() {
       id,
       type: tool as unknown as ShapeType,
       points,
+      labels,
       fill: currentStyle.fill,
       stroke: currentStyle.stroke,
       strokeWidth: currentStyle.strokeWidth,
@@ -726,7 +964,8 @@ export default function App() {
 
          if (context) {
              const { movingShapeIds, connectedPoints } = context;
-             setShapes(prev => prev.map(s => {
+             // IMPORTANT: Use updateShapes to ensure markers follow
+             updateShapes(new Set([...movingShapeIds, ...connectedPoints.map(c=>c.shapeId)]), (s) => {
                  if (movingShapeIds.has(s.id)) {
                      return { 
                          ...s, 
@@ -745,7 +984,7 @@ export default function App() {
                      return { ...s, points: newPoints };
                  }
                  return s;
-             }));
+             });
          }
          
          setDragStartPos(currentPos);
@@ -849,6 +1088,38 @@ export default function App() {
     setIsRotating(false);
     setRotationCenter(null);
     setCurrentRotationDisplay(null);
+
+    // --- SMART SKETCH RECOGNITION ---
+    if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) {
+        const freehandShape = shapes.find(s => s.id === activeShapeId);
+        if (freehandShape && freehandShape.points.length > 10) {
+            const recognized = recognizeFreehandShape(freehandShape.points);
+            
+            if (recognized) {
+                // Determine labels if Auto Label Mode is ON
+                let labels: string[] | undefined;
+                if (autoLabelMode) {
+                     if (recognized.type === ShapeType.TRIANGLE) labels = ['A', 'B', 'C'];
+                     else if (recognized.type === ShapeType.RECTANGLE || recognized.type === ShapeType.SQUARE) labels = ['A', 'B', 'C', 'D'];
+                     else if (recognized.type === ShapeType.LINE) labels = ['A', 'B'];
+                }
+
+                // Replace the Freehand shape with the recognized geometric shape
+                setShapes(prev => prev.map(s => {
+                    if (s.id === activeShapeId) {
+                        return {
+                            ...s,
+                            type: recognized.type,
+                            points: recognized.points,
+                            labels: labels
+                        };
+                    }
+                    return s;
+                }));
+            }
+        }
+    }
+    // --------------------------------
 
     if (selectionBox) {
         const r = { start: selectionBox.start, end: selectionBox.current };
@@ -1252,17 +1523,34 @@ export default function App() {
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
-        <aside className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-3 z-10 shadow-sm shrink-0">
+        <aside className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-1 z-10 shadow-sm shrink-0 overflow-y-auto">
             {TOOL_CONFIG.map((t) => (
                 <button
                     key={t.id}
                     title={t.label}
                     onClick={() => handleToolChange(t.id)}
-                    className={`p-3 rounded-xl transition-all ${tool === t.id ? 'bg-brand-50 text-brand-600 ring-2 ring-brand-500' : 'text-gray-500 hover:bg-gray-100'}`}
+                    className={`p-2 rounded-lg transition-all ${tool === t.id ? 'bg-brand-50 text-brand-600 ring-2 ring-brand-500' : 'text-gray-500 hover:bg-gray-100'}`}
                 >
-                    <t.icon size={24} />
+                    <t.icon size={20} />
                 </button>
             ))}
+            
+            <div className="w-10 h-px bg-gray-200 my-1"></div>
+            
+             <button
+                title={`Smart Labeling: ${autoLabelMode ? 'ON' : 'OFF'}`}
+                onClick={() => setAutoLabelMode(!autoLabelMode)}
+                className={`p-2 rounded-lg transition-all ${autoLabelMode ? 'bg-indigo-50 text-indigo-600 ring-2 ring-indigo-500' : 'text-gray-400 hover:bg-gray-100'}`}
+            >
+                <CaseUpper size={20} />
+            </button>
+             <button
+                title={`Smart Sketching: ${smartSketchMode ? 'ON' : 'OFF'} (Draw Freehand to auto-convert)`}
+                onClick={() => setSmartSketchMode(!smartSketchMode)}
+                className={`p-2 rounded-lg transition-all ${smartSketchMode ? 'bg-amber-50 text-amber-600 ring-2 ring-amber-500' : 'text-gray-400 hover:bg-gray-100'}`}
+            >
+                <Sparkles size={20} />
+            </button>
         </aside>
 
         <main 
@@ -1301,6 +1589,8 @@ export default function App() {
                     const s = shapes.find(sh => sh.id === id);
                     if (!s || (s.type === ShapeType.TEXT && tool !== ToolType.SELECT)) return null; 
                     if (pickingMirrorMode) return null;
+                    // Do not show resize handles for Markers
+                    if (s.type === ShapeType.MARKER) return null; 
 
                     return (
                         <SelectionOverlay 
@@ -1412,6 +1702,16 @@ export default function App() {
                  {tool === ToolType.SELECT 
                     ? (isAltPressed ? 'Alt held: Drag to copy. Click orange points for Pivot.' : 'Click to select. Drag to move. Alt+Drag to copy.')
                     : (tool === ToolType.FREEHAND ? 'Drag to sketch. Snapping disabled.' : 'Drag to draw. Snapping active.')}
+                 
+                 <div className="w-px h-3 bg-gray-300 mx-1"></div>
+                 
+                 <CaseUpper size={12} className={autoLabelMode ? "text-indigo-500" : "text-gray-400"} />
+                 {autoLabelMode ? "Auto Label ON" : "Auto Label OFF"}
+                 
+                 <div className="w-px h-3 bg-gray-300 mx-1"></div>
+                 
+                 <Sparkles size={12} className={smartSketchMode ? "text-amber-500" : "text-gray-400"} />
+                 {smartSketchMode ? "Smart Sketch ON" : "Smart Sketch OFF"}
             </div>
         </main>
 
@@ -1430,9 +1730,9 @@ export default function App() {
                 </div>
              </div>
              
-             {/* Operations / Symmetry Section */}
-             {(selectedIds.size > 0 && !pickingMirrorMode) && (
-                 <div className="p-5 border-b border-gray-100 bg-slate-50">
+             {/* Operations / Symmetry Section - Always Visible */}
+             {!pickingMirrorMode && (
+                 <div className={`p-5 border-b border-gray-100 bg-slate-50 transition-all ${selectedIds.size === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
                     <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Spline size={16} /> Operations</h3>
                     <div className="grid grid-cols-4 gap-2">
                         <button 
@@ -1486,6 +1786,38 @@ export default function App() {
                                 </div>
                             </button>
                         )}
+                        
+                        {/* SMART MARKERS TOOLBAR */}
+                        <div className="col-span-4 mt-2 pt-2 border-t border-gray-200">
+                             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Smart Marks</h4>
+                             <div className="grid grid-cols-3 gap-2">
+                                 <button 
+                                    onClick={() => handleAddMarker('perpendicular')}
+                                    className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-400 text-gray-600 hover:text-red-600 transition-colors"
+                                    title="Mark 90° Angle (Select corner or lines)"
+                                 >
+                                    <CornerRightUp size={16} />
+                                    <span className="text-[9px] mt-0.5">90°</span>
+                                 </button>
+                                 <button 
+                                    onClick={() => handleAddMarker('parallel_arrow')}
+                                    className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-400 text-gray-600 hover:text-red-600 transition-colors"
+                                    title="Parallel Arrow (Click repeatedly to cycle edges)"
+                                 >
+                                    <ArrowRight size={16} />
+                                    <span className="text-[9px] mt-0.5">Arrow</span>
+                                 </button>
+                                 <button 
+                                    onClick={() => handleAddMarker('equal_tick')}
+                                    className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-400 text-gray-600 hover:text-red-600 transition-colors"
+                                    title="Equal Length Tick (Click repeatedly to cycle edges)"
+                                 >
+                                    <Hash size={16} className="rotate-90" />
+                                    <span className="text-[9px] mt-0.5">Tick</span>
+                                 </button>
+                             </div>
+                        </div>
+
                     </div>
                  </div>
              )}
