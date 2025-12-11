@@ -10,6 +10,10 @@ export const COLORS = [
   '#d946ef', '#f43f5e', '#71717a'
 ];
 
+export const MATH_SYMBOLS = [
+    'α', 'β', 'γ', 'θ', 'φ', 'Δ', 'π', 'Ω', 'Σ', '°', '∞', '≈'
+];
+
 export const TOOL_CONFIG = [
   { id: ToolType.SELECT, label: 'Select', icon: MousePointer2 },
   { id: ToolType.FREEHAND, label: 'Pencil', icon: Pencil },

@@ -1,13 +1,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig } from './types';
-import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS } from './constants';
+import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
 import { AxisLayer } from './components/AxisLayer';
 import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas } from './utils/exportUtils';
-import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type } from 'lucide-react';
+import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, simplifyToQuadratic } from './utils/mathUtils';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -387,6 +387,46 @@ export default function App() {
   const toggleMarkAnglesMode = () => {
       if (selectedIds.size === 0) return;
       setMarkingAnglesMode(!markingAnglesMode);
+  };
+
+  // Convert a jagged freehand line into a smooth quadratic curve (3 points)
+  const handleSmoothCurve = () => {
+      if (selectedIds.size === 0) return;
+      saveHistory();
+
+      const idsToUpdate = new Set(selectedIds);
+      
+      setShapes(prev => prev.map(s => {
+          if (idsToUpdate.has(s.id) && s.type === ShapeType.FREEHAND) {
+              const simplifiedPoints = simplifyToQuadratic(s.points);
+              return { ...s, points: simplifiedPoints };
+          }
+          return s;
+      }));
+  };
+
+  // Insert Math Symbol
+  const handleSymbolClick = (symbol: string) => {
+      // Case 1: Active Text Editing
+      if (textEditing) {
+          setTextEditing(prev => {
+              if (!prev) return null;
+              return { ...prev, text: prev.text + symbol };
+          });
+          // Focus input again after click
+          if(inputRef.current) setTimeout(() => inputRef.current?.focus(), 10);
+          return;
+      }
+      
+      // Case 2: Text Shape Selected
+      if (selectedIds.size === 1) {
+          const id = Array.from(selectedIds)[0];
+          const shape = shapes.find(s => s.id === id);
+          if (shape && shape.type === ShapeType.TEXT) {
+              saveHistory();
+              updateShapes(new Set([id]), { text: (shape.text || '') + symbol });
+          }
+      }
   };
 
   const handleCornerClick = (shapeId: string, vertexIndex: number) => {
@@ -1071,6 +1111,9 @@ export default function App() {
       return s?.fontSize || 16;
   };
 
+  const showSmoothButton = selectedIds.size > 0 && Array.from(selectedIds).every(id => shapes.find(s => s.id === id)?.type === ShapeType.FREEHAND);
+  const showSymbolPanel = textEditing !== null || (selectedIds.size === 1 && shapes.find(s => s.id === Array.from(selectedIds)[0])?.type === ShapeType.TEXT);
+
   return (
     <div className="flex h-screen w-screen flex-col bg-gray-50 text-slate-800 font-sans">
       
@@ -1298,7 +1341,7 @@ export default function App() {
              </div>
              
              {/* Operations / Symmetry Section */}
-             {selectedIds.size > 0 && !pickingMirrorMode && (
+             {(selectedIds.size > 0 && !pickingMirrorMode) && (
                  <div className="p-5 border-b border-gray-100 bg-slate-50">
                     <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Spline size={16} /> Operations</h3>
                     <div className="grid grid-cols-4 gap-2">
@@ -1339,12 +1382,48 @@ export default function App() {
                             <Radius size={20} className="mb-1" />
                             <span className="text-[10px]">Angles</span>
                         </button>
+
+                        {/* SMOOTH ARC BUTTON (For Freehand Shapes) */}
+                        {showSmoothButton && (
+                            <button 
+                                onClick={handleSmoothCurve}
+                                className="flex flex-col col-span-4 items-center justify-center p-2 mt-2 bg-brand-50 border border-brand-200 rounded hover:bg-brand-100 hover:border-brand-400 text-brand-700 transition-colors"
+                                title="Convert rough sketch to smooth arc"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Wand2 size={16} />
+                                    <span className="text-xs font-semibold">Smooth Arc</span>
+                                </div>
+                            </button>
+                        )}
                     </div>
                  </div>
              )}
 
              {/* Style Properties */}
              <div className="p-5 space-y-5">
+                 
+                {/* Math Symbols Panel */}
+                {showSymbolPanel && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block flex items-center gap-2">
+                            <Calculator size={12}/> Math Symbols
+                        </label>
+                        <div className="grid grid-cols-6 gap-2">
+                            {MATH_SYMBOLS.map(sym => (
+                                <button
+                                    key={sym}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => handleSymbolClick(sym)}
+                                    className="h-8 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-300 hover:text-brand-600 transition-colors font-serif"
+                                >
+                                    {sym}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke Color</label>
                     <div className="flex flex-wrap gap-2">

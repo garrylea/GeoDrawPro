@@ -275,3 +275,48 @@ export const getSmoothSvgPath = (points: Point[]): string => {
   
   return d;
 };
+
+/**
+ * Simplifies a jagged freehand path into a smooth 3-point quadratic curve.
+ * Logic: 
+ * 1. Keep Start and End points.
+ * 2. Find the "Apex" point (point furthest from the line connecting start-end).
+ * 3. Return [Start, Apex, End] which getSmoothSvgPath will render as a nice curve.
+ */
+export const simplifyToQuadratic = (points: Point[]): Point[] => {
+    if (points.length <= 3) return points;
+
+    const start = points[0];
+    const end = points[points.length - 1];
+
+    let maxDist = -1;
+    let apexIndex = -1;
+
+    // Line equation Ax + By + C = 0 derived from start/end
+    const A = start.y - end.y;
+    const B = end.x - start.x;
+    const C = start.x * end.y - end.x * start.y;
+    const denominator = Math.sqrt(A*A + B*B);
+
+    if (denominator === 0) return [start, end];
+
+    // Find point furthest from the chord
+    for (let i = 1; i < points.length - 1; i++) {
+        const p = points[i];
+        const dist = Math.abs(A * p.x + B * p.y + C) / denominator;
+        if (dist > maxDist) {
+            maxDist = dist;
+            apexIndex = i;
+        }
+    }
+
+    if (apexIndex !== -1) {
+        // We actually want the curve to pass *near* the apex, but if we use it strictly as a Control Point 
+        // in a Quadratic Bezier (Start -> Control -> End), the curve passes roughly halfway between Control and Chord.
+        // To make the curve pass closer to the actual drawn apex, we might want to push the control point out further.
+        // But for "Smoothing", using the actual max point as the Control Point usually yields a very pleasing, stable arc.
+        return [start, points[apexIndex], end];
+    }
+
+    return [start, end];
+};
