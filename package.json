@@ -16,7 +16,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/icon.svg"
+      "public/icon.png"
     ],
     "directories": {
       "output": "release",
@@ -24,15 +24,15 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "public/icon.svg"
+      "icon": "public/icon.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "public/icon.svg"
+      "icon": "public/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "public/icon.svg"
+      "icon": "public/icon.png"
     }
   },
   "dependencies": {

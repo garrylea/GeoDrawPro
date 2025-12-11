@@ -913,7 +913,7 @@ export default function App() {
            <h1 className="font-bold text-lg text-slate-700">GeoDraw Pro</h1>
         </div>
         <div className="flex items-center gap-3">
-             <button onClick={undo} className="btn-secondary text-slate-600 hover:bg-slate-100 disabled:opacity-50" disabled={history.length === 0} title="Undo (Ctrl+Z)">
+             <button onClick={undo} className="btn-secondary text-slate-600 hover:bg-slate-100 disabled:opacity-50 flex items-center justify-center gap-2" disabled={history.length === 0} title="Undo (Ctrl+Z)">
                <Undo size={16} /> Undo
              </button>
              
@@ -923,7 +923,7 @@ export default function App() {
              <button 
                 onClick={deleteSelected} 
                 disabled={selectedIds.size === 0}
-                className="btn-secondary text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-red-50 hover:text-red-600"
+                className="btn-secondary text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-red-50 hover:text-red-600 flex items-center justify-center gap-2"
                 title="Delete Selected (Delete/Backspace)"
              >
                 <Trash2 size={16} /> Delete
@@ -935,20 +935,20 @@ export default function App() {
              <button 
                 onClick={clearCanvas} 
                 disabled={shapes.length === 0}
-                className="btn-secondary text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:bg-transparent disabled:text-gray-400"
+                className="btn-secondary text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:bg-transparent disabled:text-gray-400 flex items-center justify-center gap-2"
                 title="Clear All Canvas"
              >
                <Eraser size={16} /> Clear All
              </button>
              
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
-             <button onClick={() => handleExport('png')} className="btn-primary bg-brand-600 text-white hover:bg-brand-700">
-                <Download size={16} /> Export PNG
+             <button onClick={() => handleExport('png')} className="btn-primary bg-brand-600 text-white hover:bg-brand-700 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md">
+                <Download size={16} /> Export
              </button>
              
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
              {/* Developer Icon Generation Button */}
-             <button onClick={generateAppIcon} className="btn-secondary text-slate-500 hover:bg-slate-100" title="Generate High-Res Icon PNG">
+             <button onClick={generateAppIcon} className="btn-secondary text-slate-500 hover:bg-slate-100 flex items-center justify-center gap-2" title="Generate High-Res Icon PNG">
                 <ImageIcon size={16} /> Icon
              </button>
         </div>

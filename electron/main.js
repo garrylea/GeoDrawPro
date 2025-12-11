@@ -6,16 +6,15 @@ let mainWindow;
 
 function createWindow() {
   // Determine icon path based on environment
-  // Note: Windows prefers .ico, Linux .png. Electron can often handle SVG used as window icon in some contexts,
-  // but for production, you should convert public/icon.svg to icon.png and icon.ico.
-  // Here we attempt to use the SVG for the runtime window icon.
+  // We prefer .png for Windows/Linux taskbars. 
+  // Ensure you have placed the generated 'icon.png' in the 'public' folder.
   const isDev = !app.isPackaged;
   let iconPath;
   
   if (isDev) {
-    iconPath = path.join(__dirname, '../public/icon.svg');
+    iconPath = path.join(__dirname, '../public/icon.png');
   } else {
-    iconPath = path.join(__dirname, '../dist/icon.svg');
+    iconPath = path.join(__dirname, '../dist/icon.png');
   }
 
   mainWindow = new BrowserWindow({
