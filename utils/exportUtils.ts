@@ -1,6 +1,13 @@
 
 import { Shape } from '../types';
 
+// Helper to detect if running in Electron renderer
+export const isElectron = () => {
+  return typeof window !== 'undefined' && 
+         (window as any).process && 
+         (window as any).process.type === 'renderer';
+};
+
 /**
  * Exports an SVG element to a PNG or JPG file.
  * Crops the output to the bounding box of the drawn shapes + padding.
@@ -120,41 +127,88 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
 
 /**
  * Saves the current shapes state to a .geo (JSON) file.
+ * In Electron, this triggers a native Save Dialog.
  */
-export const saveProject = (shapes: Shape[], filename: string) => {
+export const saveProject = async (shapes: Shape[], filename: string) => {
     const data = JSON.stringify(shapes, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${filename}.geo`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    if (isElectron()) {
+        try {
+            // Use Electron's IPC to show native save dialog and write file
+            // We need to use `window.require` to access electron modules in renderer
+            const { ipcRenderer } = (window as any).require('electron');
+            const result = await ipcRenderer.invoke('save-dialog', data);
+            
+            if (!result.success && result.error) {
+                alert('Failed to save project: ' + result.error);
+            }
+            // If result.success is true, file is saved. 
+            // If false without error, user likely cancelled.
+        } catch (e) {
+            console.error('Electron Save Error:', e);
+            alert('An error occurred while saving.');
+        }
+    } else {
+        // Web fallback: download as blob
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${filename}.geo`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
 };
 
 /**
- * Loads shapes from a user-selected .geo file.
+ * Loads shapes from a .geo file.
+ * In Electron, if no file argument is provided, it triggers a native Open Dialog.
  */
-export const loadProject = (file: File): Promise<Shape[]> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
+export const loadProject = (file?: File): Promise<Shape[]> => {
+    return new Promise(async (resolve, reject) => {
+        if (isElectron() && !file) {
             try {
-                const result = e.target?.result as string;
-                const shapes = JSON.parse(result);
+                // Use Electron's IPC to show native open dialog and read file
+                const { ipcRenderer } = (window as any).require('electron');
+                const result = await ipcRenderer.invoke('open-dialog');
+                
+                if (result.canceled) return; // User cancelled
+                if (result.error) throw new Error(result.error);
+                
+                const shapes = JSON.parse(result.data);
                 if (Array.isArray(shapes)) {
                     resolve(shapes);
                 } else {
                     reject(new Error("Invalid file format: content is not an array"));
                 }
-            } catch (err) {
-                reject(err);
+            } catch (e) {
+                reject(e);
             }
-        };
-        reader.onerror = () => reject(new Error("Failed to read file"));
-        reader.readAsText(file);
+        } else {
+            // Web fallback: Read from HTML Input File object
+            if (!file) {
+                reject(new Error("No file provided"));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const result = e.target?.result as string;
+                    const shapes = JSON.parse(result);
+                    if (Array.isArray(shapes)) {
+                        resolve(shapes);
+                    } else {
+                        reject(new Error("Invalid file format: content is not an array"));
+                    }
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error("Failed to read file"));
+            reader.readAsText(file);
+        }
     });
 };

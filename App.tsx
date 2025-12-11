@@ -5,7 +5,7 @@ import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './consta
 import { AxisLayer } from './components/AxisLayer';
 import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
-import { exportCanvas, saveProject, loadProject } from './utils/exportUtils';
+import { exportCanvas, saveProject, loadProject, isElectron } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, simplifyToQuadratic } from './utils/mathUtils';
 import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type, Wand2, Calculator, Save, FolderOpen } from 'lucide-react';
 
@@ -488,17 +488,40 @@ export default function App() {
 
   // --- Project IO ---
   const handleSaveProject = () => {
-      const filename = prompt("Enter project name:", "my-geodraw-project");
-      if (filename) {
-          saveProject(shapes, filename);
+      if (isElectron()) {
+          // In Electron, we skip the prompt because the native Save Dialog 
+          // allows the user to name the file.
+          saveProject(shapes, 'project'); 
+      } else {
+          const filename = prompt("Enter project name:", "my-geodraw-project");
+          if (filename) {
+              saveProject(shapes, filename);
+          }
       }
   };
 
-  const handleOpenProjectClick = () => {
+  const handleOpenProjectClick = async () => {
       if (shapes.length > 0) {
           if (!confirm("Opening a new project will clear current unsaved changes. Continue?")) return;
       }
-      fileInputRef.current?.click();
+      
+      if (isElectron()) {
+          try {
+             // In Electron, calling loadProject without args triggers the native Open Dialog
+             const loadedShapes = await loadProject(); 
+             if (loadedShapes) {
+                 setShapes(loadedShapes);
+                 setHistory([]);
+                 setSelectedIds(new Set());
+                 setTool(ToolType.SELECT);
+             }
+          } catch(e) {
+              console.error(e);
+          }
+      } else {
+          // Web Fallback: Click the hidden file input
+          fileInputRef.current?.click();
+      }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

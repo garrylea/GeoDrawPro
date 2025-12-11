@@ -1,4 +1,6 @@
-const { app, BrowserWindow } = require('electron');
+
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 // Prevent garbage collection
@@ -43,6 +45,47 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// IPC Handlers for Native File Dialogs
+ipcMain.handle('save-dialog', async (event, data) => {
+  if (!mainWindow) return { success: false };
+  
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Project',
+    defaultPath: 'project.geo',
+    filters: [{ name: 'GeoDraw Project', extensions: ['geo', 'json'] }]
+  });
+  
+  if (canceled || !filePath) return { success: false };
+  
+  try {
+    fs.writeFileSync(filePath, data);
+    return { success: true, filePath };
+  } catch (e) {
+    console.error('Failed to save file:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('open-dialog', async (event) => {
+  if (!mainWindow) return { canceled: true };
+  
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open Project',
+    properties: ['openFile'],
+    filters: [{ name: 'GeoDraw Project', extensions: ['geo', 'json'] }]
+  });
+
+  if (canceled || filePaths.length === 0) return { canceled: true };
+
+  try {
+    const data = fs.readFileSync(filePaths[0], 'utf-8');
+    return { canceled: false, data, filename: path.basename(filePaths[0]) };
+  } catch (e) {
+    console.error('Failed to open file:', e);
+    return { canceled: false, error: e.message };
+  }
+});
 
 app.on('ready', createWindow);
 
