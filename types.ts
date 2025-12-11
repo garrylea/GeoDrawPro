@@ -1,3 +1,4 @@
+
 export enum ToolType {
   SELECT = 'SELECT',
   POINT = 'POINT',
@@ -20,7 +21,8 @@ export enum ShapeType {
   ELLIPSE = 'ELLIPSE',
   TRIANGLE = 'TRIANGLE',
   TEXT = 'TEXT',
-  FREEHAND = 'FREEHAND'
+  FREEHAND = 'FREEHAND',
+  PATH = 'PATH' // For generic SVG paths like Angle Arcs
 }
 
 export interface Point {
@@ -38,8 +40,10 @@ export interface Shape {
   // Rect/Circle: [p1 (top-left), p2 (bottom-right)]
   // Text: [p1 (position)]
   // Freehand: [p1, p2, p3, ..., pn]
+  // Path: [p1 (position for bounding box calc or just empty if purely pathData dependent)]
   
   text?: string; // For ShapeType.TEXT
+  pathData?: string; // For ShapeType.PATH
   fill: string;
   stroke: string;
   strokeWidth: number;

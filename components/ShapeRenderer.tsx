@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Shape, ShapeType } from '../types';
 import { getShapeCenter, getSmoothSvgPath } from '../utils/mathUtils';
@@ -8,7 +9,7 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData } = shape;
   if (!points || points.length === 0) return null;
 
   // Determine Dash Array based on strokeType
@@ -67,8 +68,13 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
         // Use smooth path algorithm instead of raw polyline
-        const pathData = getSmoothSvgPath(points);
-        element = <path d={pathData} {...commonProps} fill="none" />;
+        const pathDataSmooth = getSmoothSvgPath(points);
+        element = <path d={pathDataSmooth} {...commonProps} fill="none" />;
+        break;
+
+    case ShapeType.PATH:
+        if (!pathData) return null;
+        element = <path d={pathData} {...commonProps} />;
         break;
 
     case ShapeType.POINT:

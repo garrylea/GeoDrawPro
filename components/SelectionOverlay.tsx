@@ -1,19 +1,23 @@
+
 import React, { useState } from 'react';
 import { Shape, ShapeType } from '../types';
 import { calculateTriangleAngles, getAngleArcPath, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
+import { Plus } from 'lucide-react';
 
 interface SelectionOverlayProps {
   shape: Shape;
   isSelected: boolean; 
   pivotIndex: number | 'center';
   isAltPressed: boolean;
+  isMarkingAngles?: boolean;
   onResizeStart: (index: number, e: React.MouseEvent) => void;
   onAngleChange: (index: number, newVal: string) => void;
   onRotateStart: (e: React.MouseEvent) => void;
   onSetPivot: (index: number | 'center') => void;
+  onMarkAngle?: (index: number) => void;
 }
 
-export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSelected, pivotIndex, isAltPressed, onResizeStart, onAngleChange, onRotateStart, onSetPivot }) => {
+export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSelected, pivotIndex, isAltPressed, isMarkingAngles, onResizeStart, onAngleChange, onRotateStart, onSetPivot, onMarkAngle }) => {
   const { points, type, rotation } = shape;
   const handleSize = 10;
   const offset = handleSize / 2;
@@ -70,6 +74,16 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
       ];
   }
 
+  // Calculate actual world positions for corners to place "Mark Angle" targets
+  // NOTE: getRotatedCorners returns World Coordinates. 
+  // But SelectionOverlay is transformed by `transform`.
+  // Wait, SelectionOverlay has `transform={rotation}`.
+  // If we want to draw things in local coordinates, we use `pivotAnchors` logic.
+  // If we want to draw "Mark Angle" targets, we should probably draw them in local space similar to pivotAnchors.
+  // `pivotAnchors` above are calculated in Local Space (relative to the unrotated shape points),
+  // because the `<g>` is rotated by SVG transform.
+  const cornerTargets = pivotAnchors; 
+
   return (
     <g className="selection-overlay pointer-events-none" transform={transform}>
       {/* Dashed Border for Box Shapes OR Freehand */}
@@ -89,18 +103,20 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
       )}
 
       {/* Rotation Handle (Stick) */}
-      <g className="rotation-handle pointer-events-auto cursor-grab" onMouseDown={onRotateStart}>
-          <line 
-             x1={center.x} y1={minY} 
-             x2={center.x} y2={minY - 30} 
-             stroke="#3b82f6" 
-             strokeWidth={1}
-          />
-          <circle 
-             cx={center.x} cy={minY - 30} r={6} 
-             fill="white" stroke="#3b82f6" strokeWidth={2}
-          />
-      </g>
+      {!isMarkingAngles && (
+        <g className="rotation-handle pointer-events-auto cursor-grab" onMouseDown={onRotateStart}>
+            <line 
+               x1={center.x} y1={minY} 
+               x2={center.x} y2={minY - 30} 
+               stroke="#3b82f6" 
+               strokeWidth={1}
+            />
+            <circle 
+               cx={center.x} cy={minY - 30} r={6} 
+               fill="white" stroke="#3b82f6" strokeWidth={2}
+            />
+        </g>
+      )}
 
       {/* Visual Arcs for Triangle Angles */}
       {type === ShapeType.TRIANGLE && points.length === 3 && (
@@ -122,55 +138,82 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
           </g>
       )}
 
-      {/* Pivot Anchors (Targets) - Render First so Handles are on top */}
-      <g className="pivots pointer-events-auto">
-          {/* Center Pivot */}
-          <circle 
-             cx={center.x} cy={center.y} r={5}
-             fill={pivotIndex === 'center' ? '#f59e0b' : 'transparent'}
-             stroke={pivotIndex === 'center' ? '#f59e0b' : '#94a3b8'}
-             strokeWidth={1}
-             strokeDasharray={pivotIndex === 'center' ? 'none' : '2 2'}
-             className="cursor-pointer hover:fill-amber-100"
-             onMouseDown={(e) => { e.stopPropagation(); onSetPivot('center'); }}
-          />
-          {pivotIndex === 'center' && <circle cx={center.x} cy={center.y} r={2} fill="white" className="pointer-events-none"/>}
-
-          {/* Corner Pivots */}
-          {pivotAnchors.map((p) => {
-              // Only show corner pivots if they are active OR if Alt is pressed
-              // If Alt is pressed, we want them to take event precedence (which they won't if visually under handles)
-              // BUT, if Alt is pressed, we hide handles below, so these become clickable.
-              const isActive = pivotIndex === p.id;
-              if (!isActive && !isAltPressed) return null;
-
-              return (
-                  <g key={`pivot-${p.id}`} transform={`translate(${p.x}, ${p.y})`} 
-                     onMouseDown={(e) => { e.stopPropagation(); onSetPivot(p.id); }}
-                     className="cursor-pointer group"
+      {/* MARK ANGLE TARGETS */}
+      {isMarkingAngles && onMarkAngle && (
+          <g className="mark-angle-targets pointer-events-auto">
+              {cornerTargets.map((p) => (
+                  <g 
+                    key={`mark-${p.id}`} 
+                    transform={`translate(${p.x}, ${p.y})`}
+                    onClick={(e) => { e.stopPropagation(); onMarkAngle(p.id); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="cursor-pointer group"
                   >
-                      {/* Bigger hit area when active or alt pressed */}
-                      <circle r={12} fill="transparent" />
+                      {/* HUGE Transparent Hit Area - Prevents "jumping" and makes clicking easy */}
+                      <circle r={20} fill="transparent" />
                       
-                      {/* Visual Anchor */}
-                      {isActive ? (
-                          // Active Pivot Style
-                          <g>
-                            <circle r={5} fill="#f59e0b" stroke="#ffffff" strokeWidth={1} />
-                            <line x1={-3} y1={0} x2={3} y2={0} stroke="white" strokeWidth={1} />
-                            <line x1={0} y1={-3} x2={0} y2={3} stroke="white" strokeWidth={1} />
-                          </g>
-                      ) : (
-                          // Inactive Pivot Candidate Style (Only visible on Alt)
-                          <circle r={4} fill="white" stroke="#f59e0b" strokeWidth={2} />
-                      )}
+                      {/* Visual Elements - No scaling transform to avoid coordinate bugs */}
+                      <g className="opacity-75 group-hover:opacity-100 transition-opacity">
+                        <circle r={10} fill="#4f46e5" fillOpacity="0.2" />
+                        <circle r={4} fill="#4f46e5" stroke="white" strokeWidth={1} />
+                        {/* Plus Sign */}
+                        <line x1={0} y1={-14} x2={0} y2={-6} stroke="#4f46e5" strokeWidth={2} />
+                        <line x1={-4} y1={-10} x2={4} y2={-10} stroke="#4f46e5" strokeWidth={2} />
+                      </g>
                   </g>
-              );
-          })}
-      </g>
+              ))}
+          </g>
+      )}
 
-      {/* Resize Handles - Render Last (On Top) - Hide if Alt is pressed to allow Pivot clicking */}
-      {!isAltPressed && (
+      {/* Pivot Anchors (Targets) - Render First so Handles are on top */}
+      {!isMarkingAngles && (
+        <g className="pivots pointer-events-auto">
+            {/* Center Pivot */}
+            <circle 
+               cx={center.x} cy={center.y} r={5}
+               fill={pivotIndex === 'center' ? '#f59e0b' : 'transparent'}
+               stroke={pivotIndex === 'center' ? '#f59e0b' : '#94a3b8'}
+               strokeWidth={1}
+               strokeDasharray={pivotIndex === 'center' ? 'none' : '2 2'}
+               className="cursor-pointer hover:fill-amber-100"
+               onMouseDown={(e) => { e.stopPropagation(); onSetPivot('center'); }}
+            />
+            {pivotIndex === 'center' && <circle cx={center.x} cy={center.y} r={2} fill="white" className="pointer-events-none"/>}
+
+            {/* Corner Pivots */}
+            {pivotAnchors.map((p) => {
+                // Only show corner pivots if they are active OR if Alt is pressed
+                const isActive = pivotIndex === p.id;
+                if (!isActive && !isAltPressed) return null;
+
+                return (
+                    <g key={`pivot-${p.id}`} transform={`translate(${p.x}, ${p.y})`} 
+                       onMouseDown={(e) => { e.stopPropagation(); onSetPivot(p.id); }}
+                       className="cursor-pointer group"
+                    >
+                        {/* Bigger hit area when active or alt pressed */}
+                        <circle r={12} fill="transparent" />
+                        
+                        {/* Visual Anchor */}
+                        {isActive ? (
+                            // Active Pivot Style
+                            <g>
+                              <circle r={5} fill="#f59e0b" stroke="#ffffff" strokeWidth={1} />
+                              <line x1={-3} y1={0} x2={3} y2={0} stroke="white" strokeWidth={1} />
+                              <line x1={0} y1={-3} x2={0} y2={3} stroke="white" strokeWidth={1} />
+                            </g>
+                        ) : (
+                            // Inactive Pivot Candidate Style (Only visible on Alt)
+                            <circle r={4} fill="white" stroke="#f59e0b" strokeWidth={2} />
+                        )}
+                    </g>
+                );
+            })}
+        </g>
+      )}
+
+      {/* Resize Handles - Hide if Alt is pressed OR if Marking Angles */}
+      {!isAltPressed && !isMarkingAngles && (
         <g className="handles pointer-events-auto">
             {handles.map((p, idx) => (
                 <rect

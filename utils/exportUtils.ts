@@ -47,6 +47,17 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
   const doc = parser.parseFromString(source, "image/svg+xml");
   const svgRoot = doc.documentElement;
 
+  // Fix: The background rect (width="100%") does not automatically adjust to the new viewBox origin/size
+  // when we crop. We must explicitly set it to cover the cropped area.
+  // This prevents the "partially transparent, partially white" glitch.
+  const bgRect = svgRoot.querySelector('rect[width="100%"][height="100%"]');
+  if (bgRect) {
+      bgRect.setAttribute('x', `${minX}`);
+      bgRect.setAttribute('y', `${minY}`);
+      bgRect.setAttribute('width', `${width}`);
+      bgRect.setAttribute('height', `${height}`);
+  }
+
   // Set viewBox to crop the image to the calculated bounds
   svgRoot.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
   svgRoot.setAttribute('width', `${width}`);

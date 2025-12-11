@@ -5,8 +5,8 @@ import { AxisLayer } from './components/AxisLayer';
 import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas } from './utils/exportUtils';
-import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon } from 'lucide-react';
+import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve } from './utils/mathUtils';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -49,6 +49,9 @@ export default function App() {
 
   // Reflection/Operation State
   const [pickingMirrorMode, setPickingMirrorMode] = useState(false);
+  
+  // Angle Marking State
+  const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
 
   // Drag Context for complex movement (Groups + Connections)
   const [dragContext, setDragContext] = useState<{
@@ -151,9 +154,13 @@ export default function App() {
           }
 
           if (e.key === 'Escape') {
-              // 1. Cancel Mirror Mode
+              // 1. Cancel Mirror/Angle Mode
               if (pickingMirrorMode) {
                   setPickingMirrorMode(false);
+                  return;
+              }
+              if (markingAnglesMode) {
+                  setMarkingAnglesMode(false);
                   return;
               }
 
@@ -216,7 +223,7 @@ export default function App() {
           window.removeEventListener('keydown', handleKeyDown);
           window.removeEventListener('keyup', handleKeyUp);
       };
-  }, [selectedIds, textEditing, shapes, history, activeShapeId, pickingMirrorMode, pendingLineStart, tool]); 
+  }, [selectedIds, textEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, pendingLineStart, tool]); 
 
   const getMousePos = (e: React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -252,6 +259,7 @@ export default function App() {
     setTextEditing(null);
     setPivotIndex('center'); // Reset pivot logic on tool change
     setPickingMirrorMode(false);
+    setMarkingAnglesMode(false);
   };
 
   const updateShapes = (ids: Set<string>, updates: Partial<Shape> | ((s: Shape) => Shape)) => {
@@ -347,20 +355,20 @@ export default function App() {
       setPickingMirrorMode(false);
   };
 
-  const calculateDragContext = (initialSelection: Set<string>) => {
+  const calculateDragContext = (initialSelection: Set<string>, currentShapes: Shape[] = shapes) => {
       const movingIds = new Set(initialSelection);
       const queue = Array.from(initialSelection);
       const visited = new Set(initialSelection);
 
       while(queue.length > 0) {
           const currentId = queue.shift()!;
-          const leader = shapes.find(s => s.id === currentId);
+          const leader = currentShapes.find(s => s.id === currentId);
           if (!leader) continue;
           
           const leaderSize = getShapeSize(leader);
           const leaderSnapPoints = getDetailedSnapPoints(leader);
 
-          shapes.forEach(follower => {
+          currentShapes.forEach(follower => {
               if (visited.has(follower.id)) return;
               const isAttached = follower.points.some(fp => 
                   leaderSnapPoints.some(lp => distance(fp, lp) < 10)
@@ -378,10 +386,10 @@ export default function App() {
       }
 
       const connectedPoints: { shapeId: string; pointIndex: number }[] = [];
-      const allMovingShapes = shapes.filter(s => movingIds.has(s.id));
+      const allMovingShapes = currentShapes.filter(s => movingIds.has(s.id));
       const groupSnapPoints = allMovingShapes.flatMap(s => getDetailedSnapPoints(s));
 
-      shapes.forEach(shape => {
+      currentShapes.forEach(shape => {
           if (movingIds.has(shape.id)) return; 
           shape.points.forEach((pt, idx) => {
               const isConnected = groupSnapPoints.some(gp => distance(pt, gp) < 10);
@@ -394,6 +402,51 @@ export default function App() {
       return { movingShapeIds: movingIds, connectedPoints };
   };
 
+  const toggleMarkAnglesMode = () => {
+      if (selectedIds.size === 0) return;
+      setMarkingAnglesMode(!markingAnglesMode);
+  };
+
+  const handleCornerClick = (shapeId: string, vertexIndex: number) => {
+      saveHistory();
+
+      const s = shapes.find(shape => shape.id === shapeId);
+      if (!s) return;
+
+      let corners: Point[] = [];
+      
+      if (s.type === ShapeType.TRIANGLE) {
+          corners = bakeRotation(s).points;
+      } else if ([ShapeType.RECTANGLE, ShapeType.SQUARE].includes(s.type)) {
+          corners = getRotatedCorners(s);
+      } else {
+          // Fallback or other shapes
+          return;
+      }
+
+      if (vertexIndex >= corners.length) return;
+
+      const curr = corners[vertexIndex];
+      const prev = corners[(vertexIndex - 1 + corners.length) % corners.length];
+      const next = corners[(vertexIndex + 1) % corners.length];
+      
+      const radius = 25; 
+      const pathData = getAngleCurve(curr, prev, next, radius);
+
+      const newShape: Shape = {
+          id: generateId(),
+          type: ShapeType.PATH,
+          points: [curr], 
+          pathData: pathData,
+          fill: 'none',
+          stroke: currentStyle.stroke || '#000000',
+          strokeWidth: 2,
+          rotation: 0
+      };
+
+      setShapes(prevShapes => [...prevShapes, newShape]);
+  };
+
   // --- Mouse Handlers ---
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -404,6 +457,14 @@ export default function App() {
         setPickingMirrorMode(false);
         return;
     }
+    
+    // If Marking Angle, cancel if clicked on empty space
+    if (markingAnglesMode) {
+        // We stay in mode unless user cancels or tool changes, 
+        // but let's allow "deselecting" by clicking void if desired.
+        // For now, let's keep it active to allow multiple clicks or selection change.
+        // If they click empty space, standard selection logic happens below.
+    }
 
     const pos = getMousePos(e, true);
     
@@ -412,6 +473,7 @@ export default function App() {
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
              setSelectedIds(new Set());
              setPivotIndex('center'); // Reset pivot
+             // Note: We do NOT turn off markingAnglesMode here, allowing user to select another shape to mark
         }
         const rawPos = getMousePos(e, false);
         setSelectionBox({ start: rawPos, current: rawPos });
@@ -735,6 +797,53 @@ export default function App() {
       if (tool !== ToolType.SELECT) return;
       e.stopPropagation();
       
+      // ALT KEY DUPLICATION
+      if (e.altKey) {
+          saveHistory();
+
+          // Determine what to copy. 
+          // If clicked shape is not in current selection, we copy just that one (and select it).
+          // If clicked shape IS in selection, we copy the entire selection.
+          let idsToCopy = new Set(selectedIds);
+          if (!idsToCopy.has(id)) {
+              idsToCopy = new Set([id]);
+          }
+
+          const newShapes: Shape[] = [];
+          const newSelectedIds = new Set<string>();
+
+          idsToCopy.forEach(sourceId => {
+              const sourceShape = shapes.find(s => s.id === sourceId);
+              if (sourceShape) {
+                  const newId = generateId();
+                  newShapes.push({ ...sourceShape, id: newId });
+                  newSelectedIds.add(newId);
+              }
+          });
+
+          // Update State
+          // We need to merge existing shapes with new shapes immediately for drag context
+          const allShapes = [...shapes, ...newShapes];
+          setShapes(allShapes);
+          setSelectedIds(newSelectedIds);
+          
+          // Initiate Drag on the NEW items
+          setDragStartPos(getMousePos(e, true));
+          setIsDragging(true);
+          
+          // FIX: Do not use calculateDragContext for the initial copy drag.
+          // Because the new shapes are exactly on top of old ones, calculateDragContext will
+          // see them as "connected" and try to move both, causing them to stick together.
+          // By manually setting the context to ONLY the new moving shapes, we peel them off.
+          setDragContext({
+              movingShapeIds: newSelectedIds,
+              connectedPoints: [] 
+          });
+          
+          return;
+      }
+      
+      // Normal Selection Logic
       let newSelection = new Set(selectedIds);
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
           if (newSelection.has(id)) newSelection.delete(id);
@@ -746,7 +855,6 @@ export default function App() {
           }
       }
       
-      // Save history if we are about to start dragging/moving an existing selection
       saveHistory();
 
       setSelectedIds(newSelection);
@@ -882,7 +990,6 @@ export default function App() {
       }
   };
   
-  // Developer Utility: Generate High Res Icon from SVG
   const generateAppIcon = () => {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -905,10 +1012,7 @@ export default function App() {
   };
 
   const updateSelectedStyle = (key: keyof typeof currentStyle, value: any) => {
-    // 1. Update global current style
     setCurrentStyle(prev => ({ ...prev, [key]: value }));
-
-    // 2. If items selected, apply style immediately
     if (selectedIds.size > 0) {
         saveHistory();
         updateShapes(selectedIds, { [key]: value });
@@ -930,7 +1034,6 @@ export default function App() {
              
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
              
-             {/* Delete Selected Button */}
              <button 
                 onClick={deleteSelected} 
                 disabled={selectedIds.size === 0}
@@ -942,7 +1045,6 @@ export default function App() {
 
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
              
-             {/* Clear All Button */}
              <button 
                 onClick={clearCanvas} 
                 disabled={shapes.length === 0}
@@ -958,7 +1060,6 @@ export default function App() {
              </button>
              
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
-             {/* Developer Icon Generation Button */}
              <button onClick={generateAppIcon} className="btn-secondary text-slate-500 hover:bg-slate-100 flex items-center justify-center gap-2" title="Generate High-Res Icon PNG">
                 <ImageIcon size={16} /> Icon
              </button>
@@ -980,7 +1081,7 @@ export default function App() {
         </aside>
 
         <main 
-            className={`flex-1 relative bg-gray-100 overflow-hidden ${pickingMirrorMode ? 'cursor-crosshair' : 'cursor-default'}`}
+            className={`flex-1 relative bg-gray-100 overflow-hidden ${pickingMirrorMode ? 'cursor-crosshair' : ''} ${markingAnglesMode ? 'cursor-copy' : ''}`}
         >
             <svg
                 ref={svgRef}
@@ -993,10 +1094,6 @@ export default function App() {
                 onMouseLeave={handleMouseUp}
             >
                 <rect width="100%" height="100%" fill="white" />
-                {/* 
-                  AxisLayer now receives the width/height of the SVG container (main area), 
-                  not the window width. This centers the axes in the visible white space. 
-                */}
                 <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
 
                 {shapes.map((shape) => (
@@ -1018,7 +1115,6 @@ export default function App() {
                 {Array.from(selectedIds).map(id => {
                     const s = shapes.find(sh => sh.id === id);
                     if (!s || s.type === ShapeType.TEXT) return null; 
-                    // Hide overlay if we are picking a mirror line
                     if (pickingMirrorMode) return null;
 
                     return (
@@ -1028,10 +1124,12 @@ export default function App() {
                             isSelected={true}
                             pivotIndex={pivotIndex}
                             isAltPressed={isAltPressed}
+                            isMarkingAngles={markingAnglesMode}
                             onResizeStart={handleResizeStart} 
                             onAngleChange={handleTriangleAngleChange}
                             onRotateStart={handleRotateStart}
                             onSetPivot={setPivotIndex}
+                            onMarkAngle={(idx) => handleCornerClick(s.id, idx)}
                         />
                     );
                 })}
@@ -1059,14 +1157,18 @@ export default function App() {
                 )}
             </svg>
 
-            {/* Picking Mirror Mode Banner */}
             {pickingMirrorMode && (
                 <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-pulse font-medium">
                     Select a LINE on the canvas to mirror across
                 </div>
             )}
+            
+            {markingAnglesMode && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-pulse font-medium">
+                    Click a corner to mark the angle
+                </div>
+            )}
 
-            {/* Rotation Angle Display */}
             {isRotating && currentRotationDisplay !== null && rotationCenter && (
                  <div 
                     style={{ 
@@ -1081,7 +1183,6 @@ export default function App() {
                  </div>
             )}
 
-            {/* Text Input Overlay */}
             {textEditing && (
                 <div 
                     style={{ 
@@ -1109,7 +1210,7 @@ export default function App() {
             <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-md border border-gray-200 text-xs text-gray-500 pointer-events-none select-none flex items-center gap-2">
                  <Magnet size={12} className={snapIndicator ? "text-red-500" : "text-gray-400"} />
                  {tool === ToolType.SELECT 
-                    ? (isAltPressed ? 'Alt held: Click orange points to set Rotation Pivot.' : 'Click to select. Drag corner to resize. Hold Alt to change Rotation Pivot.')
+                    ? (isAltPressed ? 'Alt held: Drag to copy. Click orange points for Pivot.' : 'Click to select. Drag to move. Alt+Drag to copy.')
                     : 'Drag to draw. Snapping active.'}
             </div>
         </main>
@@ -1133,7 +1234,7 @@ export default function App() {
              {selectedIds.size > 0 && !pickingMirrorMode && (
                  <div className="p-5 border-b border-gray-100 bg-slate-50">
                     <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Spline size={16} /> Operations</h3>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                         <button 
                             onClick={() => handleReflection('y')}
                             className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-500 text-gray-600 hover:text-brand-600 transition-colors"
@@ -1160,6 +1261,16 @@ export default function App() {
                                 <div className="absolute -right-1 -bottom-1 text-[10px] bg-brand-100 px-0.5 rounded border border-brand-200">/</div>
                             </div>
                             <span className="text-[10px]">Mirror /</span>
+                        </button>
+
+                         {/* Mark Angles Toggle */}
+                         <button 
+                            onClick={toggleMarkAnglesMode}
+                            className={`flex flex-col items-center justify-center p-2 border rounded transition-colors ${markingAnglesMode ? 'bg-brand-100 border-brand-500 text-brand-700' : 'bg-white border-gray-200 hover:bg-brand-50 hover:border-brand-500 text-gray-600 hover:text-brand-600'}`}
+                            title="Mark Angles (Click corners to add arcs)"
+                        >
+                            <Radius size={20} className="mb-1" />
+                            <span className="text-[10px]">Angles</span>
                         </button>
                     </div>
                  </div>

@@ -1,3 +1,4 @@
+
 import { Point, Shape, ShapeType } from '../types';
 
 export const distance = (p1: Point, p2: Point) => {
@@ -29,7 +30,14 @@ export const rotatePoint = (point: Point, center: Point, angleDegrees: number): 
 
 export const getRotatedCorners = (shape: Shape): Point[] => {
   const center = getShapeCenter(shape.points);
-  // For standard shapes defined by 2 points (Rect, Square, Circle, Ellipse) or bounding box logic
+  
+  // If it's a triangle or line, the corners are the points themselves
+  if (shape.type === ShapeType.TRIANGLE || shape.type === ShapeType.LINE || shape.type === ShapeType.FREEHAND) {
+      if (!shape.rotation) return shape.points;
+      return shape.points.map(p => rotatePoint(p, center, shape.rotation));
+  }
+
+  // For standard shapes defined by 2 points (Rect, Square, Circle, Ellipse)
   const xs = shape.points.map(p => p.x);
   const ys = shape.points.map(p => p.y);
   const minX = Math.min(...xs);
@@ -171,27 +179,43 @@ export const bakeRotation = (s: Shape): Shape => {
 };
 
 export const getAngleArcPath = (center: Point, p1: Point, p2: Point, radius: number): string => {
+    // Standard wedge path (Line -> Arc -> Line -> Z)
     const angle1 = Math.atan2(p1.y - center.y, p1.x - center.x);
     const angle2 = Math.atan2(p2.y - center.y, p2.x - center.x);
     
-    let largeArcFlag = 0;
-    // Calculate difference to determine shortest arc
     let diff = angle2 - angle1;
-    // Normalize to -PI to PI
     while (diff <= -Math.PI) diff += 2 * Math.PI;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     
-    // If the internal angle is large (though for triangles it's always < 180), handle flags
-    // Drawing a simple arc between vector angles
     const startX = center.x + radius * Math.cos(angle1);
     const startY = center.y + radius * Math.sin(angle1);
-    const endX = center.x + radius * Math.cos(angle1 + diff); // Use diff to draw small arc
+    const endX = center.x + radius * Math.cos(angle1 + diff);
     const endY = center.y + radius * Math.sin(angle1 + diff);
 
-    // Sweep flag: if diff is positive, sweep is 1
     const sweepFlag = diff > 0 ? 1 : 0;
+    const largeArcFlag = 0; // Usually angles in simple polygons are < 180 for corners
     
     return `M ${center.x} ${center.y} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${endX} ${endY} Z`;
+};
+
+// Returns just the arc curve (Stroke), without connecting to center
+export const getAngleCurve = (center: Point, p1: Point, p2: Point, radius: number): string => {
+    const angle1 = Math.atan2(p1.y - center.y, p1.x - center.x);
+    const angle2 = Math.atan2(p2.y - center.y, p2.x - center.x);
+    
+    let diff = angle2 - angle1;
+    while (diff <= -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    
+    const startX = center.x + radius * Math.cos(angle1);
+    const startY = center.y + radius * Math.sin(angle1);
+    const endX = center.x + radius * Math.cos(angle1 + diff);
+    const endY = center.y + radius * Math.sin(angle1 + diff);
+
+    const sweepFlag = diff > 0 ? 1 : 0;
+    const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
+
+    return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${endX} ${endY}`;
 };
 
 // --- Smoothing Algorithm ---
