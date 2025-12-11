@@ -45,6 +45,11 @@ export interface MarkerConfig {
     targets: { shapeId: string; pointIndices: number[] }[]; 
 }
 
+export interface Constraint {
+    type: 'on_path';
+    parentId: string; // The ID of the shape (Line, Circle, Rect) this point is bound to
+}
+
 export interface Shape {
   id: string;
   type: ShapeType;
@@ -62,6 +67,9 @@ export interface Shape {
   
   // New: Configuration for Smart Markers
   markerConfig?: MarkerConfig;
+
+  // New: Geometric Constraint (Parent-Child binding)
+  constraint?: Constraint;
 }
 
 export interface AxisConfig {
