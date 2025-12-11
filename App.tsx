@@ -770,13 +770,24 @@ export default function App() {
       let center: Point;
       if (pivotIndex === 'center') {
           center = getShapeCenter(shape.points);
-      } else {
-          const corners = getRotatedCorners(shape);
-          if (typeof pivotIndex === 'number' && pivotIndex < corners.length) {
-              center = corners[pivotIndex];
+      } else if (typeof pivotIndex === 'number') {
+          // Fix: For vertex-based shapes (Triangle, Line), the pivot index maps to the point index
+          if (shape.type === ShapeType.TRIANGLE || shape.type === ShapeType.LINE) {
+              const shapeCenter = getShapeCenter(shape.points);
+              const vertex = shape.points[pivotIndex];
+              // Use current shape rotation to transform the vertex to world space
+              center = rotatePoint(vertex, shapeCenter, shape.rotation || 0);
           } else {
-              center = getShapeCenter(shape.points);
+              // For box-based shapes, map pivot index to bounding box corners
+              const corners = getRotatedCorners(shape);
+              if (pivotIndex < corners.length) {
+                  center = corners[pivotIndex];
+              } else {
+                  center = getShapeCenter(shape.points);
+              }
           }
+      } else {
+          center = getShapeCenter(shape.points);
       }
       
       setRotationCenter(center);

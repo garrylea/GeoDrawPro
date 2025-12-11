@@ -117,10 +117,39 @@ export const calculateTriangleAngles = (points: Point[]) => {
 };
 
 export const solveTriangleASA = (pA: Point, pB: Point, angleA: number, angleB: number, oldPC: Point): Point => {
-    // Reconstruct C based on fixed side AB and angles A and B
-    // Coordinates logic is complex, returning old point for safety in this stub
-    // A proper implementation would rotate vector AB by angle A or -A depending on winding
-    return oldPC; 
+    // Convert angles to radians
+    const rA = (angleA * Math.PI) / 180;
+    const rB = (angleB * Math.PI) / 180;
+    const rC = Math.PI - rA - rB;
+
+    if (rC <= 0.001) return oldPC; // Invalid triangle (sum >= 180 or nearly parallel)
+
+    const c = distance(pA, pB);
+    // Sine Rule: b / sin(B) = c / sin(C)  =>  b = c * sin(B) / sin(C)
+    // b is the length of side AC
+    const b = (c * Math.sin(rB)) / Math.sin(rC);
+
+    // Calculate angle of vector AB
+    const thetaAB = Math.atan2(pB.y - pA.y, pB.x - pA.x);
+
+    // There are two possible directions for AC: (thetaAB + A) or (thetaAB - A)
+    // We calculate both candidate points for C
+    const thetaAC1 = thetaAB + rA;
+    const thetaAC2 = thetaAB - rA;
+
+    const C1 = {
+        x: pA.x + b * Math.cos(thetaAC1),
+        y: pA.y + b * Math.sin(thetaAC1)
+    };
+
+    const C2 = {
+        x: pA.x + b * Math.cos(thetaAC2),
+        y: pA.y + b * Math.sin(thetaAC2)
+    };
+
+    // To decide which candidate is correct, we choose the one closest to the old point C.
+    // This preserves the current winding order/orientation of the triangle.
+    return distance(C1, oldPC) < distance(C2, oldPC) ? C1 : C2;
 };
 
 export const reflectPointAcrossLine = (p: Point, l1: Point, l2: Point): Point => {
@@ -142,8 +171,27 @@ export const bakeRotation = (s: Shape): Shape => {
 };
 
 export const getAngleArcPath = (center: Point, p1: Point, p2: Point, radius: number): string => {
-    // Simplified arc
-    return ""; 
+    const angle1 = Math.atan2(p1.y - center.y, p1.x - center.x);
+    const angle2 = Math.atan2(p2.y - center.y, p2.x - center.x);
+    
+    let largeArcFlag = 0;
+    // Calculate difference to determine shortest arc
+    let diff = angle2 - angle1;
+    // Normalize to -PI to PI
+    while (diff <= -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    
+    // If the internal angle is large (though for triangles it's always < 180), handle flags
+    // Drawing a simple arc between vector angles
+    const startX = center.x + radius * Math.cos(angle1);
+    const startY = center.y + radius * Math.sin(angle1);
+    const endX = center.x + radius * Math.cos(angle1 + diff); // Use diff to draw small arc
+    const endY = center.y + radius * Math.sin(angle1 + diff);
+
+    // Sweep flag: if diff is positive, sweep is 1
+    const sweepFlag = diff > 0 ? 1 : 0;
+    
+    return `M ${center.x} ${center.y} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${endX} ${endY} Z`;
 };
 
 // --- Smoothing Algorithm ---
