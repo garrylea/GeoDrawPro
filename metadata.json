@@ -1,0 +1,5 @@
+{
+  "name": "GeoDraw Pro",
+  "description": "A cross-platform geometric drawing tool for sketching shapes, plotting coordinate axes, and exporting diagrams.",
+  "requestFramePermissions": []
+}

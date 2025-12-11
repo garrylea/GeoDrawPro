@@ -1,0 +1,51 @@
+export enum ToolType {
+  SELECT = 'SELECT',
+  POINT = 'POINT',
+  LINE = 'LINE',
+  RECTANGLE = 'RECTANGLE',
+  SQUARE = 'SQUARE',
+  CIRCLE = 'CIRCLE',
+  ELLIPSE = 'ELLIPSE',
+  TRIANGLE = 'TRIANGLE',
+  TEXT = 'TEXT'
+}
+
+export enum ShapeType {
+  POINT = 'POINT',
+  LINE = 'LINE',
+  RECTANGLE = 'RECTANGLE',
+  SQUARE = 'SQUARE',
+  CIRCLE = 'CIRCLE',
+  ELLIPSE = 'ELLIPSE',
+  TRIANGLE = 'TRIANGLE',
+  TEXT = 'TEXT'
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Shape {
+  id: string;
+  type: ShapeType;
+  points: Point[]; // Replaces x,y,width,height. 
+  // Point: [p1]
+  // Line: [p1, p2]
+  // Triangle: [p1, p2, p3]
+  // Rect/Circle: [p1 (top-left), p2 (bottom-right)]
+  // Text: [p1 (position)]
+  
+  text?: string; // For ShapeType.TEXT
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  rotation: number; // In degrees
+}
+
+export interface AxisConfig {
+  visible: boolean;
+  ticks: number;
+  color: string;
+  showGrid: boolean;
+}
