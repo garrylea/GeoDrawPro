@@ -35,7 +35,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
 
   // Logic to determine handles
   let handles = points;
-  let showBoundingBox = [ShapeType.RECTANGLE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.SQUARE].includes(type);
+  let showBoundingBox = [ShapeType.RECTANGLE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.SQUARE, ShapeType.PROTRACTOR].includes(type);
 
   // FIX: For Freehand, do NOT show handles for every single point (too many boxes).
   // Freehand is treated as a single object for moving/rotating, but not vertex editing for now.
@@ -72,16 +72,17 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
           { x: maxX, y: maxY, id: 2 },
           { x: minX, y: maxY, id: 3 },
       ];
+      
+      // SPECIAL: For Protractor, add a pivot anchor at the bottom-center (the vertex)
+      // This is the most useful point to rotate around for measuring.
+      // We give it a high ID to avoid conflict with corners 0-3.
+      if (type === ShapeType.PROTRACTOR) {
+          const bottomCenterX = (minX + maxX) / 2;
+          pivotAnchors.push({ x: bottomCenterX, y: maxY, id: 99 });
+      }
   }
 
   // Calculate actual world positions for corners to place "Mark Angle" targets
-  // NOTE: getRotatedCorners returns World Coordinates. 
-  // But SelectionOverlay is transformed by `transform`.
-  // Wait, SelectionOverlay has `transform={rotation}`.
-  // If we want to draw things in local coordinates, we use `pivotAnchors` logic.
-  // If we want to draw "Mark Angle" targets, we should probably draw them in local space similar to pivotAnchors.
-  // `pivotAnchors` above are calculated in Local Space (relative to the unrotated shape points),
-  // because the `<g>` is rotated by SVG transform.
   const cornerTargets = pivotAnchors; 
 
   return (
@@ -183,8 +184,11 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
             {/* Corner Pivots */}
             {pivotAnchors.map((p) => {
                 // Only show corner pivots if they are active OR if Alt is pressed
+                // EXCEPTION: Always show the "vertex" pivot (id 99) for Protractor if selected, as it's crucial for usage.
                 const isActive = pivotIndex === p.id;
-                if (!isActive && !isAltPressed) return null;
+                const isImportant = p.id === 99; // Protractor vertex
+                
+                if (!isActive && !isAltPressed && !isImportant) return null;
 
                 return (
                     <g key={`pivot-${p.id}`} transform={`translate(${p.x}, ${p.y})`} 
@@ -203,8 +207,14 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ shape, isSel
                               <line x1={0} y1={-3} x2={0} y2={3} stroke="white" strokeWidth={1} />
                             </g>
                         ) : (
-                            // Inactive Pivot Candidate Style (Only visible on Alt)
-                            <circle r={4} fill="white" stroke="#f59e0b" strokeWidth={2} />
+                            // Inactive Pivot Candidate Style 
+                            // Make Vertex pivot (99) distinct
+                            <circle 
+                                r={p.id === 99 ? 5 : 4} 
+                                fill={p.id === 99 ? "#ef4444" : "white"} 
+                                stroke={p.id === 99 ? "white" : "#f59e0b"} 
+                                strokeWidth={2} 
+                            />
                         )}
                     </g>
                 );

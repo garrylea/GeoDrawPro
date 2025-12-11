@@ -9,7 +9,7 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize } = shape;
   if (!points || points.length === 0) return null;
 
   // Determine Dash Array based on strokeType
@@ -87,13 +87,100 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
                 x={p0.x} 
                 y={p0.y} 
                 fill={stroke} 
-                fontSize={20 + strokeWidth * 2} 
+                fontSize={fontSize || 16} 
                 fontFamily="sans-serif"
                 dominantBaseline="hanging"
                 style={{ userSelect: 'none' }}
             >
                 {text}
             </text>
+        );
+        break;
+
+    case ShapeType.PROTRACTOR:
+        // Protractor Logic
+        const cx = x + width / 2;
+        const cy = y + height; // Base line is at the bottom
+        const radius = width / 2;
+        
+        // Generate Ticks
+        const ticks = [];
+        const labels = [];
+        for (let i = 0; i <= 180; i++) {
+            const rad = (Math.PI * i) / 180;
+            // Note: SVG Y is down, so we subtract Math.sin for "up"
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            // Tick length logic
+            let len = 5;
+            if (i % 5 === 0) len = 8;
+            if (i % 10 === 0) len = 12;
+
+            // Outer arc edge
+            const xOuter = cx - radius * cos; // 0 degrees is usually right side, 180 left. Let's make 0 right.
+            const yOuter = cy - radius * sin;
+            
+            // Inner tick start
+            const xInner = cx - (radius - len) * cos;
+            const yInner = cy - (radius - len) * sin;
+
+            if (i % 1 === 0) {
+               ticks.push(<line key={`t-${i}`} x1={xInner} y1={yInner} x2={xOuter} y2={yOuter} stroke={stroke} strokeWidth={i % 10 === 0 ? 1.5 : 0.5} />);
+            }
+
+            // Labels every 15 degrees
+            if (i % 15 === 0 && i !== 180 && i !== 0) {
+                 const xText = cx - (radius - 25) * cos;
+                 const yText = cy - (radius - 25) * sin;
+                 // Inner scale labels (optional, usually protractors have two scales. Let's stick to one 0-180 for simplicity)
+                 labels.push(
+                     <text 
+                        key={`l-${i}`} 
+                        x={xText} y={yText} 
+                        fill={stroke} 
+                        fontSize={Math.min(12, radius / 10)} 
+                        textAnchor="middle" 
+                        dominantBaseline="middle"
+                        transform={`rotate(${90 - i} ${xText} ${yText})`}
+                        style={{ userSelect: 'none' }}
+                     >
+                         {i}
+                     </text>
+                 );
+            }
+        }
+
+        element = (
+            <g>
+                {/* Plastic Body Background */}
+                <path 
+                    d={`M ${x} ${cy} A ${radius} ${radius} 0 0 1 ${x + width} ${cy} Z`} 
+                    fill="#bae6fd" 
+                    fillOpacity="0.3" 
+                    stroke={stroke} 
+                    strokeWidth={2}
+                />
+                {/* Inner cutout (optional, aesthetics) */}
+                <path 
+                    d={`M ${cx - radius * 0.4} ${cy} A ${radius * 0.4} ${radius * 0.4} 0 0 1 ${cx + radius * 0.4} ${cy} Z`} 
+                    fill="none" 
+                    stroke={stroke} 
+                    strokeWidth={1}
+                    opacity="0.5"
+                />
+                
+                {/* Base Line */}
+                <line x1={cx - radius} y1={cy} x2={cx + radius} y2={cy} stroke={stroke} strokeWidth={2} />
+                
+                {/* Center Mark */}
+                <line x1={cx} y1={cy - 10} x2={cx} y2={cy} stroke="#ef4444" strokeWidth={2} />
+                <circle cx={cx} cy={cy} r={3} fill="#ef4444" />
+
+                {/* Ticks and Labels */}
+                {ticks}
+                {labels}
+            </g>
         );
         break;
 
@@ -112,7 +199,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
                  strokeWidth: (strokeWidth || 1) + 6, 
-                 fill: type === ShapeType.TEXT ? 'none' : 'none',
+                 fill: type === ShapeType.TEXT || type === ShapeType.PROTRACTOR ? 'none' : 'none',
                  strokeDasharray: 'none' // Selection halo is always solid
              })}
           </g>

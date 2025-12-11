@@ -9,7 +9,8 @@ export enum ToolType {
   ELLIPSE = 'ELLIPSE',
   TRIANGLE = 'TRIANGLE',
   TEXT = 'TEXT',
-  FREEHAND = 'FREEHAND'
+  FREEHAND = 'FREEHAND',
+  PROTRACTOR = 'PROTRACTOR' // New Tool
 }
 
 export enum ShapeType {
@@ -22,7 +23,8 @@ export enum ShapeType {
   TRIANGLE = 'TRIANGLE',
   TEXT = 'TEXT',
   FREEHAND = 'FREEHAND',
-  PATH = 'PATH' // For generic SVG paths like Angle Arcs
+  PATH = 'PATH',
+  PROTRACTOR = 'PROTRACTOR' // New Shape
 }
 
 export interface Point {
@@ -41,8 +43,10 @@ export interface Shape {
   // Text: [p1 (position)]
   // Freehand: [p1, p2, p3, ..., pn]
   // Path: [p1 (position for bounding box calc or just empty if purely pathData dependent)]
+  // Protractor: [p1 (top-left), p2 (bottom-right)]
   
   text?: string; // For ShapeType.TEXT
+  fontSize?: number; // For Text scaling
   pathData?: string; // For ShapeType.PATH
   fill: string;
   stroke: string;

@@ -56,14 +56,47 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
   return corners.map(p => rotatePoint(p, center, shape.rotation));
 };
 
+export const getDetailedSnapPoints = (shape: Shape): Point[] => {
+    // Return all vertices plus the center point
+    // For Box shapes, we want the calculated corners, not just the bounding box definition points
+    let points: Point[] = [];
+    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.PROTRACTOR].includes(shape.type)) {
+        points = getRotatedCorners(shape);
+    } else {
+        points = shape.points;
+    }
+    return [...points, getShapeCenter(shape.points)];
+};
+
 export const getSnapPoint = (pos: Point, shapes: Shape[], excludeIds: string[] = []) => {
-  // Simple grid snapping (20px)
   const gridSize = 20;
-  const snapThreshold = 10;
-  
+  // Reduced threshold from 10 to 5. 
+  // This makes the "magnetic field" much smaller, allowing for precise positioning nearby without snapping.
+  const snapThreshold = 5; 
+
+  let bestDist = snapThreshold;
+  let bestPoint = null;
+
+  // 1. Priority: Snap to existing Shape Vertices first
+  for (const shape of shapes) {
+      if (excludeIds.includes(shape.id)) continue;
+      
+      const candidates = getDetailedSnapPoints(shape);
+      
+      for (const pt of candidates) {
+          const d = distance(pos, pt);
+          if (d < bestDist) {
+              bestDist = d;
+              bestPoint = pt;
+          }
+      }
+  }
+
+  if (bestPoint) return { point: bestPoint, snapped: true };
+
+  // 2. Secondary: Snap to Grid
   const gridX = Math.round(pos.x / gridSize) * gridSize;
   const gridY = Math.round(pos.y / gridSize) * gridSize;
-  
   const dGrid = distance(pos, { x: gridX, y: gridY });
   
   if (dGrid < snapThreshold) {
@@ -71,11 +104,6 @@ export const getSnapPoint = (pos: Point, shapes: Shape[], excludeIds: string[] =
   }
   
   return { point: pos, snapped: false };
-};
-
-export const getDetailedSnapPoints = (shape: Shape): Point[] => {
-    // Simplified: return points and center
-    return [...shape.points, getShapeCenter(shape.points)];
 };
 
 export const getShapeSize = (shape: Shape): number => {

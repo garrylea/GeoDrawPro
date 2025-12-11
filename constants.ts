@@ -1,5 +1,6 @@
+
 import { ToolType } from './types';
-import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil } from 'lucide-react';
+import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge } from 'lucide-react';
 
 export const COLORS = [
   'transparent', '#000000', '#ffffff', 
@@ -19,6 +20,7 @@ export const TOOL_CONFIG = [
   { id: ToolType.CIRCLE, label: 'Circle', icon: Circle },
   { id: ToolType.ELLIPSE, label: 'Ellipse', icon: Egg },
   { id: ToolType.TRIANGLE, label: 'Triangle', icon: Triangle },
+  { id: ToolType.PROTRACTOR, label: 'Protractor', icon: Gauge },
   { id: ToolType.TEXT, label: 'Text', icon: Type },
 ];
 

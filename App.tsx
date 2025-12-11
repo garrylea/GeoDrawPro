@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS } from './constants';
@@ -6,7 +7,7 @@ import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius } from 'lucide-react';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon, Copy, Radius, Type } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -38,6 +39,7 @@ export default function App() {
   const [dragHandleIndex, setDragHandleIndex] = useState<number | null>(null); 
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<Point | null>(null);
+  const [cursorPos, setCursorPos] = useState<Point | null>(null); // Track raw mouse pos for custom cursor
   
   // Rotation State
   const [pivotIndex, setPivotIndex] = useState<number | 'center'>('center');
@@ -233,8 +235,8 @@ export default function App() {
       y: e.clientY - rect.top,
     };
     
-    // Freehand doesn't snap while drawing usually
-    if (tool === ToolType.FREEHAND && isDragging) {
+    // DISABLE SNAPPING FOR FREEHAND COMPLETELY
+    if (tool === ToolType.FREEHAND) {
         setSnapIndicator(null);
         return raw;
     }
@@ -254,6 +256,7 @@ export default function App() {
     setTool(newTool);
     setSelectedIds(new Set());
     setSnapIndicator(null);
+    setCursorPos(null);
     setSelectionBox(null);
     setPendingLineStart(null);
     setTextEditing(null);
@@ -285,18 +288,15 @@ export default function App() {
       let axisAngle = 0;
 
       if (axis === 'x') {
-          // Horizontal axis at centerY.
           mirrorLine = { p1: {x: 0, y: centerY}, p2: {x: canvasSize.width, y: centerY} };
           axisAngle = 0;
       } else if (axis === 'y') {
-           // Vertical axis at centerX.
            mirrorLine = { p1: {x: centerX, y: 0}, p2: {x: centerX, y: canvasSize.height} };
            axisAngle = 90;
       } else if (axis === 'line' && lineId) {
           const lineShape = shapes.find(s => s.id === lineId);
           if (lineShape && (lineShape.type === ShapeType.LINE || lineShape.points.length >= 2)) {
               const corners = getRotatedCorners(lineShape);
-              // Use rotated corners to define the line
               mirrorLine = { p1: corners[0], p2: corners[1] };
               axisAngle = getAngleDegrees(corners[0], corners[1]);
           } else {
@@ -309,45 +309,27 @@ export default function App() {
       setShapes(prev => prev.map(s => {
           if (!selectedIds.has(s.id)) return s;
 
-          // Box-like shapes (Rect, Square, Circle, Ellipse) and Text are treated as "Rigid Bodies" for reflection
-          // This preserves their "Shape Definition" (e.g. axis aligned box + rotation).
-          // If we baked rotation, they would turn into Polygons, which breaks the ShapeRenderer logic for these types.
-          const isRigid = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT].includes(s.type);
+          const isRigid = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT, ShapeType.PROTRACTOR].includes(s.type);
 
           if (isRigid) {
-              // 1. Reflect Center
               const currentCenter = getShapeCenter(s.points);
               const newCenter = reflectPointAcrossLine(currentCenter, mirrorLine!.p1, mirrorLine!.p2);
               const shift = { x: newCenter.x - currentCenter.x, y: newCenter.y - currentCenter.y };
 
-              // 2. Move Points (translate the unrotated box points)
               const newPoints = s.points.map(p => ({ x: p.x + shift.x, y: p.y + shift.y }));
 
-              // 3. Update Rotation
-              // theta' = 2*phi - theta
               const oldRot = s.rotation || 0;
               let newRot = 2 * axisAngle - oldRot;
-              
-              // Normalize to 0-360
               newRot = newRot % 360; 
               if (newRot < 0) newRot += 360;
 
               return { ...s, points: newPoints, rotation: newRot };
 
           } else {
-              // Vertex Reflection (Triangle, Line, Point)
-              // These shapes are drawn by connecting vertices, so we can bake rotation and reflect vertices directly.
-              // This allows Triangles to "flip" (change winding order), which is physically correct.
-              
-              // 1. Bake current rotation into absolute points
               const baked = bakeRotation(s);
-              
-              // 2. Reflect all points
               const newPoints = baked.points.map(p => {
                   return reflectPointAcrossLine(p, mirrorLine!.p1, mirrorLine!.p2);
               });
-
-              // 3. Reset rotation to 0 (since rotation is now baked into the reflected points)
               return { ...baked, points: newPoints, rotation: 0 };
           }
       }));
@@ -458,14 +440,6 @@ export default function App() {
         return;
     }
     
-    // If Marking Angle, cancel if clicked on empty space
-    if (markingAnglesMode) {
-        // We stay in mode unless user cancels or tool changes, 
-        // but let's allow "deselecting" by clicking void if desired.
-        // For now, let's keep it active to allow multiple clicks or selection change.
-        // If they click empty space, standard selection logic happens below.
-    }
-
     const pos = getMousePos(e, true);
     
     // Select Tool Logic
@@ -484,12 +458,39 @@ export default function App() {
     // Capture State BEFORE drawing starts
     saveHistory(); 
 
+    // Protractor Tool Logic (Single Click to Spawn)
+    if (tool === ToolType.PROTRACTOR) {
+        e.preventDefault();
+        const id = generateId();
+        const width = 300;
+        const height = 150;
+        // Spawn centered on click
+        const p1 = { x: pos.x - width/2, y: pos.y - height };
+        const p2 = { x: pos.x + width/2, y: pos.y };
+        
+        const newShape: Shape = {
+            id, 
+            type: ShapeType.PROTRACTOR, 
+            points: [p1, p2], 
+            fill: 'transparent', 
+            stroke: currentStyle.stroke, 
+            strokeWidth: 1, 
+            rotation: 0
+        };
+        setShapes(prev => [...prev, newShape]);
+        setSelectedIds(new Set([id]));
+        setPivotIndex(99); // Auto-select the "Vertex" pivot for immediate rotation
+        setTool(ToolType.SELECT);
+        return;
+    }
+
     // Text Tool Logic
     if (tool === ToolType.TEXT) {
         e.preventDefault(); 
         const id = generateId();
+        // Updated: Default font size 16
         const newShape: Shape = {
-            id, type: ShapeType.TEXT, points: [pos], text: '', 
+            id, type: ShapeType.TEXT, points: [pos], text: '', fontSize: 16,
             fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0
         };
         setShapes(prev => [...prev, newShape]);
@@ -564,6 +565,7 @@ export default function App() {
     if (pickingMirrorMode) return;
 
     const currentPos = getMousePos(e, !isRotating && tool !== ToolType.SELECT); 
+    setCursorPos(currentPos); // Track position for custom tool cursors
 
     if (selectionBox) {
         setSelectionBox(prev => prev ? ({ ...prev, current: currentPos }) : null);
@@ -572,36 +574,6 @@ export default function App() {
 
     if (tool === ToolType.LINE && pendingLineStart && !isDragging) {
         getMousePos(e, true); 
-        return;
-    }
-
-    // --- ROTATING ---
-    if (isRotating && rotationCenter && selectedIds.size === 1) {
-        const id = Array.from(selectedIds)[0];
-        
-        // Calculate angle from Pivot
-        const dx = currentPos.x - rotationCenter.x;
-        const dy = currentPos.y - rotationCenter.y;
-        
-        // New Absolute Angle of Mouse
-        let currentMouseAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
-        
-        let angleDelta = currentMouseAngle - rotationStartAngle;
-        let newRotation = (initialShapeRotation + angleDelta) % 360;
-        
-        if (e.shiftKey) {
-            newRotation = Math.round(newRotation / 15) * 15;
-            angleDelta = newRotation - initialShapeRotation;
-        }
-
-        setCurrentRotationDisplay(Math.round(newRotation));
-
-        updateShapes(new Set([id]), (s) => {
-            if (pivotIndex === 'center') {
-                return { ...s, rotation: newRotation };
-            }
-            return s; // Fallback handled by handleMouseMoveWithRotation
-        });
         return;
     }
 
@@ -618,6 +590,9 @@ export default function App() {
         updateShapes(new Set([id]), (s) => {
             const newPoints = [...s.points];
             newPoints[dragHandleIndex] = currentPos;
+            // FIX: If dragging a handle on a "baked rotation" shape (Triangle), we just update the point.
+            // If dragging handle on "Rigid" shape (Rect), the logic here might look weird if rotated,
+            // but for Vertex shapes (Triangle) it is now perfect because rotation is 0.
             return { ...s, points: newPoints };
         });
         return;
@@ -705,6 +680,7 @@ export default function App() {
 
   const handleMouseMoveWithRotation = (e: React.MouseEvent) => {
       const currentPos = getMousePos(e, !isRotating && !pickingMirrorMode); 
+      setCursorPos(currentPos);
       
       if (isRotating && rotationCenter && selectedIds.size === 1) {
           const dx = currentPos.x - rotationCenter.x;
@@ -717,17 +693,36 @@ export default function App() {
           const id = Array.from(selectedIds)[0];
           
           updateShapes(new Set([id]), (s) => {
-               let newRotation = (s.rotation + delta) % 360;
-               let newPoints = s.points;
-               if (pivotIndex !== 'center') {
-                   const oldCenter = getShapeCenter(s.points);
-                   const newCenter = rotatePoint(oldCenter, rotationCenter, delta);
-                   const shiftX = newCenter.x - oldCenter.x;
-                   const shiftY = newCenter.y - oldCenter.y;
-                   newPoints = s.points.map(p => ({ x: p.x + shiftX, y: p.y + shiftY }));
+               // Vertex Shapes: Bake rotation into points
+               const isVertexShape = [ShapeType.TRIANGLE, ShapeType.LINE, ShapeType.FREEHAND, ShapeType.POINT].includes(s.type);
+               
+               if (isVertexShape) {
+                   const newPoints = s.points.map(p => rotatePoint(p, rotationCenter, delta));
+                   // For vertex shapes, we don't change 'rotation' property, we move points.
+                   // If pivot was not center, rotationCenter handles it.
+                   // If shape had initial rotation, we bake it in handleRotateStart, so s.rotation is 0 here.
+                   return { ...s, points: newPoints, rotation: 0 };
+               } 
+               else {
+                   // Rigid Shapes (Rect, Text, etc): Update rotation property
+                   let newRotation = (s.rotation + delta) % 360;
+                   let newPoints = s.points;
+                   
+                   // If rotating around a pivot that is NOT center, we also translate the center
+                   if (pivotIndex !== 'center') {
+                       // Special case for Protractor Pivot (bottom-center)
+                       // If pivotIndex is 99 (Protractor Vertex), we need to ensure we calculate the correct center point
+                       let pivotPt = rotationCenter; 
+
+                       const oldCenter = getShapeCenter(s.points);
+                       const newCenter = rotatePoint(oldCenter, pivotPt, delta);
+                       const shiftX = newCenter.x - oldCenter.x;
+                       const shiftY = newCenter.y - oldCenter.y;
+                       newPoints = s.points.map(p => ({ x: p.x + shiftX, y: p.y + shiftY }));
+                   }
+                   setCurrentRotationDisplay(Math.round(newRotation));
+                   return { ...s, rotation: newRotation, points: newPoints };
                }
-               setCurrentRotationDisplay(Math.round(newRotation));
-               return { ...s, rotation: newRotation, points: newPoints };
           });
           return;
       }
@@ -800,10 +795,6 @@ export default function App() {
       // ALT KEY DUPLICATION
       if (e.altKey) {
           saveHistory();
-
-          // Determine what to copy. 
-          // If clicked shape is not in current selection, we copy just that one (and select it).
-          // If clicked shape IS in selection, we copy the entire selection.
           let idsToCopy = new Set(selectedIds);
           if (!idsToCopy.has(id)) {
               idsToCopy = new Set([id]);
@@ -821,25 +812,17 @@ export default function App() {
               }
           });
 
-          // Update State
-          // We need to merge existing shapes with new shapes immediately for drag context
           const allShapes = [...shapes, ...newShapes];
           setShapes(allShapes);
           setSelectedIds(newSelectedIds);
           
-          // Initiate Drag on the NEW items
           setDragStartPos(getMousePos(e, true));
           setIsDragging(true);
           
-          // FIX: Do not use calculateDragContext for the initial copy drag.
-          // Because the new shapes are exactly on top of old ones, calculateDragContext will
-          // see them as "connected" and try to move both, causing them to stick together.
-          // By manually setting the context to ONLY the new moving shapes, we peel them off.
           setDragContext({
               movingShapeIds: newSelectedIds,
               connectedPoints: [] 
           });
-          
           return;
       }
       
@@ -851,7 +834,14 @@ export default function App() {
       } else {
           if (!newSelection.has(id)) {
               newSelection = new Set([id]);
-              setPivotIndex('center'); 
+              // Reset pivot to center unless it was already set for a specific reason? 
+              // Actually, if selecting a Protractor, auto-selecting Vertex Pivot is nice UX.
+              const target = shapes.find(s=>s.id === id);
+              if (target?.type === ShapeType.PROTRACTOR) {
+                  setPivotIndex(99); 
+              } else {
+                  setPivotIndex('center'); 
+              }
           }
       }
       
@@ -869,37 +859,73 @@ export default function App() {
       e.stopPropagation();
       if (selectedIds.size !== 1) return;
 
-      saveHistory(); // Save before rotation starts
+      saveHistory(); 
       
       const id = Array.from(selectedIds)[0];
       const shape = shapes.find(s => s.id === id);
       if (!shape) return;
 
+      // BAKING ROTATION PREPARATION
+      // For vertex shapes, we want to start rotating 'fresh'.
+      // If the shape has existing rotation property, we bake it into points NOW,
+      // so that during drag we can rotate purely by point transformation.
+      const isVertexShape = [ShapeType.TRIANGLE, ShapeType.LINE, ShapeType.FREEHAND, ShapeType.POINT].includes(shape.type);
+      
+      let workShape = shape;
+      if (isVertexShape && shape.rotation !== 0) {
+          const baked = bakeRotation(shape);
+          updateShapes(selectedIds, baked);
+          workShape = baked;
+          setInitialShapeRotation(0);
+      } else {
+          setInitialShapeRotation(shape.rotation || 0);
+      }
+
+      // Calculate Center
       let center: Point;
       if (pivotIndex === 'center') {
-          center = getShapeCenter(shape.points);
+          center = getShapeCenter(workShape.points);
       } else if (typeof pivotIndex === 'number') {
-          // Fix: For vertex-based shapes (Triangle, Line), the pivot index maps to the point index
-          if (shape.type === ShapeType.TRIANGLE || shape.type === ShapeType.LINE) {
-              const shapeCenter = getShapeCenter(shape.points);
-              const vertex = shape.points[pivotIndex];
-              // Use current shape rotation to transform the vertex to world space
-              center = rotatePoint(vertex, shapeCenter, shape.rotation || 0);
+          if (isVertexShape) {
+              // Points are already baked (world coords), so just pick the point
+              center = workShape.points[pivotIndex];
           } else {
-              // For box-based shapes, map pivot index to bounding box corners
-              const corners = getRotatedCorners(shape);
-              if (pivotIndex < corners.length) {
-                  center = corners[pivotIndex];
+              // Rigid Shapes (Rect, Square, Protractor)
+              // We need to find where the pivot is in world space.
+              if (workShape.type === ShapeType.PROTRACTOR && pivotIndex === 99) {
+                  // Special case: Protractor Vertex
+                  // The protractor is defined by 2 points (bounding box p1, p2)
+                  // The vertex is at the bottom-center of this box, ROTATED by shape.rotation around the box center.
+                  
+                  // 1. Unrotated Box Coords
+                  const xs = workShape.points.map(p=>p.x);
+                  const ys = workShape.points.map(p=>p.y);
+                  const minX = Math.min(...xs);
+                  const maxX = Math.max(...xs);
+                  const maxY = Math.max(...ys); // Bottom
+                  const midX = (minX + maxX) / 2;
+                  
+                  const unrotatedVertex = { x: midX, y: maxY };
+                  
+                  // 2. Apply current rotation
+                  const boxCenter = getShapeCenter(workShape.points);
+                  center = rotatePoint(unrotatedVertex, boxCenter, workShape.rotation || 0);
+
               } else {
-                  center = getShapeCenter(shape.points);
+                  // Standard corners
+                  const corners = getRotatedCorners(workShape);
+                  if (pivotIndex < corners.length) {
+                      center = corners[pivotIndex];
+                  } else {
+                      center = getShapeCenter(workShape.points);
+                  }
               }
           }
       } else {
-          center = getShapeCenter(shape.points);
+          center = getShapeCenter(workShape.points);
       }
       
       setRotationCenter(center);
-      setInitialShapeRotation(shape.rotation || 0);
       
       const mousePos = getMousePos(e, false);
       const dx = mousePos.x - center.x;
@@ -939,7 +965,17 @@ export default function App() {
       const targetAngle = parseAngle(valStr);
       if (isNaN(targetAngle)) return;
 
-      saveHistory(); // Save before angle change
+      saveHistory(); 
+
+      // If rotation is baked, we can use points directly.
+      // If rotation is NOT baked (from old save), we should bake it first to be safe,
+      // but solveTriangleASA returns a new point. We'd need to inverse rotate if we supported prop rotation.
+      // Since we are moving to Baked Rotation for triangles, let's bake it now.
+      let workingPoints = shape.points;
+      if (shape.rotation) {
+          const baked = bakeRotation(shape);
+          workingPoints = baked.points;
+      }
 
       let fixedVertexIdx = -1;
       if (lastEditedVertexIdx !== null && lastEditedVertexIdx !== angleIndex) {
@@ -951,18 +987,18 @@ export default function App() {
       const idxA = angleIndex; 
       const idxB = fixedVertexIdx; 
       const idxC = [0,1,2].find(i => i !== idxA && i !== idxB)!;
-      const pA = shape.points[idxA];
-      const pB = shape.points[idxB];
-      const pC = shape.points[idxC]; 
+      const pA = workingPoints[idxA];
+      const pB = workingPoints[idxB];
+      const pC = workingPoints[idxC]; 
       
-      const currentAngles = calculateTriangleAngles(shape.points);
+      const currentAngles = calculateTriangleAngles(workingPoints);
       const angleB = Object.values(currentAngles)[idxB];
       
       const newPointC = solveTriangleASA(pA, pB, targetAngle, angleB, pC);
 
-      const newPoints = [...shape.points];
+      const newPoints = [...workingPoints];
       newPoints[idxC] = newPointC;
-      updateShapes(selectedIds, { points: newPoints });
+      updateShapes(selectedIds, { points: newPoints, rotation: 0 }); // Reset rotation to 0 as it is baked
       setLastEditedVertexIdx(angleIndex);
   };
 
@@ -983,6 +1019,7 @@ export default function App() {
           setSelectedIds(new Set());
           setSnapIndicator(null);
           setPendingLineStart(null);
+          setCursorPos(null);
           setTimeout(() => {
             if(svgRef.current) exportCanvas(svgRef.current, format, 'geodraw-export');
             setSelectedIds(prevSelection);
@@ -1011,12 +1048,27 @@ export default function App() {
     img.src = '/icon.svg';
   };
 
-  const updateSelectedStyle = (key: keyof typeof currentStyle, value: any) => {
+  const updateSelectedStyle = (key: keyof typeof currentStyle | 'fontSize', value: any) => {
+      // If it's fontSize, we don't store it in currentStyle global preference, only on shape
+    if (key === 'fontSize') {
+         if (selectedIds.size > 0) {
+            saveHistory();
+            updateShapes(selectedIds, { fontSize: value });
+         }
+         return;
+    }
+    
     setCurrentStyle(prev => ({ ...prev, [key]: value }));
     if (selectedIds.size > 0) {
         saveHistory();
         updateShapes(selectedIds, { [key]: value });
     }
+  };
+
+  const getCommonFontSize = () => {
+      if (selectedIds.size === 0) return 16;
+      const s = shapes.find(x => x.id === Array.from(selectedIds)[0]);
+      return s?.fontSize || 16;
   };
 
   return (
@@ -1081,17 +1133,17 @@ export default function App() {
         </aside>
 
         <main 
-            className={`flex-1 relative bg-gray-100 overflow-hidden ${pickingMirrorMode ? 'cursor-crosshair' : ''} ${markingAnglesMode ? 'cursor-copy' : ''}`}
+            className={`flex-1 relative bg-gray-100 overflow-hidden ${pickingMirrorMode ? 'cursor-crosshair' : ''} ${markingAnglesMode ? 'cursor-copy' : ''} ${tool === ToolType.FREEHAND ? 'cursor-none' : ''}`}
         >
             <svg
                 ref={svgRef}
                 width="100%"
                 height="100%"
-                className="block touch-none"
+                className={`block touch-none ${tool === ToolType.FREEHAND ? 'cursor-none' : ''}`}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMoveWithRotation}
                 onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onMouseLeave={() => { handleMouseUp({} as any); setCursorPos(null); }}
             >
                 <rect width="100%" height="100%" fill="white" />
                 <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
@@ -1105,7 +1157,7 @@ export default function App() {
                         style={{ 
                             cursor: pickingMirrorMode 
                                 ? (shape.type === ShapeType.LINE ? 'pointer' : 'not-allowed')
-                                : (selectedIds.has(shape.id) ? 'move' : 'pointer')
+                                : (selectedIds.has(shape.id) ? 'move' : (tool === ToolType.FREEHAND ? 'none' : 'pointer'))
                         }}
                     >
                         <ShapeRenderer shape={shape} isSelected={selectedIds.has(shape.id)} />
@@ -1114,7 +1166,7 @@ export default function App() {
 
                 {Array.from(selectedIds).map(id => {
                     const s = shapes.find(sh => sh.id === id);
-                    if (!s || s.type === ShapeType.TEXT) return null; 
+                    if (!s || (s.type === ShapeType.TEXT && tool !== ToolType.SELECT)) return null; 
                     if (pickingMirrorMode) return null;
 
                     return (
@@ -1152,8 +1204,20 @@ export default function App() {
                     />
                 )}
 
+                {/* Snapping Indicator (Red Circle) - Disabled for Freehand now */}
                 {snapIndicator && (
                     <circle cx={snapIndicator.x} cy={snapIndicator.y} r={6} fill="none" stroke="#ef4444" strokeWidth={2} className="pointer-events-none" />
+                )}
+
+                {/* Custom Brush Cursor for Freehand */}
+                {tool === ToolType.FREEHAND && cursorPos && (
+                    <circle 
+                        cx={cursorPos.x} 
+                        cy={cursorPos.y} 
+                        r={1.5} 
+                        fill={currentStyle.stroke}
+                        className="pointer-events-none"
+                    />
                 )}
             </svg>
 
@@ -1201,8 +1265,11 @@ export default function App() {
                         onKeyDown={(e) => { if(e.key === 'Enter') commitText(); }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-transparent border border-brand-500 rounded px-1 py-0.5 text-xl font-sans text-brand-900 outline-none shadow-lg min-w-[50px] shadow-sm bg-white/50 backdrop-blur-sm"
-                        style={{ color: shapes.find(s=>s.id === textEditing.id)?.stroke || 'black' }}
+                        className="bg-transparent border border-brand-500 rounded px-1 py-0.5 font-sans text-brand-900 outline-none shadow-lg min-w-[50px] shadow-sm bg-white/50 backdrop-blur-sm"
+                        style={{ 
+                            color: shapes.find(s=>s.id === textEditing.id)?.stroke || 'black',
+                            fontSize: `${shapes.find(s=>s.id === textEditing.id)?.fontSize || 16}px`
+                        }}
                     />
                 </div>
             )}
@@ -1211,7 +1278,7 @@ export default function App() {
                  <Magnet size={12} className={snapIndicator ? "text-red-500" : "text-gray-400"} />
                  {tool === ToolType.SELECT 
                     ? (isAltPressed ? 'Alt held: Drag to copy. Click orange points for Pivot.' : 'Click to select. Drag to move. Alt+Drag to copy.')
-                    : 'Drag to draw. Snapping active.'}
+                    : (tool === ToolType.FREEHAND ? 'Drag to sketch. Snapping disabled.' : 'Drag to draw. Snapping active.')}
             </div>
         </main>
 
@@ -1323,6 +1390,27 @@ export default function App() {
                         <span className="text-sm w-6 text-center">{currentStyle.strokeWidth}</span>
                     </div>
                 </div>
+
+                {/* Font Size Slider - Show only for Text items or if multiple items selected containing text? Let's show if Text is selected */}
+                {selectedIds.size > 0 && shapes.find(s => selectedIds.has(s.id) && s.type === ShapeType.TEXT) && (
+                    <div>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block flex items-center gap-2">
+                            <Type size={12}/> Font Size
+                        </label>
+                        <div className="flex items-center gap-3">
+                            <Minus size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" onClick={() => updateSelectedStyle('fontSize', Math.max(8, getCommonFontSize() - 2))} />
+                            <input 
+                                type="range" 
+                                min="8" max="72" step="2"
+                                value={getCommonFontSize()} 
+                                onChange={(e) => updateSelectedStyle('fontSize', Number(e.target.value))}
+                                className="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600"
+                            />
+                            <Plus size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" onClick={() => updateSelectedStyle('fontSize', getCommonFontSize() + 2)} />
+                            <span className="text-sm w-6 text-center">{getCommonFontSize()}</span>
+                        </div>
+                    </div>
+                )}
 
                 <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Style</label>
