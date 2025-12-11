@@ -15,19 +15,24 @@
     "productName": "GeoDraw Pro",
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "public/icon.svg"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "public"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "public/icon.svg"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "public/icon.svg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "public/icon.svg"
     }
   },
   "dependencies": {

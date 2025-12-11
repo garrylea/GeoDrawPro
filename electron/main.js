@@ -5,19 +5,30 @@ const path = require('path');
 let mainWindow;
 
 function createWindow() {
+  // Determine icon path based on environment
+  // Note: Windows prefers .ico, Linux .png. Electron can often handle SVG used as window icon in some contexts,
+  // but for production, you should convert public/icon.svg to icon.png and icon.ico.
+  // Here we attempt to use the SVG for the runtime window icon.
+  const isDev = !app.isPackaged;
+  let iconPath;
+  
+  if (isDev) {
+    iconPath = path.join(__dirname, '../public/icon.svg');
+  } else {
+    iconPath = path.join(__dirname, '../dist/icon.svg');
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: "GeoDraw Pro",
+    icon: iconPath, // Set the window icon
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false, // For simple migration. In production, use preload scripts.
       webSecurity: false // Optional: helps with loading local resources in some cases
     },
   });
-
-  // Check if we are in development mode
-  const isDev = !app.isPackaged;
 
   if (isDev) {
     // In development, load from Vite dev server

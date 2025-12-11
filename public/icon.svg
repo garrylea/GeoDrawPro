@@ -1,0 +1,36 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="paint0_linear" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+<stop stop-color="#0EA5E9"/>
+<stop offset="1" stop-color="#4F46E5"/>
+</linearGradient>
+<filter id="filter0_d" x="86" y="86" width="340" height="340" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="4"/>
+<feGaussianBlur stdDeviation="8"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+</filter>
+</defs>
+
+<!-- Background Squircle (Superellipse) -->
+<path d="M512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0C397.385 0 512 114.615 512 256Z" fill="url(#paint0_linear)"/>
+<rect x="0" y="0" width="512" height="512" rx="120" ry="120" fill="url(#paint0_linear)" style="display:none;"/> <!-- Alternative squircle shape if circle isn't desired -->
+
+<!-- Geometric Content -->
+<g filter="url(#filter0_d)">
+<!-- Triangle / Ruler -->
+<path d="M256 120L150 300H362L256 120Z" stroke="white" stroke-width="24" stroke-linejoin="round" stroke-linecap="round"/>
+<!-- Circle / Compass Orbit -->
+<circle cx="256" cy="280" r="70" stroke="white" stroke-width="24" stroke-linecap="round"/>
+<!-- Horizontal Measurement Line -->
+<path d="M130 360H382" stroke="white" stroke-width="24" stroke-linecap="round"/>
+<!-- Vertical Tick Marks -->
+<path d="M190 360V380" stroke="white" stroke-width="12" stroke-linecap="round"/>
+<path d="M256 360V380" stroke="white" stroke-width="12" stroke-linecap="round"/>
+<path d="M322 360V380" stroke="white" stroke-width="12" stroke-linecap="round"/>
+</g>
+</svg>
