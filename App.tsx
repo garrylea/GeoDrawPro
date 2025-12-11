@@ -6,7 +6,7 @@ import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { exportCanvas } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees } from './utils/mathUtils';
-import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal } from 'lucide-react';
+import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, RotateCw, FlipHorizontal, FlipVertical, Spline, Undo, Eraser, MoreHorizontal, Image as ImageIcon } from 'lucide-react';
 
 export default function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -870,6 +870,39 @@ export default function App() {
           }, 50);
       }
   };
+  
+  // Developer Utility: Generate High Res Icon from SVG
+  const generateAppIcon = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+        ctx.clearRect(0,0,1024,1024);
+        ctx.drawImage(img, 0, 0, 1024, 1024);
+        const url = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'icon.png';
+        link.href = url;
+        link.click();
+    };
+    img.src = '/icon.svg';
+  };
+
+  const updateSelectedStyle = (key: keyof typeof currentStyle, value: any) => {
+    // 1. Update global current style
+    setCurrentStyle(prev => ({ ...prev, [key]: value }));
+
+    // 2. If items selected, apply style immediately
+    if (selectedIds.size > 0) {
+        saveHistory();
+        updateShapes(selectedIds, { [key]: value });
+    }
+  };
 
   return (
     <div className="flex h-screen w-screen flex-col bg-gray-50 text-slate-800 font-sans">
@@ -911,6 +944,12 @@ export default function App() {
              <div className="h-6 w-px bg-gray-300 mx-1"></div>
              <button onClick={() => handleExport('png')} className="btn-primary bg-brand-600 text-white hover:bg-brand-700">
                 <Download size={16} /> Export PNG
+             </button>
+             
+             <div className="h-6 w-px bg-gray-300 mx-1"></div>
+             {/* Developer Icon Generation Button */}
+             <button onClick={generateAppIcon} className="btn-secondary text-slate-500 hover:bg-slate-100" title="Generate High-Res Icon PNG">
+                <ImageIcon size={16} /> Icon
              </button>
         </div>
       </header>
@@ -1086,89 +1125,116 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-2">
                         <button 
                             onClick={() => handleReflection('y')}
-                            className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-200 transition-colors"
-                            title="Flip Horizontally (About Y-Axis)"
+                            className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-500 text-gray-600 hover:text-brand-600 transition-colors"
+                            title="Flip Vertical (Mirror across Y-axis)"
                         >
-                            <FlipHorizontal size={20} className="text-slate-600 mb-1"/>
-                            <span className="text-[10px] text-slate-500">Flip H</span>
+                            <FlipVertical size={20} className="mb-1" />
+                            <span className="text-[10px]">Flip V</span>
                         </button>
                         <button 
-                             onClick={() => handleReflection('x')}
-                             className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-200 transition-colors"
-                             title="Flip Vertically (About X-Axis)"
+                            onClick={() => handleReflection('x')}
+                            className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-500 text-gray-600 hover:text-brand-600 transition-colors"
+                            title="Flip Horizontal (Mirror across X-axis)"
                         >
-                            <FlipVertical size={20} className="text-slate-600 mb-1"/>
-                            <span className="text-[10px] text-slate-500">Flip V</span>
+                            <FlipHorizontal size={20} className="mb-1" />
+                            <span className="text-[10px]">Flip H</span>
                         </button>
                         <button 
-                             onClick={() => setPickingMirrorMode(true)}
-                             className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-200 transition-colors"
-                             title="Reflect across a specific line"
+                            onClick={() => setPickingMirrorMode(true)}
+                            className="flex flex-col items-center justify-center p-2 bg-white border border-gray-200 rounded hover:bg-brand-50 hover:border-brand-500 text-gray-600 hover:text-brand-600 transition-colors"
+                            title="Mirror across a Line you select on canvas"
                         >
-                            <Minus size={20} className="text-slate-600 mb-1 rotate-45"/>
-                            <span className="text-[10px] text-slate-500">Line</span>
+                            <div className="relative">
+                                <FlipHorizontal size={20} className="mb-1" />
+                                <div className="absolute -right-1 -bottom-1 text-[10px] bg-brand-100 px-0.5 rounded border border-brand-200">/</div>
+                            </div>
+                            <span className="text-[10px]">Mirror /</span>
                         </button>
                     </div>
                  </div>
              )}
 
-             <div className="p-5">
-                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Settings2 size={16} /> Appearance</h3>
-                <div className="space-y-6">
-                    <div>
-                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Style</label>
-                         <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
-                             <button 
-                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'solid'})); updateShapes(selectedIds, {strokeType: 'solid'}); }}
-                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'solid' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
-                             >
-                                 <Minus size={14} /> Solid
-                             </button>
-                             <button 
-                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'dashed'})); updateShapes(selectedIds, {strokeType: 'dashed'}); }}
-                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'dashed' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
-                             >
-                                 <MoreHorizontal size={14} /> Dash
-                             </button>
-                             <button 
-                                 onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, strokeType: 'dotted'})); updateShapes(selectedIds, {strokeType: 'dotted'}); }}
-                                 className={`flex-1 py-1 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition-all ${currentStyle.strokeType === 'dotted' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
-                             >
-                                 <MoreHorizontal size={14} className="opacity-50" /> Dot
-                             </button>
-                         </div>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke Color</label>
-                        <div className="flex flex-wrap gap-2">
-                            {COLORS.slice(1).map(c => (
-                                <button key={c} onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, stroke: c})); updateShapes(selectedIds, {stroke: c}); }} className="w-6 h-6 rounded-full border border-gray-200" style={{ backgroundColor: c }} />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Fill Color</label>
-                        <div className="flex flex-wrap gap-2">
-                            {COLORS.map(c => (
-                                <button key={c} onClick={() => { saveHistory(); setCurrentStyle(p => ({...p, fill: c})); updateShapes(selectedIds, {fill: c}); }} className="w-6 h-6 rounded-full border border-gray-200" style={{ backgroundColor: c }} />
-                            ))}
-                        </div>
-                    </div>
-                    
-                    <div>
-                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Width</label>
-                         <input type="range" min="1" max="10" value={currentStyle.strokeWidth} onChange={(e) => { saveHistory(); setCurrentStyle(p => ({...p, strokeWidth: Number(e.target.value)})); updateShapes(selectedIds, {strokeWidth: Number(e.target.value)}); }} className="w-full h-2 bg-gray-200 rounded-lg accent-brand-600" />
+             {/* Style Properties */}
+             <div className="p-5 space-y-5">
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke Color</label>
+                    <div className="flex flex-wrap gap-2">
+                        {COLORS.map(c => (
+                            <button
+                                key={c}
+                                onClick={() => updateSelectedStyle('stroke', c)}
+                                className={`w-6 h-6 rounded-full border border-gray-200 shadow-sm ${currentStyle.stroke === c ? 'ring-2 ring-brand-500 ring-offset-2' : ''}`}
+                                style={{ backgroundColor: c === 'transparent' ? 'white' : c, backgroundImage: c === 'transparent' ? 'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none', backgroundSize: '4px 4px' }}
+                                title={c}
+                            />
+                        ))}
                     </div>
                 </div>
+
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Fill Color</label>
+                    <div className="flex flex-wrap gap-2">
+                        {COLORS.map(c => (
+                            <button
+                                key={c}
+                                onClick={() => updateSelectedStyle('fill', c)}
+                                className={`w-6 h-6 rounded-full border border-gray-200 shadow-sm ${currentStyle.fill === c ? 'ring-2 ring-brand-500 ring-offset-2' : ''}`}
+                                style={{ backgroundColor: c === 'transparent' ? 'white' : c, backgroundImage: c === 'transparent' ? 'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none', backgroundSize: '4px 4px' }}
+                                title={c}
+                            />
+                        ))}
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Stroke Width</label>
+                    <div className="flex items-center gap-3">
+                        <Minus size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" onClick={() => updateSelectedStyle('strokeWidth', Math.max(1, currentStyle.strokeWidth - 1))} />
+                        <input 
+                            type="range" 
+                            min="1" max="20" 
+                            value={currentStyle.strokeWidth} 
+                            onChange={(e) => updateSelectedStyle('strokeWidth', Number(e.target.value))}
+                            className="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600"
+                        />
+                        <Plus size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" onClick={() => updateSelectedStyle('strokeWidth', currentStyle.strokeWidth + 1)} />
+                        <span className="text-sm w-6 text-center">{currentStyle.strokeWidth}</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Line Style</label>
+                    <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                        {(['solid', 'dashed', 'dotted'] as const).map((t) => (
+                             <button
+                                key={t}
+                                onClick={() => updateSelectedStyle('strokeType', t)}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-medium capitalize transition-all ${currentStyle.strokeType === t ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:bg-gray-200'}`}
+                             >
+                                 {t}
+                             </button>
+                        ))}
+                    </div>
+                </div>
+                
+                {selectedIds.size === 1 && (
+                     <div>
+                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Info</label>
+                         <div className="text-xs text-gray-500 space-y-1">
+                             <div className="flex justify-between">
+                                 <span>Rotation:</span>
+                                 <span>{Math.round(shapes.find(s => s.id === Array.from(selectedIds)[0])?.rotation || 0)}°</span>
+                             </div>
+                             <div className="flex justify-between">
+                                 <span>ID:</span>
+                                 <span className="font-mono">{Array.from(selectedIds)[0].substr(0,6)}...</span>
+                             </div>
+                         </div>
+                     </div>
+                )}
              </div>
         </aside>
       </div>
-      <style>{`
-        .btn-primary { @apply flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md shadow-sm transition-colors; }
-        .btn-secondary { @apply flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md shadow-sm transition-colors; }
-      `}</style>
     </div>
   );
 }
