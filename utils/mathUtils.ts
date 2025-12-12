@@ -6,6 +6,92 @@ export interface RecognizedShape {
     points: Point[];
 }
 
+// --- Coordinate System Utilities ---
+// These helpers assume the standard setup in AxisLayer: Center is (width/2, height/2)
+
+export const getPixelsPerUnit = (width: number, height: number, ticks: number) => {
+    const maxDimension = Math.max(width, height) / 2;
+    // AxisLayer uses this step logic
+    return (maxDimension * 0.9) / (ticks || 5);
+};
+
+export const screenToMath = (p: Point, width: number, height: number, ppu: number): Point => {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    return {
+        x: (p.x - centerX) / ppu,
+        y: -(p.y - centerY) / ppu // Invert Y because screen Y goes down
+    };
+};
+
+export const mathToScreen = (p: Point, width: number, height: number, ppu: number): Point => {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    return {
+        x: centerX + p.x * ppu,
+        y: centerY - p.y * ppu
+    };
+};
+
+export const evaluateQuadratic = (x: number, params: { a: number; b: number; c: number; h?: number; k?: number }, form: 'standard' | 'vertex' = 'standard'): number => {
+    if (form === 'vertex') {
+        // y = a(x - h)^2 + k
+        const h = params.h || 0;
+        const k = params.k || 0;
+        return params.a * Math.pow(x - h, 2) + k;
+    } else {
+        // y = ax^2 + bx + c
+        return params.a * x * x + params.b * x + params.c;
+    }
+};
+
+export const generateQuadraticPath = (
+    params: { a: number; b: number; c: number; h?: number; k?: number }, 
+    form: 'standard' | 'vertex',
+    width: number, 
+    height: number, 
+    ppu: number
+): string => {
+    // We only need to render what's visible on screen (plus margin) to keep SVG performant
+    const minScreenX = -50;
+    const maxScreenX = width + 50;
+    
+    // Step size in pixels for smoothness. 2px is usually smooth enough.
+    const pixelStep = 4; 
+    
+    let d = "";
+    let first = true;
+
+    for (let sx = minScreenX; sx <= maxScreenX; sx += pixelStep) {
+        // 1. Convert Screen X to Math X
+        const mx = (sx - (width / 2)) / ppu;
+        
+        // 2. Evaluate Function y = f(x)
+        const my = evaluateQuadratic(mx, params, form);
+        
+        // 3. Convert Math Y back to Screen Y
+        // Screen Y = CenterY - MathY * PPU
+        const sy = (height / 2) - my * ppu;
+        
+        // Optimization: Don't draw points way way off screen vertically (prevents SVG glitches)
+        if (sy < -height * 2 || sy > height * 2) {
+            // If we go out of bounds, we break the line command to avoid artifacts
+            first = true;
+            continue;
+        }
+
+        if (first) {
+            d += `M ${sx.toFixed(1)} ${sy.toFixed(1)}`;
+            first = false;
+        } else {
+            d += ` L ${sx.toFixed(1)} ${sy.toFixed(1)}`;
+        }
+    }
+    return d;
+};
+
+// -----------------------------------
+
 export const distance = (p1: Point, p2: Point) => {
   return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
 };
@@ -17,23 +103,31 @@ export const lerp = (p1: Point, p2: Point, t: number): Point => ({
     y: p1.y + (p2.y - p1.y) * t
 });
 
-// Returns the parameter t (0 to 1) of point p projected onto segment ab
 export const getProjectionParameter = (p: Point, a: Point, b: Point): number => {
     const atob = { x: b.x - a.x, y: b.y - a.y };
     const atop = { x: p.x - a.x, y: p.y - a.y };
     const lenSq = atob.x * atob.x + atob.y * atob.y;
     if (lenSq === 0) return 0;
     let dot = atop.x * atob.x + atop.y * atob.y;
-    return Math.min(1, Math.max(0, dot / lenSq));
+    return dot / lenSq; // Allow projection outside segment for infinite line logic
+};
+
+export const getProjectedPointOnLine = (p: Point, a: Point, b: Point): Point => {
+    const t = getProjectionParameter(p, a, b);
+    return lerp(a, b, t);
 };
 
 export const getShapeCenter = (points: Point[]): Point => {
   if (points.length === 0) return { x: 0, y: 0 };
-  const xs = points.map(p => p.x);
-  const ys = points.map(p => p.y);
+  
+  // Use Mathematical Centroid (Average of points) for stability during rotation of asymmetric shapes like Triangles.
+  // Using Bounding Box Center causes 'wobble' because the BBox changes shape as the object rotates.
+  const xSum = points.reduce((acc, p) => acc + p.x, 0);
+  const ySum = points.reduce((acc, p) => acc + p.y, 0);
+  
   return {
-    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+    x: xSum / points.length,
+    y: ySum / points.length,
   };
 };
 
@@ -51,7 +145,7 @@ export const rotatePoint = (point: Point, center: Point, angleDegrees: number): 
 export const getRotatedCorners = (shape: Shape): Point[] => {
   const center = getShapeCenter(shape.points);
   
-  if (shape.type === ShapeType.TRIANGLE || shape.type === ShapeType.LINE || shape.type === ShapeType.FREEHAND) {
+  if (shape.type === ShapeType.TRIANGLE || shape.type === ShapeType.LINE || shape.type === ShapeType.FREEHAND || shape.type === ShapeType.PATH || shape.type === ShapeType.FUNCTION_GRAPH) {
       if (!shape.rotation) return shape.points;
       return shape.points.map(p => rotatePoint(p, center, shape.rotation));
   }
@@ -76,55 +170,138 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
 
 export const getDetailedSnapPoints = (shape: Shape): Point[] => {
     let points: Point[] = [];
-    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.PROTRACTOR].includes(shape.type)) {
+    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.PROTRACTOR, ShapeType.RULER, ShapeType.TEXT].includes(shape.type)) {
         points = getRotatedCorners(shape);
+    } else if (shape.type === ShapeType.CIRCLE || shape.type === ShapeType.ELLIPSE) {
+        // Center + 4 cardinal points
+        const center = getShapeCenter(shape.points);
+        const corners = getRotatedCorners(shape); // Rotated bounds
+        // Midpoints of edges of rotated bounds approximate cardinal points
+        points = [center, 
+            lerp(corners[0], corners[1], 0.5),
+            lerp(corners[1], corners[2], 0.5),
+            lerp(corners[2], corners[3], 0.5),
+            lerp(corners[3], corners[0], 0.5)
+        ];
+    } else if (shape.type === ShapeType.FUNCTION_GRAPH) {
+        points = [];
     } else {
-        points = shape.points;
+        // IMPORTANT: Must clone the array, otherwise pushing the center below mutates the actual shape points!
+        points = [...shape.points];
     }
-    return [...points, getShapeCenter(shape.points)];
+    // Only add center for non-functions
+    if(shape.type !== ShapeType.FUNCTION_GRAPH) {
+        points.push(getShapeCenter(shape.points));
+    }
+    return points;
+};
+
+export const getLineIntersection = (p1: Point, p2: Point, p3: Point, p4: Point, infinite: boolean = false): Point | null => {
+    const d = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+    if (d === 0) return null; // Parallel
+
+    const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / d;
+    const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / d;
+
+    if (infinite || (t >= -0.1 && t <= 1.1 && u >= -0.1 && u <= 1.1)) {
+        return {
+            x: p1.x + t * (p2.x - p1.x),
+            y: p1.y + t * (p2.y - p1.y)
+        };
+    }
+    return null;
+};
+
+export const getShapeIntersection = (s1: Shape, s2: Shape): Point | null => {
+    if (s1.type === ShapeType.FUNCTION_GRAPH || s2.type === ShapeType.FUNCTION_GRAPH) return null;
+
+    const pts1 = getRotatedCorners(s1);
+    const pts2 = getRotatedCorners(s2);
+    
+    for (let i = 0; i < pts1.length; i++) {
+        const pA = pts1[i];
+        const pB = pts1[(i + 1) % pts1.length];
+        if (s1.type === ShapeType.LINE && i === 1) break;
+
+        for (let j = 0; j < pts2.length; j++) {
+            const pC = pts2[j];
+            const pD = pts2[(j + 1) % pts2.length];
+            if (s2.type === ShapeType.LINE && j === 1) break;
+
+            const intersect = getLineIntersection(pA, pB, pC, pD);
+            if (intersect) return intersect;
+        }
+    }
+    return null;
 };
 
 export const getSnapPoint = (pos: Point, shapes: Shape[], excludeIds: string[] = []) => {
   const gridSize = 20;
-  const snapThreshold = 5; 
+  const snapThreshold = 10; 
 
   let bestDist = snapThreshold;
   let bestPoint = null;
+  let bestConstraint = null;
 
-  for (const shape of shapes) {
-      if (excludeIds.includes(shape.id)) continue;
-      
+  const validShapes = shapes.filter(s => !excludeIds.includes(s.id));
+
+  // 1. Check Intersections
+  const nearby = validShapes.filter(s => distance(pos, getClosestPointOnShape(pos, s)) < 20);
+  if (nearby.length >= 2) {
+      for (let i = 0; i < nearby.length; i++) {
+          for (let j = i + 1; j < nearby.length; j++) {
+              const s1 = nearby[i];
+              const s2 = nearby[j];
+              if ([ShapeType.POINT, ShapeType.TEXT, ShapeType.FUNCTION_GRAPH].includes(s1.type) || 
+                  [ShapeType.POINT, ShapeType.TEXT, ShapeType.FUNCTION_GRAPH].includes(s2.type)) continue;
+              
+              const inter = getShapeIntersection(s1, s2);
+              if (inter) {
+                  const d = distance(pos, inter);
+                  if (d < snapThreshold) {
+                      return { point: inter, snapped: true, constraint: { type: 'intersection', parents: [s1.id, s2.id] } };
+                  }
+              }
+          }
+      }
+  }
+
+  // 2. Check Vertices/Centers
+  for (const shape of validShapes) {
       const candidates = getDetailedSnapPoints(shape);
-      
       for (const pt of candidates) {
           const d = distance(pos, pt);
           if (d < bestDist) {
               bestDist = d;
               bestPoint = pt;
+              bestConstraint = null;
           }
       }
   }
 
-  if (bestPoint) return { point: bestPoint, snapped: true };
+  if (bestPoint) return { point: bestPoint, snapped: true, constraint: null };
 
+  // 3. Grid Snap
   const gridX = Math.round(pos.x / gridSize) * gridSize;
   const gridY = Math.round(pos.y / gridSize) * gridSize;
   const dGrid = distance(pos, { x: gridX, y: gridY });
   
   if (dGrid < snapThreshold) {
-      return { point: { x: gridX, y: gridY }, snapped: true };
+      return { point: { x: gridX, y: gridY }, snapped: true, constraint: null };
   }
   
-  return { point: pos, snapped: false };
+  return { point: pos, snapped: false, constraint: null };
 };
 
 export const getShapeSize = (shape: Shape): number => {
+    if (shape.type === ShapeType.FUNCTION_GRAPH) return 1000; 
     const xs = shape.points.map(p => p.x);
     const ys = shape.points.map(p => p.y);
     return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
 };
 
 export const isShapeInRect = (shape: Shape, rect: { start: Point, end: Point }): boolean => {
+    if (shape.type === ShapeType.FUNCTION_GRAPH) return false; 
     const rLeft = Math.min(rect.start.x, rect.end.x);
     const rRight = Math.max(rect.start.x, rect.end.x);
     const rTop = Math.min(rect.start.y, rect.end.y);
@@ -149,14 +326,20 @@ export const calculateTriangleAngles = (points: Point[]) => {
     const b = distance(pA, pC);
     const c = distance(pA, pB);
     
-    const A = Math.acos((b*b + c*c - a*a) / (2*b*c)) * (180 / Math.PI);
-    const B = Math.acos((a*a + c*c - b*b) / (2*a*c)) * (180 / Math.PI);
+    // Safety check for collinear points or zero length sides to avoid NaNs
+    if (a === 0 || b === 0 || c === 0) return { A: 0, B: 0, C: 0 };
+
+    const A_rad = Math.acos(Math.max(-1, Math.min(1, (b*b + c*c - a*a) / (2*b*c))));
+    const B_rad = Math.acos(Math.max(-1, Math.min(1, (a*a + c*c - b*b) / (2*a*c))));
+    
+    const A = A_rad * (180 / Math.PI);
+    const B = B_rad * (180 / Math.PI);
     const C = 180 - A - B;
     
     return { 
-        A: Math.round(A * 10) / 10, 
-        B: Math.round(B * 10) / 10, 
-        C: Math.round(C * 10) / 10 
+        A: Math.round(A * 10) / 10 || 0, 
+        B: Math.round(B * 10) / 10 || 0, 
+        C: Math.round(C * 10) / 10 || 0 
     };
 };
 
@@ -218,8 +401,10 @@ export const getAngleArcPath = (center: Point, p1: Point, p2: Point, radius: num
     const endY = center.y + radius * Math.sin(angle1 + diff);
 
     const sweepFlag = diff > 0 ? 1 : 0;
-    const largeArcFlag = 0; 
-    
+    const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
+
+    if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) return "";
+
     return `M ${center.x} ${center.y} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${endX} ${endY} Z`;
 };
 
@@ -238,6 +423,8 @@ export const getAngleCurve = (center: Point, p1: Point, p2: Point, radius: numbe
 
     const sweepFlag = diff > 0 ? 1 : 0;
     const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
+
+    if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) return "";
 
     return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${endX} ${endY}`;
 };
@@ -455,7 +642,7 @@ export const recalculateMarker = (marker: Shape, allShapes: Shape[]): Shape | nu
 };
 
 export const getClosestPointOnSegment = (p: Point, a: Point, b: Point): Point => {
-    const t = getProjectionParameter(p, a, b);
+    const t = Math.min(1, Math.max(0, getProjectionParameter(p, a, b)));
     return lerp(a, b, t);
 };
 
@@ -476,6 +663,10 @@ export const getClosestPointOnCircle = (p: Point, shape: Shape): Point => {
 };
 
 export const getClosestPointOnShape = (p: Point, shape: Shape): Point => {
+    if (shape.type === ShapeType.FUNCTION_GRAPH) {
+        return p; 
+    }
+
     const corners = getRotatedCorners(shape);
     let bestPoint = corners[0];
     let minD = Infinity;
@@ -495,4 +686,65 @@ export const getClosestPointOnShape = (p: Point, shape: Shape): Point => {
         }
     }
     return bestPoint;
+};
+
+export const resolveConstraints = (shapes: Shape[], canvasWidth: number = 0, canvasHeight: number = 0, ppu: number = 1): Shape[] => {
+    let updatedShapes = [...shapes];
+    
+    updatedShapes = updatedShapes.map(s => {
+        // Resolve Intersection
+        if (s.constraint?.type === 'intersection' && s.constraint.parents && s.constraint.parents.length === 2) {
+            const p1 = updatedShapes.find(p => p.id === s.constraint!.parents![0]);
+            const p2 = updatedShapes.find(p => p.id === s.constraint!.parents![1]);
+            if (p1 && p2) {
+                const intersection = getShapeIntersection(p1, p2);
+                if (intersection) {
+                    if (Math.abs(intersection.x - s.points[0].x) > 0.01 || Math.abs(intersection.y - s.points[0].y) > 0.01) {
+                        return { ...s, points: [intersection] };
+                    }
+                }
+            }
+        }
+        
+        // Resolve On-Path (Function)
+        if (s.constraint?.type === 'on_path' && s.constraint.parentId) {
+            const parent = updatedShapes.find(p => p.id === s.constraint!.parentId);
+            if (parent && parent.type === ShapeType.FUNCTION_GRAPH && parent.formulaParams) {
+                // If we have stored a 'paramX' (the Math X coordinate), use it to re-evaluate Y
+                // This ensures the point rides the curve as parameters change
+                let mathX = s.constraint.paramX;
+                
+                // If paramX is missing (legacy/first bind), calculate it from current screen pos
+                if (mathX === undefined) {
+                    const mp = screenToMath(s.points[0], canvasWidth, canvasHeight, ppu);
+                    mathX = mp.x;
+                }
+
+                // Evaluate Y
+                const mathY = evaluateQuadratic(mathX, parent.formulaParams, parent.functionForm);
+                const screenP = mathToScreen({ x: mathX, y: mathY }, canvasWidth, canvasHeight, ppu);
+                
+                return { 
+                    ...s, 
+                    points: [screenP], 
+                    constraint: { ...s.constraint, paramX: mathX } // Update/Ensure paramX is set
+                };
+            }
+        }
+
+        return s;
+    });
+
+    updatedShapes = updatedShapes.map(s => {
+        if (s.type === ShapeType.MARKER && s.markerConfig) {
+            const targetsExist = s.markerConfig.targets.every(t => updatedShapes.some(us => us.id === t.shapeId));
+            if (targetsExist) {
+                const recalculated = recalculateMarker(s, updatedShapes);
+                return recalculated || s;
+            }
+        }
+        return s;
+    });
+
+    return updatedShapes;
 };

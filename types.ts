@@ -10,7 +10,10 @@ export enum ToolType {
   TRIANGLE = 'TRIANGLE',
   TEXT = 'TEXT',
   FREEHAND = 'FREEHAND',
-  PROTRACTOR = 'PROTRACTOR'
+  PROTRACTOR = 'PROTRACTOR',
+  FUNCTION = 'FUNCTION',
+  COMPASS = 'COMPASS', // New
+  RULER = 'RULER'      // New
 }
 
 export enum ShapeType {
@@ -24,8 +27,11 @@ export enum ShapeType {
   TEXT = 'TEXT',
   FREEHAND = 'FREEHAND',
   PATH = 'PATH',
+  POLYGON = 'POLYGON',
   PROTRACTOR = 'PROTRACTOR',
-  MARKER = 'MARKER' // New: Smart Geometric Marker
+  RULER = 'RULER', // Added
+  MARKER = 'MARKER',
+  FUNCTION_GRAPH = 'FUNCTION_GRAPH'
 }
 
 export interface Point {
@@ -37,17 +43,15 @@ export type MarkerType = 'perpendicular' | 'parallel_arrow' | 'equal_tick' | 'an
 
 export interface MarkerConfig {
     type: MarkerType;
-    // Stores references to the parent shapes.
-    // e.g. For a perpendicular mark between two lines:
-    // targets: [{ shapeId: 'line1', pointIndices: [0,1] }, { shapeId: 'line2', pointIndices: [0,1] }]
-    // For a tick mark on a triangle edge:
-    // targets: [{ shapeId: 'tri1', pointIndices: [1,2] }]
     targets: { shapeId: string; pointIndices: number[] }[]; 
 }
 
 export interface Constraint {
-    type: 'on_path';
-    parentId: string; // The ID of the shape (Line, Circle, Rect) this point is bound to
+    type: 'on_path' | 'intersection';
+    parentId?: string; // For on_path
+    parents?: string[]; // For intersection (two shape IDs)
+    // For function constraints, we might store the specific t-value (math X) to preserve relative position logic
+    paramX?: number; 
 }
 
 export interface Shape {
@@ -65,11 +69,18 @@ export interface Shape {
   strokeType?: 'solid' | 'dashed' | 'dotted'; 
   rotation: number; 
   
-  // New: Configuration for Smart Markers
   markerConfig?: MarkerConfig;
-
-  // New: Geometric Constraint (Parent-Child binding)
   constraint?: Constraint;
+  isTracing?: boolean; 
+  
+  // Specific for Quadratic Functions: 
+  // Standard: y = ax^2 + bx + c
+  // Vertex: y = a(x-h)^2 + k
+  functionForm?: 'standard' | 'vertex';
+  formulaParams?: { a: number; b: number; c: number; h?: number; k?: number };
+  
+  // Flag for construction marks (drawn by compass/ruler)
+  isConstruction?: boolean;
 }
 
 export interface AxisConfig {

@@ -26,8 +26,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       );
   }
 
-  if (!points || points.length === 0) return null;
-
   // Determine Dash Array based on strokeType
   let dashArray = 'none';
   if (strokeType === 'dashed') {
@@ -46,6 +44,23 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
     strokeLinejoin: 'round' as const,
     strokeLinecap: 'round' as const,
   };
+
+  // --- Function Graph Renderer ---
+  if (type === ShapeType.FUNCTION_GRAPH) {
+      if (!pathData) return null;
+      // Functions are pure paths
+      return (
+          <g className="shape-group" style={{ cursor: isSelected ? 'pointer' : 'pointer' }}>
+              {/* Thick transparent hit target */}
+              <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} />
+              {isSelected && <path d={pathData} fill="none" stroke="#60a5fa" strokeWidth={strokeWidth + 4} opacity={0.3} />}
+              <path d={pathData} {...commonProps} fill="none" />
+          </g>
+      );
+  }
+
+  // For other shapes, we need points
+  if (!points || points.length === 0) return null;
 
   let element = null;
   const p0 = points[0];
@@ -159,6 +174,12 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       const pts = points.map(p => `${p.x},${p.y}`).join(' ');
       element = <polygon points={pts} {...commonProps} />;
       break;
+    
+    case ShapeType.POLYGON:
+        if (points.length < 3) return null;
+        const ptsPoly = points.map(p => `${p.x},${p.y}`).join(' ');
+        element = <polygon points={ptsPoly} {...commonProps} />;
+        break;
 
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
@@ -263,6 +284,61 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
         );
         break;
 
+    case ShapeType.RULER:
+        // Ruler Logic
+        // Rectangle body + ticks on top edge
+        const rulerBody = <rect x={x} y={y} width={width} height={height} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} rx={2} />;
+        
+        const rulerTicks = [];
+        const rulerLabels = [];
+        const tickSpacing = 10; // Pixels
+        const numTicks = Math.floor(width / tickSpacing);
+
+        for(let i=0; i<=numTicks; i++) {
+            const tx = x + i * tickSpacing;
+            const isMajor = i % 5 === 0;
+            const isLabel = i % 5 === 0 && i !== 0; // Simplified label logic (every 50px usually)
+            
+            rulerTicks.push(
+                <line 
+                    key={`rt-${i}`}
+                    x1={tx} y1={y}
+                    x2={tx} y2={y + (isMajor ? 15 : 8)}
+                    stroke="#64748b"
+                    strokeWidth={1}
+                />
+            );
+
+            if (isLabel) {
+                // Assuming 1 tick = 1mm approx visually, so 50px = 5cm? Or just abstract units.
+                // Let's print 'i' as the index.
+                // Or better: i/5 to simulate cm?
+                rulerLabels.push(
+                    <text
+                        key={`rl-${i}`}
+                        x={tx + 2}
+                        y={y + 25}
+                        fontSize={10}
+                        fill="#64748b"
+                        fontFamily="monospace"
+                    >
+                        {i}
+                    </text>
+                );
+            }
+        }
+
+        element = (
+            <g>
+                {rulerBody}
+                {rulerTicks}
+                {rulerLabels}
+                {/* Shine effect */}
+                <rect x={x} y={y} width={width} height={5} fill="white" fillOpacity={0.3} rx={2} />
+            </g>
+        );
+        break;
+
     default:
       return null;
   }
@@ -277,7 +353,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
                  strokeWidth: (strokeWidth || 1) + 6, 
-                 fill: type === ShapeType.TEXT || type === ShapeType.PROTRACTOR ? 'none' : 'none',
+                 fill: type === ShapeType.TEXT || type === ShapeType.PROTRACTOR || type === ShapeType.RULER ? 'none' : 'none',
                  strokeDasharray: 'none' 
              })}
           </g>
