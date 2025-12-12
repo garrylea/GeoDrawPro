@@ -1159,7 +1159,12 @@ export default function App() {
         if (freehandShape && freehandShape.points.length > 10) {
             const recognized = recognizeFreehandShape(freehandShape.points);
             if (recognized) {
-                let labels = autoLabelMode ? (recognized.type === ShapeType.TRIANGLE ? ['A','B','C'] : ['A','B']) : undefined;
+                let labels: string[] | undefined;
+                if (autoLabelMode) {
+                    if (recognized.type === ShapeType.TRIANGLE) labels = ['A', 'B', 'C'];
+                    else if (recognized.type === ShapeType.RECTANGLE || recognized.type === ShapeType.SQUARE) labels = ['A', 'B', 'C', 'D'];
+                    else labels = ['A', 'B']; // Line or Circle?
+                }
                 setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, type: recognized.type, points: recognized.points, labels } : s));
             }
         }
