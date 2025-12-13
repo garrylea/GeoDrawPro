@@ -373,7 +373,7 @@ export default function App() {
         } else {
             setDragStartPos(rawPos);
             const id = generateId();
-            const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 };
+            const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 };
             setShapes(prev => [...prev, newShape]); 
             setActiveShapeId(id); 
             return;
@@ -396,7 +396,9 @@ export default function App() {
 
     const newShape: Shape = {
       id, type: tool as unknown as ShapeType, points, labels, 
-      fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0
+      fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, 
+      strokeType: currentStyle.strokeType, // FIX: Apply strokeType to new shapes
+      rotation: 0
     };
     
     if (tool === ToolType.POINT && hoveredConstraint) newShape.constraint = hoveredConstraint;
@@ -613,6 +615,17 @@ export default function App() {
       }
   };
 
+  const updateMarkerType = (type: MarkerType) => {
+      if (selectedIds.size !== 1) return;
+      const id = [...selectedIds][0];
+      setShapes(prev => prev.map(s => {
+          if (s.id !== id || !s.markerConfig) return s;
+          const newMarker = { ...s, markerConfig: { ...s.markerConfig, type } };
+          // Recalculate path immediately
+          return recalculateMarker(newMarker, prev) || newMarker;
+      }));
+  };
+
   const handleFold = (lineId: string) => {
       const line = shapes.find(s => s.id === lineId);
       if (!line || line.points.length < 2) return;
@@ -748,6 +761,28 @@ export default function App() {
 
             <div className="w-80 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto z-10 custom-scrollbar">
                 
+                {selectedShape?.type === ShapeType.MARKER && selectedShape.markerConfig && (
+                    <div className="p-5 border-b border-slate-100">
+                         <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
+                            <Radius size={16} /> Marker Type
+                        </div>
+                        <div className="flex bg-slate-100 p-1 rounded-lg">
+                            <button 
+                                onClick={() => updateMarkerType('angle_arc')} 
+                                className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.markerConfig?.type === 'angle_arc' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                Arc
+                            </button>
+                            <button 
+                                onClick={() => updateMarkerType('perpendicular')} 
+                                className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.markerConfig?.type === 'perpendicular' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                Right Angle
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {selectedShape?.type === ShapeType.FUNCTION_GRAPH && selectedShape.formulaParams && (
                     <div className="p-5 border-b border-slate-100">
                         <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">

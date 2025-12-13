@@ -452,7 +452,7 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
 
     if (!pPrev || !pCurr || !pNext) return null;
 
-    const radius = 25;
+    const radius = 20;
 
     // Vectors from center (curr)
     const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
@@ -463,11 +463,26 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
     
     if (mag1 === 0 || mag2 === 0) return null;
 
-    // Scale vectors to radius
-    const start = { x: pCurr.x + (v1.x / mag1) * radius, y: pCurr.y + (v1.y / mag1) * radius };
-    const end = { x: pCurr.x + (v2.x / mag2) * radius, y: pCurr.y + (v2.y / mag2) * radius };
+    // Unit vectors
+    const u1 = { x: v1.x / mag1, y: v1.y / mag1 };
+    const u2 = { x: v2.x / mag2, y: v2.y / mag2 };
 
-    const pathData = getAngleArcPath(pCurr, start, end, radius);
+    let pathData = "";
+
+    if (marker.markerConfig.type === 'perpendicular') {
+        // Draw rhombus (parallelogram) for right angle
+        const p1 = { x: pCurr.x + u1.x * radius, y: pCurr.y + u1.y * radius };
+        const p2 = { x: pCurr.x + u2.x * radius, y: pCurr.y + u2.y * radius };
+        const p3 = { x: p1.x + u2.x * radius, y: p1.y + u2.y * radius }; 
+        
+        pathData = `M ${p1.x} ${p1.y} L ${p3.x} ${p3.y} L ${p2.x} ${p2.y}`;
+    } else {
+        // Default: angle_arc
+        const rArc = 25;
+        const start = { x: pCurr.x + u1.x * rArc, y: pCurr.y + u1.y * rArc };
+        const end = { x: pCurr.x + u2.x * rArc, y: pCurr.y + u2.y * rArc };
+        pathData = getAngleArcPath(pCurr, start, end, rArc);
+    }
 
     return { ...marker, points: [pCurr], pathData };
 };
