@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
-import { calculateTriangleAngles, getShapeCenter } from '../utils/mathUtils';
+import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
 import { Plus } from 'lucide-react';
 
 interface SelectionOverlayProps {
@@ -51,25 +51,50 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
     ShapeType.SQUARE, 
     ShapeType.PROTRACTOR, 
     ShapeType.RULER,
-    ShapeType.FREEHAND
+    ShapeType.FREEHAND,
+    ShapeType.TEXT,
+    ShapeType.PATH            
   ].includes(type);
 
-  // For Freehand, we definitely want bounding box, not 100s of handles
-  if (type === ShapeType.FREEHAND) {
-      showBoundingBox = true; 
+  // Fallback for Polygons with too many points (to prevent UI lag and clutter)
+  if (!showBoundingBox && points && points.length > 20) {
+      showBoundingBox = true;
   }
 
   // Calculate bounding box in local/unrotated space
-  const xs = points.map(p => p.x);
-  const ys = points.map(p => p.y);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  const maxX = Math.max(...xs);
-  const maxY = Math.max(...ys);
-  const width = maxX - minX;
-  const height = maxY - minY;
+  let minX, minY, maxX, maxY, width, height;
+  
+  if (type === ShapeType.TEXT) {
+      // For text, we can't just take min/max of 1 point. We need rough dims.
+      const fs = shape.fontSize || 16;
+      const w = (shape.text || '').length * fs * 0.6;
+      const h = fs;
+      minX = points[0].x;
+      minY = points[0].y;
+      maxX = minX + w;
+      maxY = minY + h;
+      width = w;
+      height = h;
+  } else if (points && points.length > 0) {
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      minX = Math.min(...xs);
+      minY = Math.min(...ys);
+      maxX = Math.max(...xs);
+      maxY = Math.max(...ys);
+      width = maxX - minX;
+      height = maxY - minY;
+  } else {
+      // Fallback
+      minX = 0; minY = 0; maxX = 100; maxY = 100; width = 100; height = 100;
+  }
 
-  const center = getShapeCenter(points);
+  // Special Case: Function Graphs are handled purely by the sidebar. 
+  if (type === ShapeType.FUNCTION_GRAPH) {
+      return null;
+  }
+
+  const center = getShapeCenter(points, type, shape.fontSize, shape.text);
   
   // Apply rotation to the whole group
   const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
@@ -96,9 +121,10 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
           />
       ));
   } else {
-      // Vertex handles (Triangle, Line, Point)
-      // Force restriction for Triangles to 3 handles to prevent visual corruption
+      // Vertex handles (Triangle, Line, Point, Polygon)
       let displayPoints = points;
+      // For Triangle specifically, ensure we don't render excessive points if logic broke somewhere, 
+      // but for Polygon we want all.
       if (type === ShapeType.TRIANGLE && points.length > 3) {
           displayPoints = points.slice(0, 3);
       }
@@ -131,7 +157,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             { x: minX, y: minY }, { x: maxX, y: minY }, 
             { x: maxX, y: maxY }, { x: minX, y: maxY }
           ];
-          // Determine corner based on index logic in App.tsx (usually consistent)
           if(typeof pivotIndex === 'number' && corners[pivotIndex]) { 
               px = corners[pivotIndex].x; 
               py = corners[pivotIndex].y; 
@@ -145,38 +170,62 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
       pivotEl = <circle cx={px} cy={py} r={4} fill="#ef4444" stroke="white" strokeWidth={2} style={{pointerEvents: 'none'}} />;
   }
 
-  // Angle Targets (for marking)
+  // FIX Bug 2: Generalized Angle Marking Logic
+  // Use VISUAL corners (getRotatedCorners) instead of data points.
+  // This ensures Rectangles (2 points) get 4 corners for UI.
+  const visualPoints = getRotatedCorners(shape);
+  const showAngleUI = (type === ShapeType.TRIANGLE || type === ShapeType.POLYGON || type === ShapeType.RECTANGLE || type === ShapeType.SQUARE) && visualPoints.length >= 3;
+  
   let angleTargets = null;
-  if (isMarkingAngles && type === ShapeType.TRIANGLE) {
-      // Safe slice for triangles
-      const triPoints = points.length > 3 ? points.slice(0, 3) : points;
-      angleTargets = triPoints.map((p, i) => (
-          <circle 
-            key={`angle-target-${i}`}
-            cx={p.x} cy={p.y} r={15} 
-            fill="transparent" 
-            stroke="#ef4444" 
-            strokeWidth={1} 
-            strokeDasharray="2,2"
-            style={{ cursor: 'pointer' }}
-            onMouseDown={(e) => { e.stopPropagation(); onMarkAngle && onMarkAngle(i); }}
-          />
-      ));
-  }
-
-  // Angle Text Values
   let angleText = null;
-  if (type === ShapeType.TRIANGLE && points.length >= 3) {
-      // Use helper that naturally expects 3 points, ignores extras if calculation is based on first 3
-      const angles = calculateTriangleAngles(points);
-      const angleArr = [angles.A, angles.B, angles.C];
-      const triPoints = points.slice(0, 3);
+
+  if (showAngleUI) {
+      // Use visual points for mapping
+      // For Triangle with extra points, slice first.
+      const ptsToMark = (type === ShapeType.TRIANGLE && visualPoints.length > 3) ? visualPoints.slice(0,3) : visualPoints;
       
-      angleText = triPoints.map((p, i) => {
+      let localPoints: Point[] = [];
+      if (showBoundingBox) {
+          localPoints = [
+              { x: minX, y: minY }, // TL
+              { x: maxX, y: minY }, // TR
+              { x: maxX, y: maxY }, // BR
+              { x: minX, y: maxY }  // BL
+          ];
+      } else {
+          localPoints = points;
+      }
+      
+      // Render Targets
+      if (isMarkingAngles) {
+          angleTargets = localPoints.map((p, i) => (
+              <circle 
+                key={`angle-target-${i}`}
+                cx={p.x} cy={p.y} r={15} 
+                fill="white" // Ensure fill is present to capture clicks
+                fillOpacity="0.01" // Make it effectively transparent but still hit-testable
+                stroke="#ef4444" 
+                strokeWidth={1} 
+                strokeDasharray="2,2"
+                style={{ cursor: 'pointer', pointerEvents: 'all' }}
+                onMouseDown={(e) => { e.stopPropagation(); onMarkAngle && onMarkAngle(i); }}
+              />
+          ));
+      }
+
+      // Render Text
+      // Angles should be calculated from the geometry.
+      // For Rect/Square it is always 90.
+      const angles = getPolygonAngles(localPoints);
+      
+      angleText = localPoints.map((p, i) => {
+          if (angles[i] === undefined) return null;
+          // Vector from center to point
           const dx = center.x - p.x;
           const dy = center.y - p.y;
           const len = Math.sqrt(dx*dx + dy*dy) || 1;
           const off = 25;
+          // Push text towards center
           const tx = p.x + (dx/len) * off;
           const ty = p.y + (dy/len) * off;
           
@@ -189,9 +238,10 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
                 textAnchor="middle" 
                 dominantBaseline="middle"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
+                // Counter-rotate text so it stays upright
                 transform={`rotate(${-rotation || 0} ${tx} ${ty})`}
               >
-                  {angleArr[i]}°
+                  {angles[i]}°
               </text>
           );
       });
@@ -211,10 +261,9 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
           ];
           indices = [0, 1, 2, 3, 'center'];
       } else {
-          // Restrict candidates for Triangles
-          const activePoints = (type === ShapeType.TRIANGLE && points.length > 3) ? points.slice(0, 3) : points;
-          candidates = [...activePoints, center];
-          indices = [...activePoints.map((_, i) => i), 'center'];
+          const pts = (type === ShapeType.TRIANGLE && points.length > 3) ? points.slice(0, 3) : points;
+          candidates = [...pts, center];
+          indices = [...pts.map((_, i) => i), 'center'];
       }
 
       pivotTargets = candidates.map((p, i) => (

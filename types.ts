@@ -8,6 +8,7 @@ export enum ToolType {
   CIRCLE = 'CIRCLE',
   ELLIPSE = 'ELLIPSE',
   TRIANGLE = 'TRIANGLE',
+  POLYGON = 'POLYGON', // Added
   TEXT = 'TEXT',
   FREEHAND = 'FREEHAND',
   PROTRACTOR = 'PROTRACTOR',
