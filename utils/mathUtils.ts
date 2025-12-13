@@ -6,6 +6,33 @@ export interface RecognizedShape {
     points: Point[];
 }
 
+// --- Vector Math Helpers ---
+export const normalize = (p: Point): Point => {
+    const len = Math.sqrt(p.x * p.x + p.y * p.y);
+    return len === 0 ? { x: 0, y: 0 } : { x: p.x / len, y: p.y / len };
+};
+
+export const crossProduct = (a: Point, b: Point): number => a.x * b.y - a.y * b.x;
+export const dotProduct = (a: Point, b: Point): number => a.x * b.x + a.y * b.y;
+
+// Find intersection of Ray(p1, v1) and Ray(p2, v2)
+// p + t*v
+export const getLineIntersection = (p1: Point, v1: Point, p2: Point, v2: Point): Point | null => {
+    const det = v1.x * v2.y - v1.y * v2.x;
+    if (Math.abs(det) < 1e-6) return null; // Parallel
+
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+
+    const t = (dx * v2.y - dy * v2.x) / det;
+    // const u = (dx * v1.y - dy * v1.x) / det;
+
+    return {
+        x: p1.x + t * v1.x,
+        y: p1.y + t * v1.y
+    };
+};
+
 // --- Coordinate System Utilities ---
 export const getPixelsPerUnit = (width: number, height: number, ticks: number) => {
     const maxDimension = Math.max(width, height) / 2;
@@ -148,20 +175,21 @@ const isPointInPolygon = (p: Point, vertices: Point[]): boolean => {
 export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, canvasHeight?: number, ppu?: number): boolean => {
     const threshold = 10;
     
+    // 0. Marker Detection
+    if (shape.type === ShapeType.MARKER) {
+        if (!shape.points || shape.points.length === 0) return false;
+        const v = shape.points[0];
+        const d = distance(p, v);
+        // Hit zone: 15px to 35px radius annulus
+        return d >= 15 && d <= 35; 
+    }
+
     // 1. Function Graph Detection
     if (shape.type === ShapeType.FUNCTION_GRAPH) {
         if (!shape.formulaParams || !canvasWidth || !canvasHeight || !ppu) return false;
-        
-        // Convert screen X to math X
         const mPos = screenToMath(p, canvasWidth, canvasHeight, ppu);
-        
-        // Calculate expected math Y
         const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm);
-        
-        // Convert expected math Y back to screen Y
         const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu);
-        
-        // Check vertical distance in screen pixels
         return Math.abs(expectedSP.y - p.y) < threshold;
     }
 
@@ -252,6 +280,7 @@ export const getSnapPoint = (
     for (const s of shapes) {
         if (excludeIds.includes(s.id)) continue;
         if (s.type === ShapeType.FUNCTION_GRAPH) continue; 
+        if (s.type === ShapeType.MARKER) continue; // Don't snap to markers
 
         const pointsToCheck = s.points.length > 50 ? [s.points[0], s.points[s.points.length-1]] : s.points;
 
@@ -386,11 +415,8 @@ export const getAngleArcPath = (center: Point, start: Point, end: Point, radius:
     const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
     let endAngle = Math.atan2(end.y - center.y, end.x - center.x);
     
-    // Ensure we draw the smaller arc usually, or standard logic
-    // Actually for markers we want the interior angle arc
-    
-    let diff = endAngle - startAngle;
     // Normalize to -PI to PI
+    let diff = endAngle - startAngle;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
 
@@ -409,14 +435,10 @@ export const getPolygonAngles = (points: Point[]): (number | undefined)[] => {
     const n = points.length;
     
     for(let i=0; i<n; i++) {
-        // Find previous and next points (wrapping around)
-        // Note: consecutive duplicates should be skipped for accurate vectors, 
-        // but simplification usually handles that.
         const pPrev = points[(i - 1 + n) % n];
         const pCurr = points[i];
         const pNext = points[(i + 1) % n];
         
-        // Vectors pointing OUT from pCurr
         const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
         const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
         
@@ -429,7 +451,6 @@ export const getPolygonAngles = (points: Point[]): (number | undefined)[] => {
         }
 
         const dot = v1.x * v2.x + v1.y * v2.y;
-        // Clamp for floating point errors
         let angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
         angles.push(Math.round(angleRad * 180 / Math.PI));
     }
@@ -473,6 +494,7 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
         // Draw rhombus (parallelogram) for right angle
         const p1 = { x: pCurr.x + u1.x * radius, y: pCurr.y + u1.y * radius };
         const p2 = { x: pCurr.x + u2.x * radius, y: pCurr.y + u2.y * radius };
+        // Vector addition p1 + u2*radius OR p2 + u1*radius
         const p3 = { x: p1.x + u2.x * radius, y: p1.y + u2.y * radius }; 
         
         pathData = `M ${p1.x} ${p1.y} L ${p3.x} ${p3.y} L ${p2.x} ${p2.y}`;

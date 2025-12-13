@@ -7,7 +7,7 @@ import { ShapeRenderer } from './components/ShapeRenderer';
 import { SelectionOverlay } from './components/SelectionOverlay';
 import { CompassOverlay, RulerOverlay } from './components/ConstructionTools';
 import { exportCanvas, saveProject, loadProject, isElectron } from './utils/exportUtils';
-import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, getAngleArcPath, simplifyToQuadratic, recognizeFreehandShape, recalculateMarker, getClosestPointOnShape, getProjectionParameter, lerp, getShapeIntersection, resolveConstraints, getSmoothSvgPath, getProjectedPointOnLine, getPixelsPerUnit, evaluateQuadratic, mathToScreen, screenToMath, generateQuadraticPath, isPointInShape } from './utils/mathUtils';
+import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, getAngleArcPath, simplifyToQuadratic, recognizeFreehandShape, recalculateMarker, getClosestPointOnShape, getProjectionParameter, lerp, getShapeIntersection, resolveConstraints, getSmoothSvgPath, getProjectedPointOnLine, getPixelsPerUnit, evaluateQuadratic, mathToScreen, screenToMath, generateQuadraticPath, isPointInShape, getPolygonAngles, getLineIntersection } from './utils/mathUtils';
 import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, Spline, Undo, Eraser, Image as ImageIcon, Radius, Wand2, Calculator, Save, FolderOpen, CaseUpper, Sparkles, CornerRightUp, ArrowRight, Hash, Link2, Footprints, FoldHorizontal, FunctionSquare } from 'lucide-react';
 
 export default function App() {
@@ -56,7 +56,9 @@ export default function App() {
   const [compassPreviewPath, setCompassPreviewPath] = useState<string | null>(null);
 
   const [textEditing, setTextEditing] = useState<{ id: string; x: number; y: number; text: string } | null>(null);
+  const [angleEditing, setAngleEditing] = useState<{ id: string; index: number; x: number; y: number; value: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const angleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectionBox, setSelectionBox] = useState<{start: Point, current: Point} | null>(null);
   
@@ -94,7 +96,16 @@ export default function App() {
       if (textEditing && inputRef.current) {
           setTimeout(() => inputRef.current?.focus(), 50);
       }
-  }, [textEditing]);
+      if (angleEditing && angleInputRef.current) {
+          // Fix: Check if already focused to prevent re-selecting text on every keystroke
+          if (document.activeElement !== angleInputRef.current) {
+              setTimeout(() => {
+                 angleInputRef.current?.focus(); 
+                 angleInputRef.current?.select();
+              }, 50);
+          }
+      }
+  }, [textEditing, angleEditing]);
 
   // --- Label Generator ---
   const getNextLabels = (count: number): string[] => {
@@ -148,7 +159,7 @@ export default function App() {
           if (e.key === 'Shift') setIsShiftPressed(true);
           const target = e.target as HTMLElement;
           if (target.tagName === 'INPUT') return;
-          if (textEditing) return;
+          if (textEditing || angleEditing) return;
 
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
           if (e.key === 'Escape') {
@@ -178,7 +189,7 @@ export default function App() {
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
       return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedIds, textEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool]); 
+  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool]); 
 
   const getMousePos = (e: React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -219,7 +230,7 @@ export default function App() {
 
   const handleToolChange = (newTool: ToolType) => {
     setTool(newTool); setSelectedIds(new Set()); setSnapIndicator(null); setCursorPos(null);
-    setSelectionBox(null); setActiveShapeId(null); setTextEditing(null);
+    setSelectionBox(null); setActiveShapeId(null); setTextEditing(null); setAngleEditing(null);
     setPickingMirrorMode(false); setMarkingAnglesMode(false); setHoveredShapeId(null);
     setCompassState({ center: null, radiusPoint: null, startAngle: null });
     setCompassPreviewPath(null);
@@ -239,6 +250,101 @@ export default function App() {
     lastRotationMouseAngle.current = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
   };
 
+  const handleAngleDoubleClick = (sid: string, index: number, e: React.MouseEvent) => {
+      const shape = shapes.find(s => s.id === sid);
+      if (!shape) return;
+      
+      const center = getShapeCenter(shape.points);
+      const p = shape.points[index];
+      // Calculate text position similar to SelectionOverlay
+      const dx = center.x - p.x;
+      const dy = center.y - p.y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const off = 25;
+      const tx = p.x + (dx/len) * off;
+      const ty = p.y + (dy/len) * off;
+      
+      // Get current angle value
+      const angles = getPolygonAngles(shape.points);
+      const val = angles[index]?.toString() || "0";
+      
+      setAngleEditing({ id: sid, index, x: tx, y: ty, value: val });
+  };
+
+  const handleAngleUpdate = (newValString: string) => {
+      if (!angleEditing) return;
+      const newVal = parseFloat(newValString);
+      if (isNaN(newVal) || newVal <= 0 || newVal >= 180) {
+          setAngleEditing(null);
+          return;
+      }
+
+      saveHistory();
+      const { id, index } = angleEditing;
+      
+      setShapes(prev => prev.map(s => {
+          if (s.id !== id) return s;
+          if (s.type !== ShapeType.TRIANGLE || s.points.length < 3) return s;
+
+          const points = [...s.points];
+          
+          // Indices: 
+          // pCurr = Pivot (angle being edited)
+          // pNext = CCW neighbor (Anchor - this angle should NOT change)
+          // pPrev = CW neighbor (Target - this angle moves/changes)
+          
+          const iCurr = index;
+          const iNext = (index + 1) % 3; // CCW neighbor
+          const iPrev = (index - 1 + 3) % 3; // CW neighbor
+          
+          const pCurr = points[iCurr];
+          const pNext = points[iNext];
+          const pPrev = points[iPrev];
+
+          // 1. Calculate current directions
+          const vNextCurr = { x: pCurr.x - pNext.x, y: pCurr.y - pNext.y }; // From Next to Curr
+          const vCurrNext = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y }; // From Curr to Next (Base Line)
+          const vCurrPrev = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y }; // From Curr to Prev (Current Leg)
+          
+          // 2. We keep Side(pNext, pCurr) fixed.
+          // We also keep Angle at pNext fixed. 
+          // Means the Ray(pNext -> pPrev) direction is fixed.
+          // Line 1: Passing through pNext, direction = (pPrev - pNext).
+          const vRayNext = { x: pPrev.x - pNext.x, y: pPrev.y - pNext.y };
+          
+          // 3. We want new Angle at pCurr to be `newVal`.
+          // We need to rotate vector `vCurrNext` by `newVal` (with correct sign) to find direction of Ray(pCurr -> new pPrev).
+          
+          // Calculate winding / sign
+          // Angle from vCurrNext to vCurrPrev
+          const angleRad = (newVal * Math.PI) / 180;
+          
+          // Determine sign. Use cross product of current configuration to preserve orientation.
+          // z = vCurrNext x vCurrPrev
+          const z = vCurrNext.x * vCurrPrev.y - vCurrNext.y * vCurrPrev.x;
+          const sign = z >= 0 ? 1 : -1;
+          
+          // Rotate vCurrNext by (sign * angleRad)
+          const cos = Math.cos(sign * angleRad);
+          const sin = Math.sin(sign * angleRad);
+          
+          const vRayCurr = {
+              x: vCurrNext.x * cos - vCurrNext.y * sin,
+              y: vCurrNext.x * sin + vCurrNext.y * cos
+          };
+          
+          // 4. Intersect Ray(pNext, vRayNext) and Ray(pCurr, vRayCurr)
+          // The intersection is the new pPrev.
+          const newPrev = getLineIntersection(pNext, vRayNext, pCurr, vRayCurr);
+          
+          if (!newPrev) return s; // Parallel lines?
+
+          points[iPrev] = newPrev;
+          return { ...s, points };
+      }));
+      setAngleEditing(null);
+  };
+
   // --- Style Handling ---
   const handleStyleChange = (key: keyof typeof currentStyle, value: any) => {
       setCurrentStyle(prev => ({ ...prev, [key]: value }));
@@ -249,7 +355,7 @@ export default function App() {
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (textEditing) return;
+    if (textEditing || angleEditing) return;
     let pos = getMousePos(e, true);
     const rawPos = getMousePos(e, false);
 
@@ -589,22 +695,41 @@ export default function App() {
   };
   
   const handleCornerClick = (sid: string, idx: number) => {
+      // Toggle existing marker if present
       const shape = shapes.find(s => s.id === sid);
       if (!shape) return;
-      saveHistory();
-      const id = generateId();
+      
       const corners = getRotatedCorners(shape);
       const len = corners.length;
       const prev = (idx - 1 + len) % len;
       const next = (idx + 1) % len;
-      const vertex = corners[idx];
-      let newShape: Shape = {
-          id, type: ShapeType.MARKER, points: [vertex], fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0,
-          markerConfig: { type: 'angle_arc', targets: [{ shapeId: sid, pointIndices: [prev, idx, next] }] }
-      };
-      const calculated = recalculateMarker(newShape, shapes);
-      if (calculated) newShape = calculated;
-      setShapes(prev => [...prev, newShape]);
+      
+      // Check if marker exists for this corner (simplification: check if targets match)
+      const existing = shapes.find(s => s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === sid && s.markerConfig?.targets[0].pointIndices[1] === idx);
+      
+      if (existing) {
+          // Toggle type if it exists
+          const newType: MarkerType = existing.markerConfig?.type === 'angle_arc' ? 'perpendicular' : 'angle_arc';
+          setShapes(prevShapes => prevShapes.map(s => {
+              if (s.id === existing.id) {
+                  const updated: Shape = { ...s, markerConfig: { ...s.markerConfig!, type: newType } };
+                  return recalculateMarker(updated, prevShapes) || updated;
+              }
+              return s;
+          }));
+      } else {
+          // Create new
+          saveHistory();
+          const id = generateId();
+          const vertex = corners[idx];
+          let newShape: Shape = {
+              id, type: ShapeType.MARKER, points: [vertex], fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0,
+              markerConfig: { type: 'angle_arc', targets: [{ shapeId: sid, pointIndices: [prev, idx, next] }] }
+          };
+          const calculated = recalculateMarker(newShape, shapes);
+          if (calculated) newShape = calculated;
+          setShapes(prev => [...prev, newShape]);
+      }
   };
 
   const handleSymbolClick = (s: string) => { 
@@ -620,7 +745,7 @@ export default function App() {
       const id = [...selectedIds][0];
       setShapes(prev => prev.map(s => {
           if (s.id !== id || !s.markerConfig) return s;
-          const newMarker = { ...s, markerConfig: { ...s.markerConfig, type } };
+          const newMarker: Shape = { ...s, markerConfig: { ...s.markerConfig, type } };
           // Recalculate path immediately
           return recalculateMarker(newMarker, prev) || newMarker;
       }));
@@ -692,6 +817,11 @@ export default function App() {
 
   const selectedShape = selectedIds.size === 1 ? shapes.find(s => s.id === [...selectedIds][0]) : null;
 
+  // New Helper: Get Marker for Corner
+  const getMarkerForCorner = (shapeId: string, idx: number) => {
+      return shapes.find(s => s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === shapeId && s.markerConfig.targets[0].pointIndices[1] === idx);
+  };
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans">
         <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shadow-sm z-20 shrink-0 h-14">
@@ -743,7 +873,7 @@ export default function App() {
                     {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
                     {tool === ToolType.RULER && selectedIds.size === 0 && <RulerOverlay start={null} cursor={cursorPos || {x:0,y:0}} end={null} />}
                     {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
-                    {shapes.filter(s => selectedIds.has(s.id)).map(s => <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => handleRotateStart(e, s)} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => handleCornerClick(s.id, idx)} onAngleChange={() => {}} />)}
+                    {shapes.filter(s => selectedIds.has(s.id)).map(s => <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => handleRotateStart(e, s)} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => handleCornerClick(s.id, idx)} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => handleAngleDoubleClick(s.id, idx, e)} />)}
                     {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
                     {selectionBox && <rect x={Math.min(selectionBox.start.x, selectionBox.current.x)} y={Math.min(selectionBox.start.y, selectionBox.current.y)} width={Math.abs(selectionBox.current.x - selectionBox.start.x)} height={Math.abs(selectionBox.current.y - selectionBox.start.y)} fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={1} />}
                 </svg>
@@ -757,10 +887,62 @@ export default function App() {
                         </div>
                     </div>
                 )}
+                {angleEditing && (
+                    <div style={{ position: 'absolute', left: angleEditing.x, top: angleEditing.y, transform: 'translate(-50%, -50%)' }}>
+                        <input 
+                            ref={angleInputRef}
+                            type="number" 
+                            value={angleEditing.value} 
+                            onChange={(e) => setAngleEditing(prev => prev ? ({ ...prev, value: e.target.value }) : null)}
+                            onKeyDown={(e) => { 
+                                if (e.key === 'Enter') handleAngleUpdate(angleEditing.value); 
+                                if (e.key === 'Escape') setAngleEditing(null);
+                            }}
+                            onBlur={() => setAngleEditing(null)}
+                            className="bg-white border border-blue-500 rounded px-1 py-0.5 text-sm font-sans shadow-lg outline-none w-20 text-center"
+                        />
+                    </div>
+                )}
             </div>
 
             <div className="w-80 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto z-10 custom-scrollbar">
                 
+                {selectedShape?.type === ShapeType.TRIANGLE && (
+                    <div className="p-5 border-b border-slate-100">
+                        <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
+                            <Radius size={16} /> Corner Markers
+                        </div>
+                        <div className="space-y-2">
+                            {selectedShape.points.map((_, i) => {
+                                const m = getMarkerForCorner(selectedShape.id, i);
+                                const isPerp = m?.markerConfig?.type === 'perpendicular';
+                                return (
+                                    <div key={i} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded">
+                                        <span className="text-slate-600 font-medium">Angle {String.fromCharCode(65 + i)}</span>
+                                        <div className="flex gap-1">
+                                            <button 
+                                                onClick={() => handleCornerClick(selectedShape.id, i)}
+                                                className={`px-2 py-1 rounded text-xs border ${m ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                                            >
+                                                {m ? 'Marked' : 'Mark'}
+                                            </button>
+                                            {m && (
+                                                <button 
+                                                    onClick={() => handleCornerClick(selectedShape.id, i)} // Toggles type
+                                                    className={`px-2 py-1 rounded text-xs border font-bold ${isPerp ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                                                    title="Toggle Right Angle"
+                                                >
+                                                    {isPerp ? '∟' : '◠'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 {selectedShape?.type === ShapeType.MARKER && selectedShape.markerConfig && (
                     <div className="p-5 border-b border-slate-100">
                          <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">

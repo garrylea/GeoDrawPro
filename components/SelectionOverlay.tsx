@@ -15,6 +15,7 @@ interface SelectionOverlayProps {
   onRotateStart: (e: React.MouseEvent) => void;
   onSetPivot: (index: number | 'center') => void;
   onMarkAngle?: (index: number) => void;
+  onAngleDoubleClick?: (index: number, e: React.MouseEvent) => void; // Added prop
 }
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ 
@@ -27,7 +28,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   onAngleChange, 
   onRotateStart, 
   onSetPivot, 
-  onMarkAngle 
+  onMarkAngle,
+  onAngleDoubleClick // Destructure
 }) => {
   const { points, type, rotation } = shape;
   const handleSize = 10;
@@ -237,9 +239,13 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
                 fill="#6b7280" 
                 textAnchor="middle" 
                 dominantBaseline="middle"
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
-                // Counter-rotate text so it stays upright
+                // Enable pointer events for double click
+                style={{ pointerEvents: 'all', userSelect: 'none', cursor: 'pointer' }}
                 transform={`rotate(${-rotation || 0} ${tx} ${ty})`}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (onAngleDoubleClick) onAngleDoubleClick(i, e);
+                }}
               >
                   {angles[i]}°
               </text>
