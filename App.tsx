@@ -1033,7 +1033,7 @@ export default function App() {
                     <defs>
                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" strokeWidth="1"/></pattern>
                     </defs>
-                    <rect width="100%" height="100%" fill="url(#grid)" />
+                    {axisConfig.showGrid && <rect width="100%" height="100%" fill="url(#grid)" />}
                     <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
                     {shapes.map(shape => <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} />)}
                     {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
