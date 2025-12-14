@@ -217,8 +217,9 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
         return false;
     }
 
-    // 5. Interior Detection (Rect, Square, Image)
-    if (shape.type === ShapeType.RECTANGLE || shape.type === ShapeType.SQUARE || shape.type === ShapeType.IMAGE) {
+    // 5. Interior Detection (Rect, Square, Image, Ruler, Protractor)
+    if (shape.type === ShapeType.RECTANGLE || shape.type === ShapeType.SQUARE || shape.type === ShapeType.IMAGE || shape.type === ShapeType.RULER || shape.type === ShapeType.PROTRACTOR) {
+        if (!shape.points || shape.points.length < 2) return false;
         const xMin = Math.min(shape.points[0].x, shape.points[1].x);
         const xMax = Math.max(shape.points[0].x, shape.points[1].x);
         const yMin = Math.min(shape.points[0].y, shape.points[1].y);

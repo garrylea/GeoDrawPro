@@ -241,6 +241,12 @@ export default function App() {
           if (textEditing || angleEditing) return;
 
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
+          // Ctrl+A: Select All
+          if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+              e.preventDefault();
+              setSelectedIds(new Set(shapes.map(s => s.id)));
+              return;
+          }
           if (e.key === 'Escape') {
               if (pickingMirrorMode) { setPickingMirrorMode(false); return; }
               if (markingAnglesMode) { setMarkingAnglesMode(false); return; }
@@ -281,7 +287,12 @@ export default function App() {
 
     if (snap && !isShiftPressed) { 
         const exclude = activeShapeId ? [activeShapeId] : [];
-        const { point, snapped, constraint } = getSnapPoint(raw, shapes, exclude, { width: canvasSize.width, height: canvasSize.height, ppu: pixelsPerUnit });
+        // Only snap to grid if it is visible and enabled
+        const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) 
+            ? { width: canvasSize.width, height: canvasSize.height, ppu: pixelsPerUnit } 
+            : undefined;
+
+        const { point, snapped, constraint } = getSnapPoint(raw, shapes, exclude, gridSnapConfig);
         
         if (!snapped && hoveredShapeId) {
             const shape = shapes.find(s => s.id === hoveredShapeId);
@@ -485,6 +496,8 @@ export default function App() {
         const existingRuler = shapes.find(s => s.type === ShapeType.RULER);
         if (existingRuler) {
             setSelectedIds(new Set([existingRuler.id]));
+            setDragStartPos(rawPos);
+            setIsDragging(true);
             return;
         }
         saveHistory();
@@ -495,7 +508,10 @@ export default function App() {
             fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 
         };
         setShapes(prev => [...prev, newShape]);
-        setSelectedIds(new Set([id])); 
+        setSelectedIds(new Set([id]));
+        // Initialize drag for new shape too to allow immediate move
+        setDragStartPos(rawPos);
+        setIsDragging(true); 
         return;
     }
 
@@ -552,11 +568,16 @@ export default function App() {
         const existingProtractor = shapes.find(s => s.type === ShapeType.PROTRACTOR);
         if (existingProtractor) {
             setSelectedIds(new Set([existingProtractor.id]));
+            setDragStartPos(rawPos);
+            setIsDragging(true);
             return;
         }
         const id = generateId();
         const newShape: Shape = { id, type: ShapeType.PROTRACTOR, points: [{ x: pos.x - 150, y: pos.y - 150 }, { x: pos.x + 150, y: pos.y }], fill: 'transparent', stroke: currentStyle.stroke, strokeWidth: 1, rotation: 0 };
-        setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); 
+        setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id]));
+        // Initialize drag for new shape too
+        setDragStartPos(rawPos);
+        setIsDragging(true); 
         return;
     }
 
@@ -1112,6 +1133,10 @@ export default function App() {
                     <div className="flex items-center justify-between mb-3">
                         <label className="text-sm text-slate-600 font-medium">Show Axes</label>
                         <input type="checkbox" checked={axisConfig.visible} onChange={(e) => setAxisConfig(prev => ({ ...prev, visible: e.target.checked }))} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
+                    </div>
+                    <div className="flex items-center justify-between mb-3">
+                        <label className="text-sm text-slate-600 font-medium">Show Grid</label>
+                        <input type="checkbox" checked={axisConfig.showGrid} onChange={(e) => setAxisConfig(prev => ({ ...prev, showGrid: e.target.checked }))} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
                     </div>
                      <div className="space-y-1">
                         <div className="flex justify-between text-xs text-slate-500 uppercase font-semibold">
