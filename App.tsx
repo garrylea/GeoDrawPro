@@ -407,9 +407,9 @@ export default function App() {
           const points = [...s.points];
           
           // Indices: 
-          // pCurr = Pivot (angle being edited)
-          // pNext = CCW neighbor (Anchor - this angle should NOT change)
-          // pPrev = CW neighbor (Target - this angle moves/changes)
+          // pCurr = Pivot (Angle being modified, B)
+          // pPrev = Anchor (CW Neighbor, A) -> Position Fixed, Angle at A Fixed.
+          // pNext = Target (CCW Neighbor, C) -> This Point Moves.
           
           const iCurr = index;
           const iNext = (index + 1) % 3; // CCW neighbor
@@ -419,45 +419,58 @@ export default function App() {
           const pNext = points[iNext];
           const pPrev = points[iPrev];
 
-          // 1. Calculate current directions
-          const vNextCurr = { x: pCurr.x - pNext.x, y: pCurr.y - pNext.y }; // From Next to Curr
-          const vCurrNext = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y }; // From Curr to Next (Base Line)
-          const vCurrPrev = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y }; // From Curr to Prev (Current Leg)
+          // 1. Determine Ray 1: From pPrev (A) passing through pNext (C).
+          // Since Angle A is fixed, and Point A is fixed, this ray direction is fixed.
+          // Vector A -> C
+          const vRayFixed = { x: pNext.x - pPrev.x, y: pNext.y - pPrev.y };
           
-          // 2. We keep Side(pNext, pCurr) fixed.
-          // We also keep Angle at pNext fixed. 
-          // Means the Ray(pNext -> pPrev) direction is fixed.
-          // Line 1: Passing through pNext, direction = (pPrev - pNext).
-          const vRayNext = { x: pPrev.x - pNext.x, y: pPrev.y - pNext.y };
+          // 2. Determine Ray 2: From pCurr (B) outwards at the NEW Angle.
+          // We need to rotate the vector BA (pCurr -> pPrev) by the new angle to get direction BC.
           
-          // 3. We want new Angle at pCurr to be `newVal`.
-          // We need to rotate vector `vCurrNext` by `newVal` (with correct sign) to find direction of Ray(pCurr -> new pPrev).
+          // Vector B -> A
+          const vBA = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
           
-          // Calculate winding / sign
-          // Angle from vCurrNext to vCurrPrev
+          // Current Vector B -> C (to determine sign/winding)
+          const vBC_Old = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
+          
+          // Determine winding of angle (B->A to B->C)
+          // Cross product z-component
+          const crossZ = vBA.x * vBC_Old.y - vBA.y * vBC_Old.x;
+          // If crossZ > 0, C is "to the right/CW" of BA (in screen coords where Y is down).
+          // We apply the rotation in the same direction.
+          const sign = crossZ >= 0 ? 1 : -1;
+          
           const angleRad = (newVal * Math.PI) / 180;
           
-          // Determine sign. Use cross product of current configuration to preserve orientation.
-          // z = vCurrNext x vCurrPrev
-          const z = vCurrNext.x * vCurrPrev.y - vCurrNext.y * vCurrPrev.x;
-          const sign = z >= 0 ? 1 : -1;
-          
-          // Rotate vCurrNext by (sign * angleRad)
+          // Rotate vBA by (sign * angleRad) to get new vBC direction
           const cos = Math.cos(sign * angleRad);
           const sin = Math.sin(sign * angleRad);
           
-          const vRayCurr = {
-              x: vCurrNext.x * cos - vCurrNext.y * sin,
-              y: vCurrNext.x * sin + vCurrNext.y * cos
+          const vBC_NewDir = {
+              x: vBA.x * cos - vBA.y * sin,
+              y: vBA.x * sin + vBA.y * cos
           };
           
-          // 4. Intersect Ray(pNext, vRayNext) and Ray(pCurr, vRayCurr)
-          // The intersection is the new pPrev.
-          const newPrev = getLineIntersection(pNext, vRayNext, pCurr, vRayCurr);
+          // 3. Find Intersection of Ray(pPrev, vRayFixed) and Ray(pCurr, vBC_NewDir)
+          const newNext = getLineIntersection(pPrev, vRayFixed, pCurr, vBC_NewDir);
           
-          if (!newPrev) return s; // Parallel lines?
+          if (!newNext) return s; 
 
-          points[iPrev] = newPrev;
+          // 4. Safety Checks to prevent "Distance too much" / Infinity / Inversion
+          // Check 1: Distance limit (prevent shooting to infinity)
+          const d1 = distance(pCurr, newNext);
+          const d2 = distance(pPrev, newNext);
+          if (d1 > 3000 || d2 > 3000) return s; // Abort if too huge
+          
+          // Check 2: Directionality (Intersection must be "forward" along the rays)
+          // Project (NewNext - pPrev) onto vRayFixed. Dot product should be positive.
+          const dotFixed = (newNext.x - pPrev.x) * vRayFixed.x + (newNext.y - pPrev.y) * vRayFixed.y;
+          // Project (NewNext - pCurr) onto vBC_NewDir. Dot product should be positive.
+          const dotNew = (newNext.x - pCurr.x) * vBC_NewDir.x + (newNext.y - pCurr.y) * vBC_NewDir.y;
+          
+          if (dotFixed <= 0 || dotNew <= 0) return s; // Intersection is behind the points
+
+          points[iNext] = newNext;
           return { ...s, points };
       }));
       setAngleEditing(null);
@@ -718,11 +731,68 @@ export default function App() {
                      return { ...s, fontSize: newSize };
                 }
                 const newPoints = [...s.points];
-                if (dragHandleIndex < newPoints.length) newPoints[dragHandleIndex] = pos;
-                if ((s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE || s.type === ShapeType.IMAGE) && newPoints.length === 2) {
-                     if (dragHandleIndex === 0) newPoints[0] = pos;
-                     if (dragHandleIndex === 1) newPoints[1] = pos;
+                
+                // --- BOUNDING BOX RESIZE LOGIC (Rect, Square, Image, Circle, Ellipse) ---
+                // Supports all 4 corners and Shift aspect ratio lock
+                const isBoxShape = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.CIRCLE, ShapeType.ELLIPSE].includes(s.type);
+
+                if (isBoxShape && newPoints.length === 2) {
+                     // 1. Calculate current BBox corners (0:TL, 1:TR, 2:BR, 3:BL)
+                     const p0 = newPoints[0];
+                     const p1 = newPoints[1];
+                     const minX = Math.min(p0.x, p1.x);
+                     const maxX = Math.max(p0.x, p1.x);
+                     const minY = Math.min(p0.y, p1.y);
+                     const maxY = Math.max(p0.y, p1.y);
+                     
+                     const corners = [
+                         { x: minX, y: minY }, 
+                         { x: maxX, y: minY }, 
+                         { x: maxX, y: maxY }, 
+                         { x: minX, y: maxY }  
+                     ];
+                     
+                     // 2. Determine fixed anchor point (opposite to dragged handle)
+                     // SelectionOverlay maps handles 0..3 to corners 0..3
+                     if (dragHandleIndex !== null && dragHandleIndex >= 0 && dragHandleIndex < 4) {
+                         const fixedIdx = (dragHandleIndex + 2) % 4;
+                         const fixedPoint = corners[fixedIdx];
+                         
+                         let targetPos = pos; // Use snapped position (unless Shift is held, getMousePos handles that)
+
+                         // 3. Apply Aspect Ratio Constraint
+                         if (isShiftPressed || s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) {
+                             const w = maxX - minX;
+                             const h = maxY - minY;
+                             if (w > 0 && h > 0) {
+                                 const ratio = w / h;
+                                 const dx = targetPos.x - fixedPoint.x;
+                                 const dy = targetPos.y - fixedPoint.y;
+                                 
+                                 // Determine major axis for scaling to prevent collapse
+                                 if (Math.abs(dx) / Math.abs(dy) > ratio) {
+                                     // Scale based on X
+                                     const newH = Math.abs(dx) / ratio;
+                                     targetPos = { ...targetPos, y: fixedPoint.y + (dy > 0 ? newH : -newH) };
+                                 } else {
+                                     // Scale based on Y
+                                     const newW = Math.abs(dy) * ratio;
+                                     targetPos = { ...targetPos, x: fixedPoint.x + (dx > 0 ? newW : -newW) };
+                                 }
+                             }
+                         }
+                         
+                         // 4. Update points to new diagonal
+                         newPoints[0] = fixedPoint;
+                         newPoints[1] = targetPos;
+                     }
+                } else {
+                    // Standard vertex drag for other shapes (Line, Triangle, Polygon, etc.)
+                    if (dragHandleIndex !== null && dragHandleIndex < newPoints.length) {
+                        newPoints[dragHandleIndex] = pos;
+                    }
                 }
+
                 return { ...s, points: newPoints };
             });
 
@@ -852,7 +922,16 @@ export default function App() {
   const handleOpenProjectClick = () => { fileInputRef.current?.click(); };
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!e.target.files?.[0]) return;
-      try { const loaded = await loadProject(e.target.files[0]); setShapes(loaded); setHistory([]); setSelectedIds(new Set()); } catch(e) { alert("Error loading"); }
+      try { 
+          const loaded = await loadProject(e.target.files[0]); 
+          setShapes(loaded); 
+          setHistory([]); 
+          setSelectedIds(new Set()); 
+      } catch(e) { 
+          alert("Error loading"); 
+      } finally {
+          e.target.value = ''; // Reset input value to allow re-selection of the same file
+      }
   };
   
   const handleCornerClick = (sid: string, idx: number) => {
