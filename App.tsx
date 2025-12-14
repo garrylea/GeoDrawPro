@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, MarkerType, MarkerConfig, Constraint } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
 import { AxisLayer } from './components/AxisLayer';
@@ -33,6 +33,7 @@ export default function App() {
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<Point | null>(null);
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
+  const cursorPosRef = useRef<Point | null>(null); // Ref for synchronous access in event listeners
   
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
   const [hoveredConstraint, setHoveredConstraint] = useState<Constraint | null>(null);
@@ -68,6 +69,9 @@ export default function App() {
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
   const pixelsPerUnit = getPixelsPerUnit(canvasSize.width, canvasSize.height, axisConfig.ticks);
+
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+  const saveHistory = () => setHistory(prev => [...prev, shapes]);
 
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -108,6 +112,74 @@ export default function App() {
       }
   }, [textEditing, angleEditing]);
 
+  // --- Helper to process image file (shared by Upload, Drag&Drop, Paste) ---
+  const processImageFile = useCallback((file: File, position?: Point) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const url = event.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+              saveHistory();
+              const id = generateId();
+              const width = img.width;
+              const height = img.height;
+              
+              // Scale down if too big
+              const maxDim = 300;
+              let finalW = width;
+              let finalH = height;
+              if (width > maxDim || height > maxDim) {
+                  const ratio = width / height;
+                  if (width > height) { finalW = maxDim; finalH = maxDim / ratio; }
+                  else { finalH = maxDim; finalW = maxDim * ratio; }
+              }
+
+              let centerX, centerY;
+              if (position) {
+                  centerX = position.x;
+                  centerY = position.y;
+              } else {
+                  // Default to center of canvas
+                  centerX = canvasSize.width / 2;
+                  centerY = canvasSize.height / 2;
+              }
+
+              const newShape: Shape = {
+                  id, type: ShapeType.IMAGE,
+                  points: [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}],
+                  imageUrl: url,
+                  fill: 'none', stroke: 'transparent', strokeWidth: 0, rotation: 0
+              };
+              setShapes(prev => [...prev, newShape]);
+              setSelectedIds(new Set([id]));
+              setTool(ToolType.SELECT);
+          }
+          img.src = url;
+      };
+      reader.readAsDataURL(file);
+  }, [canvasSize]);
+
+  // Paste Event Listener
+  useEffect(() => {
+      const handlePaste = (e: ClipboardEvent) => {
+          if (e.clipboardData?.items) {
+              for (let i = 0; i < e.clipboardData.items.length; i++) {
+                  const item = e.clipboardData.items[i];
+                  if (item.type.indexOf('image') !== -1) {
+                      const file = item.getAsFile();
+                      if (file) {
+                          e.preventDefault(); 
+                          // Use mouse position from ref if available, otherwise undefined (centers on canvas)
+                          processImageFile(file, cursorPosRef.current || undefined);
+                      }
+                  }
+              }
+          }
+      };
+      window.addEventListener('paste', handlePaste);
+      return () => window.removeEventListener('paste', handlePaste);
+  }, [processImageFile]);
+
   // --- Label Generator ---
   const getNextLabels = (count: number): string[] => {
       const used = new Set<string>();
@@ -133,7 +205,6 @@ export default function App() {
       return result;
   };
 
-  const saveHistory = () => setHistory(prev => [...prev, shapes]);
   const undo = () => {
       if (history.length === 0) return;
       const previousState = history[history.length - 1];
@@ -227,8 +298,6 @@ export default function App() {
     return raw;
   };
 
-  const generateId = () => Math.random().toString(36).substr(2, 9);
-
   const handleToolChange = (newTool: ToolType) => {
     if (newTool === ToolType.IMAGE) {
         imageInputRef.current?.click();
@@ -241,56 +310,11 @@ export default function App() {
     setCompassPreviewPath(null);
   };
 
-  const processImageFile = (file: File, position?: Point) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-          const url = event.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-              saveHistory();
-              const id = generateId();
-              const width = img.width;
-              const height = img.height;
-              
-              // Scale down if too big
-              const maxDim = 300;
-              let finalW = width;
-              let finalH = height;
-              if (width > maxDim || height > maxDim) {
-                  const ratio = width / height;
-                  if (width > height) { finalW = maxDim; finalH = maxDim / ratio; }
-                  else { finalH = maxDim; finalW = maxDim * ratio; }
-              }
-
-              let centerX, centerY;
-              if (position) {
-                  centerX = position.x;
-                  centerY = position.y;
-              } else {
-                  centerX = canvasSize.width / 2;
-                  centerY = canvasSize.height / 2;
-              }
-
-              const newShape: Shape = {
-                  id, type: ShapeType.IMAGE,
-                  points: [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}],
-                  imageUrl: url,
-                  fill: 'none', stroke: 'transparent', strokeWidth: 0, rotation: 0
-              };
-              setShapes(prev => [...prev, newShape]);
-              setSelectedIds(new Set([id]));
-              setTool(ToolType.SELECT);
-          }
-          img.src = url;
-      };
-      reader.readAsDataURL(file);
-  };
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        processImageFile(file);
-        e.target.value = ''; // Reset input
+        processImageFile(file); // Use the shared helper
+        e.target.value = ''; 
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -593,6 +617,7 @@ export default function App() {
     const pos = getMousePos(e, true);
     const rawPos = getMousePos(e, false);
     setCursorPos(rawPos);
+    cursorPosRef.current = rawPos; // Keep ref updated for synchronous access in paste listener
 
     if (tool === ToolType.COMPASS && compassState.radiusPoint) {
          const radius = distance(compassState.center!, compassState.radiusPoint);
