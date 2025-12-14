@@ -170,6 +170,88 @@ const isPointInPolygon = (p: Point, vertices: Point[]): boolean => {
     return inside;
 };
 
+// --- Rotation & Geometry Helpers (Moved up for use in hit testing) ---
+
+export const getShapeCenter = (points: Point[], type?: ShapeType, fontSize?: number, text?: string): Point => {
+    if (!points || points.length === 0) return { x: 0, y: 0 };
+    
+    if (type === ShapeType.TEXT) {
+        const fs = fontSize || 16;
+        const w = (text || '').length * fs * 0.6;
+        const h = fs;
+        return { x: points[0].x + w/2, y: points[0].y + h/2 };
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    points.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+    });
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+};
+
+export const rotatePoint = (point: Point, center: Point, angleDeg: number): Point => {
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return {
+        x: center.x + dx * cos - dy * sin,
+        y: center.y + dx * sin + dy * cos
+    };
+};
+
+export const getRotatedCorners = (shape: Shape): Point[] => {
+    const { type, points, rotation, fontSize, text } = shape;
+    if (!points || points.length === 0) return [];
+
+    let corners: Point[] = [];
+    
+    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR].includes(type)) {
+        let x, y, w, h;
+        if (type === ShapeType.TEXT) {
+             x = points[0].x; y = points[0].y;
+             const fs = fontSize || 16;
+             w = (text || '').length * fs * 0.6;
+             h = fs;
+        } else if (type === ShapeType.RULER || type === ShapeType.PROTRACTOR) {
+             // Basic bounding box logic for these tools
+             const p0 = points[0];
+             const p1 = points[1] || points[0];
+             const minX = Math.min(p0.x, p1.x);
+             const minY = Math.min(p0.y, p1.y);
+             w = Math.abs(p1.x - p0.x);
+             h = Math.abs(p1.y - p0.y);
+             x = minX; y = minY;
+        } else {
+             const p0 = points[0];
+             const p1 = points[1] || points[0];
+             const minX = Math.min(p0.x, p1.x);
+             const minY = Math.min(p0.y, p1.y);
+             w = Math.abs(p1.x - p0.x);
+             h = Math.abs(p1.y - p0.y);
+             x = minX; y = minY;
+        }
+        corners = [
+            { x: x, y: y },         
+            { x: x + w, y: y },     
+            { x: x + w, y: y + h }, 
+            { x: x, y: y + h }      
+        ];
+    } else {
+        corners = [...points];
+    }
+
+    if (rotation) {
+        const center = getShapeCenter(points, type, fontSize, text);
+        return corners.map(p => rotatePoint(p, center, rotation));
+    }
+    return corners;
+};
+
 // --- Hit Testing ---
 
 export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, canvasHeight?: number, ppu?: number): boolean => {
@@ -193,62 +275,86 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
         return Math.abs(expectedSP.y - p.y) < threshold;
     }
 
-    // 2. Point Detection
+    // 2. Point Detection (Special Case)
     if (shape.type === ShapeType.POINT) {
-        return distance(p, shape.points[0]) < Math.max(10, shape.strokeWidth + 5);
+         // Points hit test is simple radius check
+         return distance(p, shape.points[0]) < Math.max(10, shape.strokeWidth + 5);
     }
     
-    // 3. Text Detection (Simple BBox)
-    if (shape.type === ShapeType.TEXT) {
-        const fs = shape.fontSize || 16;
-        const width = (shape.text || '').length * fs * 0.6;
-        const height = fs;
-        const x = shape.points[0].x;
-        const y = shape.points[0].y;
-        return p.x >= x && p.x <= x + width && p.y >= y && p.y <= y + height;
+    // 3. Rectangular Shapes Detection (Ruler, Rect, Square, Image, Protractor, Text)
+    // We calculate the ACTUAL rotated corners on screen and check if the mouse point is inside that polygon.
+    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.TEXT].includes(shape.type)) {
+        const corners = getRotatedCorners(shape);
+        return isPointInPolygon(p, corners);
     }
 
     // 4. Path/Compass Detection
+    // For these, we might still need to account for rotation if they were rotatable,
+    // but Compass/Path are usually complex. We'll use the generic edge detection.
     if (shape.type === ShapeType.PATH) {
         if (shape.points && shape.points.length > 1) {
+            // NOTE: If paths support rotation later, this needs `rotatePoint` logic or transforming the path.
+            // Currently assuming paths (compass arcs) aren't arbitrarily rotated after creation via 'rotation' prop.
             const closest = getClosestPointOnShape(p, shape);
             return distance(p, closest) < threshold;
         }
         return false;
     }
 
-    // 5. Interior Detection (Rect, Square, Image, Ruler, Protractor)
-    if (shape.type === ShapeType.RECTANGLE || shape.type === ShapeType.SQUARE || shape.type === ShapeType.IMAGE || shape.type === ShapeType.RULER || shape.type === ShapeType.PROTRACTOR) {
-        if (!shape.points || shape.points.length < 2) return false;
-        const xMin = Math.min(shape.points[0].x, shape.points[1].x);
-        const xMax = Math.max(shape.points[0].x, shape.points[1].x);
-        const yMin = Math.min(shape.points[0].y, shape.points[1].y);
-        const yMax = Math.max(shape.points[0].y, shape.points[1].y);
-        if (p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax) return true;
-    }
-
+    // 5. Circle/Ellipse Detection
+    // For Circle, rotation doesn't change hit area (unless resized to ellipse, handled by Ellipse logic).
     if (shape.type === ShapeType.CIRCLE) {
          const center = getShapeCenter(shape.points);
          const width = Math.abs(shape.points[0].x - shape.points[1].x);
          const radius = width / 2;
-         if (distance(p, center) <= radius) return true;
+         return distance(p, center) <= radius;
     }
+    
     if (shape.type === ShapeType.ELLIPSE) {
+        // For rotated ellipse hit testing, we either rotate point back or do complex math.
+        // Since we are avoiding "rotate point back" per request preference for other shapes,
+        // but Ellipse is NOT a polygon, we keep the original logic (or would need General Ellipse Eq).
+        // However, user specifically asked about Ruler/Rect style selection.
+        // For consistency with the "Don't rotate point back" request, we *could* approximate with a polygon
+        // using getRotatedCorners (bounding box), but that includes empty corners.
+        // Let's stick to the cleanest mathematical check for Ellipse which implies local space.
+        // To respect "Minimal changes", we keep existing ellipse logic but it requires localP.
+        // Since I removed localP global calculation, I will re-introduce localP LOCALLY just for Ellipse.
         const center = getShapeCenter(shape.points);
+        let localP = p;
+        if (shape.rotation) {
+             localP = rotatePoint(p, center, -shape.rotation);
+        }
         const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
         const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
         if (rx > 0 && ry > 0) {
-            const val = Math.pow(p.x - center.x, 2) / (rx * rx) + Math.pow(p.y - center.y, 2) / (ry * ry);
+            const val = Math.pow(localP.x - center.x, 2) / (rx * rx) + Math.pow(localP.y - center.y, 2) / (ry * ry);
             if (val <= 1) return true;
         }
+        return false;
     }
 
+    // 6. Polygon/Triangle Detection
     if ((shape.type === ShapeType.POLYGON || shape.type === ShapeType.TRIANGLE) && shape.points.length >= 3) {
-        if (isPointInPolygon(p, shape.points)) return true;
+        // Use rotated corners (which returns all points for polygons)
+        const corners = getRotatedCorners(shape);
+        if (isPointInPolygon(p, corners)) return true;
     }
 
-    // 6. Edge Detection (General Fallback)
-    const closest = getClosestPointOnShape(p, shape);
+    // 7. General Edge Detection (Lines, Freehand, etc.)
+    // For rotated lines, getRotatedCorners handles it if we treat it as polygon? No, Line is 1D.
+    // We need to check distance to rotated segment.
+    let pointsToCheck = shape.points;
+    if (shape.rotation) {
+         // Create temporary rotated points for hit testing
+         const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
+         pointsToCheck = shape.points.map(pt => rotatePoint(pt, center, shape.rotation));
+    }
+    
+    // Standard edge distance check on (potentially rotated) points
+    // Re-implement getClosestPointOnShape logic inline or create temp shape object
+    const tempShape = { ...shape, points: pointsToCheck };
+    const closest = getClosestPointOnShape(p, tempShape);
     return distance(p, closest) < threshold;
 };
 
@@ -258,6 +364,12 @@ export const isShapeInRect = (shape: Shape, rect: { start: Point, end: Point }):
     const yMin = Math.min(rect.start.y, rect.end.y);
     const yMax = Math.max(rect.start.y, rect.end.y);
 
+    // Use Rotated Corners to ensure box selection works on what user sees
+    const corners = getRotatedCorners(shape);
+    if (corners.length > 0) {
+        return corners.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
+    }
+    // Fallback for points
     if (shape.points) {
         return shape.points.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
     }
@@ -321,79 +433,6 @@ export const getSnapPoint = (
 export const getDetailedSnapPoints = (shape: Shape) => {
     if (shape.points) return shape.points;
     return [];
-};
-
-// --- Rotation & Geometry Helpers ---
-
-export const getShapeCenter = (points: Point[], type?: ShapeType, fontSize?: number, text?: string): Point => {
-    if (!points || points.length === 0) return { x: 0, y: 0 };
-    
-    if (type === ShapeType.TEXT) {
-        const fs = fontSize || 16;
-        const w = (text || '').length * fs * 0.6;
-        const h = fs;
-        return { x: points[0].x + w/2, y: points[0].y + h/2 };
-    }
-
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    points.forEach(p => {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-    });
-    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-};
-
-export const rotatePoint = (point: Point, center: Point, angleDeg: number): Point => {
-    const rad = (angleDeg * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    const dx = point.x - center.x;
-    const dy = point.y - center.y;
-    return {
-        x: center.x + dx * cos - dy * sin,
-        y: center.y + dx * sin + dy * cos
-    };
-};
-
-export const getRotatedCorners = (shape: Shape): Point[] => {
-    const { type, points, rotation, fontSize, text } = shape;
-    if (!points || points.length === 0) return [];
-
-    let corners: Point[] = [];
-    
-    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT, ShapeType.IMAGE].includes(type)) {
-        let x, y, w, h;
-        if (type === ShapeType.TEXT) {
-             x = points[0].x; y = points[0].y;
-             const fs = fontSize || 16;
-             w = (text || '').length * fs * 0.6;
-             h = fs;
-        } else {
-             const p0 = points[0];
-             const p1 = points[1] || points[0];
-             const minX = Math.min(p0.x, p1.x);
-             const minY = Math.min(p0.y, p1.y);
-             w = Math.abs(p1.x - p0.x);
-             h = Math.abs(p1.y - p0.y);
-             x = minX; y = minY;
-        }
-        corners = [
-            { x: x, y: y },         
-            { x: x + w, y: y },     
-            { x: x + w, y: y + h }, 
-            { x: x, y: y + h }      
-        ];
-    } else {
-        corners = [...points];
-    }
-
-    if (rotation) {
-        const center = getShapeCenter(points, type, fontSize, text);
-        return corners.map(p => rotatePoint(p, center, rotation));
-    }
-    return corners;
 };
 
 export const reflectPointAcrossLine = (p: Point, l1: Point, l2: Point): Point => {
