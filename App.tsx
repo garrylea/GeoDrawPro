@@ -497,10 +497,9 @@ export default function App() {
     if (tool === ToolType.COMPASS) {
         if (!compassState.center) {
             setCompassState({ ...compassState, center: pos });
-        } else if (!compassState.radiusPoint) {
-            setCompassState({ ...compassState, radiusPoint: pos, startAngle: getAngleDegrees(compassState.center, pos) });
         } else {
-            setCompassState({ ...compassState, radiusPoint: null, startAngle: null }); setCompassPreviewPath(null);
+             // New Logic: Pressing down defines the radius and start angle immediately
+            setCompassState({ ...compassState, radiusPoint: pos, startAngle: getAngleDegrees(compassState.center, pos) });
         }
         return;
     }
@@ -850,40 +849,44 @@ export default function App() {
       setIsDragging(false); setIsRotating(false); setDragHandleIndex(null); setSelectionBox(null);
       const rawPos = getMousePos(e, false);
 
-      if (tool === ToolType.COMPASS && compassPreviewPath) {
-          saveHistory();
-          const id = generateId();
-          
-          // Generate approximate points for the arc to allow selection
-          const center = compassState.center!;
-          const radius = distance(center, compassState.radiusPoint!);
-          const startAngle = compassState.startAngle!;
-          const endAngle = getAngleDegrees(center, rawPos);
-          
-          const arcPoints = [];
-          // Simple interpolation. 20 points usually enough for hit testing.
-          const step = (endAngle - startAngle) / 20;
-          for(let i=0; i<=20; i++) {
-              const rad = ((startAngle + step * i) * Math.PI) / 180;
-              arcPoints.push({
-                  x: center.x + radius * Math.cos(rad),
-                  y: center.y + radius * Math.sin(rad)
-              });
-          }
+      if (tool === ToolType.COMPASS) {
+          if (compassPreviewPath) {
+              saveHistory();
+              const id = generateId();
+              
+              // Generate approximate points for the arc to allow selection
+              const center = compassState.center!;
+              const radius = distance(center, compassState.radiusPoint!);
+              const startAngle = compassState.startAngle!;
+              const endAngle = getAngleDegrees(center, rawPos);
+              
+              const arcPoints = [];
+              // Simple interpolation. 20 points usually enough for hit testing.
+              const step = (endAngle - startAngle) / 20;
+              for(let i=0; i<=20; i++) {
+                  const rad = ((startAngle + step * i) * Math.PI) / 180;
+                  arcPoints.push({
+                      x: center.x + radius * Math.cos(rad),
+                      y: center.y + radius * Math.sin(rad)
+                  });
+              }
 
-          const newShape: Shape = { 
-              id, 
-              type: ShapeType.PATH, 
-              points: [center, ...arcPoints], // Store center + arc points for logic
-              pathData: compassPreviewPath, 
-              fill: 'none', 
-              stroke: currentStyle.stroke, 
-              strokeWidth: currentStyle.strokeWidth, 
-              rotation: 0, 
-              isConstruction: true 
-          };
-          setShapes(prev => [...prev, newShape]);
-          setCompassState(prev => ({ ...prev, startAngle: null })); setCompassPreviewPath(null);
+              const newShape: Shape = { 
+                  id, 
+                  type: ShapeType.PATH, 
+                  points: [center, ...arcPoints], // Store center + arc points for logic
+                  pathData: compassPreviewPath, 
+                  fill: 'none', 
+                  stroke: currentStyle.stroke, 
+                  strokeWidth: currentStyle.strokeWidth, 
+                  rotation: 0, 
+                  isConstruction: true 
+              };
+              setShapes(prev => [...prev, newShape]);
+          }
+          // Reset drawing state (radius/startAngle), but KEEP center point
+          setCompassState(prev => ({ ...prev, radiusPoint: null, startAngle: null })); 
+          setCompassPreviewPath(null);
           return;
       }
 
