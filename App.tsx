@@ -218,9 +218,16 @@ export default function App() {
       if (selectedIds.size === 0) return;
       saveHistory();
       const idsToDelete = new Set<string>(Array.from(selectedIds) as string[]);
-      setShapes(prev => prev.filter(s => !idsToDelete.has(s.id) && 
-                !(s.constraint && idsToDelete.has(s.constraint.parentId || ''))
-      ));
+      setShapes(prev => prev.filter(s => {
+          // Remove if specifically selected
+          if (idsToDelete.has(s.id)) return false;
+          // Remove if dependent constraint parent is deleted
+          if (s.constraint && idsToDelete.has(s.constraint.parentId || '')) return false;
+          // Remove if it is a marker for a deleted shape
+          if (s.type === ShapeType.MARKER && s.markerConfig && idsToDelete.has(s.markerConfig.targets[0].shapeId)) return false;
+          
+          return true;
+      }));
       setSelectedIds(new Set<string>());
   };
 
@@ -643,19 +650,30 @@ export default function App() {
          const delta = currentAngle - lastRotationMouseAngle.current;
          lastRotationMouseAngle.current = currentAngle;
 
-         setShapes(prev => prev.map(s => {
-             if (!selectedIds.has(s.id)) return s;
-             const newRotation = (s.rotation || 0) + delta;
-             if (pivotIndex === 'center') {
-                 return { ...s, rotation: newRotation };
-             }
-             const oldCenter = getShapeCenter(s.points, s.type, s.fontSize, s.text);
-             const newCenter = rotatePoint(oldCenter, rotationCenter, delta);
-             const dx = newCenter.x - oldCenter.x;
-             const dy = newCenter.y - oldCenter.y;
-             const newPoints = s.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
-             return { ...s, points: newPoints, rotation: newRotation };
-         }));
+         setShapes(prev => {
+             const rotatedShapes = prev.map(s => {
+                 if (!selectedIds.has(s.id)) return s;
+                 const newRotation = (s.rotation || 0) + delta;
+                 if (pivotIndex === 'center') {
+                     return { ...s, rotation: newRotation };
+                 }
+                 const oldCenter = getShapeCenter(s.points, s.type, s.fontSize, s.text);
+                 const newCenter = rotatePoint(oldCenter, rotationCenter, delta);
+                 const dx = newCenter.x - oldCenter.x;
+                 const dy = newCenter.y - oldCenter.y;
+                 const newPoints = s.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+                 return { ...s, points: newPoints, rotation: newRotation };
+             });
+             
+             // Sync markers for any rotated shapes
+             return rotatedShapes.map(s => {
+                 if (s.type === ShapeType.MARKER && s.markerConfig) {
+                     const targetId = s.markerConfig.targets[0].shapeId;
+                     if (selectedIds.has(targetId)) return recalculateMarker(s, rotatedShapes) || s;
+                 }
+                 return s;
+             });
+         });
          return;
     }
 
@@ -669,22 +687,32 @@ export default function App() {
 
     if (dragHandleIndex !== null && selectedIds.size === 1) {
         const id = (Array.from(selectedIds) as string[])[0];
-        setShapes(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            if (s.type === ShapeType.TEXT) {
-                 const center = getShapeCenter(s.points, s.type, s.fontSize, s.text);
-                 const d = distance(center, rawPos); 
-                 const newSize = Math.max(8, Math.round(d / 2));
-                 return { ...s, fontSize: newSize };
-            }
-            const newPoints = [...s.points];
-            if (dragHandleIndex < newPoints.length) newPoints[dragHandleIndex] = pos;
-            if ((s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE || s.type === ShapeType.IMAGE) && newPoints.length === 2) {
-                 if (dragHandleIndex === 0) newPoints[0] = pos;
-                 if (dragHandleIndex === 1) newPoints[1] = pos;
-            }
-            return { ...s, points: newPoints };
-        }));
+        setShapes(prev => {
+            const resizedShapes = prev.map(s => {
+                if (s.id !== id) return s;
+                if (s.type === ShapeType.TEXT) {
+                     const center = getShapeCenter(s.points, s.type, s.fontSize, s.text);
+                     const d = distance(center, rawPos); 
+                     const newSize = Math.max(8, Math.round(d / 2));
+                     return { ...s, fontSize: newSize };
+                }
+                const newPoints = [...s.points];
+                if (dragHandleIndex < newPoints.length) newPoints[dragHandleIndex] = pos;
+                if ((s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE || s.type === ShapeType.IMAGE) && newPoints.length === 2) {
+                     if (dragHandleIndex === 0) newPoints[0] = pos;
+                     if (dragHandleIndex === 1) newPoints[1] = pos;
+                }
+                return { ...s, points: newPoints };
+            });
+
+            // Sync markers for resized shape
+            return resizedShapes.map(s => {
+                 if (s.type === ShapeType.MARKER && s.markerConfig && s.markerConfig.targets[0].shapeId === id) {
+                     return recalculateMarker(s, resizedShapes) || s;
+                 }
+                 return s;
+            });
+        });
         return;
     }
     
@@ -712,7 +740,18 @@ export default function App() {
         const dx = rawPos.x - dragStartPos.x;
         const dy = rawPos.y - dragStartPos.y;
         setDragStartPos(rawPos); 
-        setShapes(prev => prev.map(s => selectedIds.has(s.id) ? { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) } : s));
+        setShapes(prev => {
+            const movedShapes = prev.map(s => selectedIds.has(s.id) ? { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) } : s);
+            
+            // Sync markers for moved shapes
+            return movedShapes.map(s => {
+                 if (s.type === ShapeType.MARKER && s.markerConfig) {
+                     const targetId = s.markerConfig.targets[0].shapeId;
+                     if (selectedIds.has(targetId)) return recalculateMarker(s, movedShapes) || s;
+                 }
+                 return s;
+            });
+        });
     }
   };
 
@@ -931,6 +970,7 @@ export default function App() {
                 <h1 className="font-bold text-lg text-slate-800 tracking-tight">GeoDraw Pro</h1>
             </div>
             <div className="flex items-center space-x-2">
+                <button onClick={() => imageInputRef.current?.click()} className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" title="Import Image"><ImageIcon size={18}/> Image</button>
                 <button onClick={handleOpenProjectClick} className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" title="Open"><FolderOpen size={18}/> Open</button>
                 <button onClick={handleSaveProject} className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" title="Save"><Save size={18}/> Save</button>
                 <div className="w-px h-5 bg-slate-200 mx-1"></div>
@@ -1012,42 +1052,6 @@ export default function App() {
 
             <div className="w-80 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto z-10 custom-scrollbar">
                 
-                {selectedShape?.type === ShapeType.TRIANGLE && (
-                    <div className="p-5 border-b border-slate-100">
-                        <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
-                            <Radius size={16} /> Corner Markers
-                        </div>
-                        <div className="space-y-2">
-                            {selectedShape.points.map((_, i) => {
-                                const m = getMarkerForCorner(selectedShape.id, i);
-                                const isPerp = m?.markerConfig?.type === 'perpendicular';
-                                return (
-                                    <div key={i} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded">
-                                        <span className="text-slate-600 font-medium">Angle {String.fromCharCode(65 + i)}</span>
-                                        <div className="flex gap-1">
-                                            <button 
-                                                onClick={() => handleCornerClick(selectedShape.id, i)}
-                                                className={`px-2 py-1 rounded text-xs border ${m ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}
-                                            >
-                                                {m ? 'Marked' : 'Mark'}
-                                            </button>
-                                            {m && (
-                                                <button 
-                                                    onClick={() => handleCornerClick(selectedShape.id, i)} // Toggles type
-                                                    className={`px-2 py-1 rounded text-xs border font-bold ${isPerp ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-slate-200 text-slate-500'}`}
-                                                    title="Toggle Right Angle"
-                                                >
-                                                    {isPerp ? '∟' : '◠'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
                 {selectedShape?.type === ShapeType.MARKER && selectedShape.markerConfig && (
                     <div className="p-5 border-b border-slate-100">
                          <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
@@ -1122,7 +1126,7 @@ export default function App() {
                     <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
                         <Sparkles size={16} /> Smart Tools
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2 mb-4">
                         <button onClick={() => setAutoLabelMode(!autoLabelMode)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${autoLabelMode ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
                             <CaseUpper size={16} /> Auto AB
                         </button>
@@ -1136,6 +1140,45 @@ export default function App() {
                             <FoldHorizontal size={16} /> Mirror
                         </button>
                     </div>
+
+                    {/* Integrated Angles Section */}
+                    {selectedShape && [ShapeType.TRIANGLE, ShapeType.POLYGON, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(selectedShape.type) && (
+                        <div className="border-t border-slate-100 pt-3">
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Corner Markers</div>
+                            <div className="space-y-1">
+                                {selectedShape.points.map((_, i) => {
+                                    // For Triangles, only show 3. For others, show all.
+                                    if (selectedShape.type === ShapeType.TRIANGLE && i > 2) return null;
+                                    
+                                    const m = getMarkerForCorner(selectedShape.id, i);
+                                    const isPerp = m?.markerConfig?.type === 'perpendicular';
+                                    
+                                    return (
+                                        <div key={i} className="flex items-center justify-between text-xs bg-slate-50 p-1.5 rounded">
+                                            <span className="text-slate-600 font-medium">Angle {String.fromCharCode(65 + i)}</span>
+                                            <div className="flex gap-1">
+                                                <button 
+                                                    onClick={() => handleCornerClick(selectedShape.id, i)}
+                                                    className={`px-1.5 py-0.5 rounded border transition-colors ${m ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
+                                                >
+                                                    {m ? 'On' : 'Off'}
+                                                </button>
+                                                {m && (
+                                                    <button 
+                                                        onClick={() => handleCornerClick(selectedShape.id, i)} // Toggles type by re-clicking
+                                                        className={`w-6 h-6 flex items-center justify-center rounded border font-bold transition-colors ${isPerp ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-slate-200 text-slate-500'}`}
+                                                        title="Toggle Right Angle"
+                                                    >
+                                                        {isPerp ? '∟' : '◠'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="p-5 border-b border-slate-100">

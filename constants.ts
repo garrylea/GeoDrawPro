@@ -20,7 +20,7 @@ export const TOOL_CONFIG = [
   { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, // New
   { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       // New
   { id: ToolType.FUNCTION, label: 'Function', icon: FunctionSquare },
-  { id: ToolType.IMAGE, label: 'Image', icon: ImageIcon },   // New
+  // IMAGE Removed from sidebar, moved to top bar
   { id: ToolType.POINT, label: 'Point', icon: Dot },
   { id: ToolType.LINE, label: 'Line', icon: Minus },
   { id: ToolType.RECTANGLE, label: 'Rectangle', icon: Maximize },

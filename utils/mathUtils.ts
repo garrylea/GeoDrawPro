@@ -473,8 +473,6 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
 
     if (!pPrev || !pCurr || !pNext) return null;
 
-    const radius = 20;
-
     // Vectors from center (curr)
     const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
     const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
@@ -483,6 +481,11 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
     const mag2 = Math.sqrt(v2.x*v2.x + v2.y*v2.y);
     
     if (mag1 === 0 || mag2 === 0) return null;
+
+    // Calculate dynamic radius based on proportional size of legs
+    // Min 15, Max 40, aiming for roughly 25% of the shortest leg length
+    const minLeg = Math.min(mag1, mag2);
+    const radius = Math.max(15, Math.min(40, minLeg * 0.25));
 
     // Unit vectors
     const u1 = { x: v1.x / mag1, y: v1.y / mag1 };
@@ -500,7 +503,7 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
         pathData = `M ${p1.x} ${p1.y} L ${p3.x} ${p3.y} L ${p2.x} ${p2.y}`;
     } else {
         // Default: angle_arc
-        const rArc = 25;
+        const rArc = radius + 5; // Slight offset for arc to look nice
         const start = { x: pCurr.x + u1.x * rArc, y: pCurr.y + u1.y * rArc };
         const end = { x: pCurr.x + u2.x * rArc, y: pCurr.y + u2.y * rArc };
         pathData = getAngleArcPath(pCurr, start, end, rArc);
