@@ -254,7 +254,7 @@ export default function App() {
                   setShapes(prev => prev.filter(s => s.id !== activeShapeId));
                   setActiveShapeId(null); setIsDragging(false); setTool(ToolType.SELECT); return;
               }
-              if (tool === ToolType.COMPASS) { setCompassState({ center: null, radiusPoint: null, startAngle: null }); setCompassPreviewPath(null); return; }
+              if (tool === ToolType.COMPASS && compassState.center) { setCompassState({ center: null, radiusPoint: null, startAngle: null }); setCompassPreviewPath(null); return; }
               if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
               if (tool !== ToolType.SELECT) { setTool(ToolType.SELECT); return; }
           }
@@ -274,7 +274,7 @@ export default function App() {
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
       return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool]); 
+  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool, compassState]); 
 
   const getMousePos = (e: React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
