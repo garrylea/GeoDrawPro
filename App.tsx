@@ -60,6 +60,7 @@ export default function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const angleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [selectionBox, setSelectionBox] = useState<{start: Point, current: Point} | null>(null);
   
   const lastRotationMouseAngle = useRef<number>(0);
@@ -229,11 +230,86 @@ export default function App() {
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
   const handleToolChange = (newTool: ToolType) => {
+    if (newTool === ToolType.IMAGE) {
+        imageInputRef.current?.click();
+        return;
+    }
     setTool(newTool); setSelectedIds(new Set()); setSnapIndicator(null); setCursorPos(null);
     setSelectionBox(null); setActiveShapeId(null); setTextEditing(null); setAngleEditing(null);
     setPickingMirrorMode(false); setMarkingAnglesMode(false); setHoveredShapeId(null);
     setCompassState({ center: null, radiusPoint: null, startAngle: null });
     setCompassPreviewPath(null);
+  };
+
+  const processImageFile = (file: File, position?: Point) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const url = event.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+              saveHistory();
+              const id = generateId();
+              const width = img.width;
+              const height = img.height;
+              
+              // Scale down if too big
+              const maxDim = 300;
+              let finalW = width;
+              let finalH = height;
+              if (width > maxDim || height > maxDim) {
+                  const ratio = width / height;
+                  if (width > height) { finalW = maxDim; finalH = maxDim / ratio; }
+                  else { finalH = maxDim; finalW = maxDim * ratio; }
+              }
+
+              let centerX, centerY;
+              if (position) {
+                  centerX = position.x;
+                  centerY = position.y;
+              } else {
+                  centerX = canvasSize.width / 2;
+                  centerY = canvasSize.height / 2;
+              }
+
+              const newShape: Shape = {
+                  id, type: ShapeType.IMAGE,
+                  points: [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}],
+                  imageUrl: url,
+                  fill: 'none', stroke: 'transparent', strokeWidth: 0, rotation: 0
+              };
+              setShapes(prev => [...prev, newShape]);
+              setSelectedIds(new Set([id]));
+              setTool(ToolType.SELECT);
+          }
+          img.src = url;
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        processImageFile(file);
+        e.target.value = ''; // Reset input
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const dropPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const file = e.dataTransfer.files[0];
+          if (file.type.startsWith('image/')) {
+              processImageFile(file, dropPos);
+          }
+      }
   };
 
   const handleRotateStart = (e: React.MouseEvent, shape: Shape) => {
@@ -578,7 +654,7 @@ export default function App() {
             }
             const newPoints = [...s.points];
             if (dragHandleIndex < newPoints.length) newPoints[dragHandleIndex] = pos;
-            if ((s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE) && newPoints.length === 2) {
+            if ((s.type === ShapeType.RECTANGLE || s.type === ShapeType.SQUARE || s.type === ShapeType.IMAGE) && newPoints.length === 2) {
                  if (dragHandleIndex === 0) newPoints[0] = pos;
                  if (dragHandleIndex === 1) newPoints[1] = pos;
             }
@@ -856,7 +932,11 @@ export default function App() {
                 ))}
             </div>
 
-            <div className="flex-1 relative bg-white cursor-crosshair">
+            <div 
+                className="flex-1 relative bg-white cursor-crosshair"
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+            >
                 {pickingMirrorMode && (
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-sm font-medium animate-bounce pointer-events-none">
                         Select a line to mirror across
@@ -1081,6 +1161,7 @@ export default function App() {
             </div>
         </div>
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".geo,.json" className="hidden" />
+        <input type="file" ref={imageInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
     </div>
   );
 }

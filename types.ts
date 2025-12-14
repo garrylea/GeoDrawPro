@@ -14,7 +14,8 @@ export enum ToolType {
   PROTRACTOR = 'PROTRACTOR',
   FUNCTION = 'FUNCTION',
   COMPASS = 'COMPASS', // New
-  RULER = 'RULER'      // New
+  RULER = 'RULER',      // New
+  IMAGE = 'IMAGE'       // New
 }
 
 export enum ShapeType {
@@ -32,7 +33,8 @@ export enum ShapeType {
   PROTRACTOR = 'PROTRACTOR',
   RULER = 'RULER', // Added
   MARKER = 'MARKER',
-  FUNCTION_GRAPH = 'FUNCTION_GRAPH'
+  FUNCTION_GRAPH = 'FUNCTION_GRAPH',
+  IMAGE = 'IMAGE' // New
 }
 
 export interface Point {
@@ -82,6 +84,9 @@ export interface Shape {
   
   // Flag for construction marks (drawn by compass/ruler)
   isConstruction?: boolean;
+  
+  // New property for Images
+  imageUrl?: string;
 }
 
 export interface AxisConfig {

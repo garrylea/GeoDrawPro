@@ -217,8 +217,8 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
         return false;
     }
 
-    // 5. Interior Detection
-    if (shape.type === ShapeType.RECTANGLE || shape.type === ShapeType.SQUARE) {
+    // 5. Interior Detection (Rect, Square, Image)
+    if (shape.type === ShapeType.RECTANGLE || shape.type === ShapeType.SQUARE || shape.type === ShapeType.IMAGE) {
         const xMin = Math.min(shape.points[0].x, shape.points[1].x);
         const xMax = Math.max(shape.points[0].x, shape.points[1].x);
         const yMin = Math.min(shape.points[0].y, shape.points[1].y);
@@ -362,7 +362,7 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
 
     let corners: Point[] = [];
     
-    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT].includes(type)) {
+    if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT, ShapeType.IMAGE].includes(type)) {
         let x, y, w, h;
         if (type === ShapeType.TEXT) {
              x = points[0].x; y = points[0].y;

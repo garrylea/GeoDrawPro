@@ -1,6 +1,6 @@
 
 import { ToolType } from './types';
-import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass } from 'lucide-react';
+import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass, Image as ImageIcon } from 'lucide-react';
 
 export const COLORS = [
   'transparent', '#000000', '#ffffff', 
@@ -20,6 +20,7 @@ export const TOOL_CONFIG = [
   { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, // New
   { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       // New
   { id: ToolType.FUNCTION, label: 'Function', icon: FunctionSquare },
+  { id: ToolType.IMAGE, label: 'Image', icon: ImageIcon },   // New
   { id: ToolType.POINT, label: 'Point', icon: Dot },
   { id: ToolType.LINE, label: 'Line', icon: Minus },
   { id: ToolType.RECTANGLE, label: 'Rectangle', icon: Maximize },

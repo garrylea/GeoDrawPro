@@ -55,7 +55,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
     ShapeType.RULER,
     ShapeType.FREEHAND,
     ShapeType.TEXT,
-    ShapeType.PATH            
+    ShapeType.PATH,
+    ShapeType.IMAGE // Added
   ].includes(type);
 
   // Fallback for Polygons with too many points (to prevent UI lag and clutter)

@@ -9,7 +9,7 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl } = shape;
   
   // MARKER SPECIAL HANDLING
   if (type === ShapeType.MARKER) {
@@ -213,6 +213,19 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
         );
         break;
 
+    case ShapeType.IMAGE:
+        if (!imageUrl) return null;
+        element = (
+            <image 
+                href={imageUrl}
+                x={x} y={y} 
+                width={width} height={height}
+                preserveAspectRatio="none"
+                // Removed pointerEvents: 'none' so that the group cursor style works on hover
+            />
+        );
+        break;
+
     case ShapeType.PROTRACTOR:
         // Protractor Logic
         const cx = x + width / 2;
@@ -348,7 +361,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
 
   return (
     <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }}>
-      {isSelected && (
+      {isSelected && type !== ShapeType.IMAGE && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
