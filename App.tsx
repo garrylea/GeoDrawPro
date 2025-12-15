@@ -723,6 +723,49 @@ export default function App() {
         setShapes(prev => {
             const resizedShapes = prev.map(s => {
                 if (s.id !== id) return s;
+
+                // --- FREEHAND RESIZE LOGIC ---
+                if (s.type === ShapeType.FREEHAND && dragHandleIndex !== null && dragHandleIndex < 4) {
+                     const xs = s.points.map(p => p.x);
+                     const ys = s.points.map(p => p.y);
+                     const minX = Math.min(...xs), maxX = Math.max(...xs);
+                     const minY = Math.min(...ys), maxY = Math.max(...ys);
+                     const w = maxX - minX;
+                     const h = maxY - minY;
+                     
+                     if (w === 0 || h === 0) return s;
+
+                     const corners = [ { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY } ];
+                     const fixedIdx = (dragHandleIndex + 2) % 4;
+                     const fixedPoint = corners[fixedIdx];
+                     
+                     let targetPos = pos; 
+                     if (isShiftPressed) {
+                         const ratio = w / h;
+                         const dx = targetPos.x - fixedPoint.x;
+                         const dy = targetPos.y - fixedPoint.y;
+                         if (Math.abs(dx) / Math.abs(dy) > ratio) {
+                             const newH = Math.abs(dx) / ratio;
+                             targetPos = { ...targetPos, y: fixedPoint.y + (dy > 0 ? newH : -newH) };
+                         } else {
+                             const newW = Math.abs(dy) * ratio;
+                             targetPos = { ...targetPos, x: fixedPoint.x + (dx > 0 ? newW : -newW) };
+                         }
+                     }
+
+                     const newMinX = Math.min(fixedPoint.x, targetPos.x);
+                     const newWidth = Math.abs(targetPos.x - fixedPoint.x);
+                     const newMinY = Math.min(fixedPoint.y, targetPos.y);
+                     const newHeight = Math.abs(targetPos.y - fixedPoint.y);
+
+                     const scaledPoints = s.points.map(p => ({
+                         x: newMinX + ((p.x - minX) / w) * newWidth,
+                         y: newMinY + ((p.y - minY) / h) * newHeight
+                     }));
+                     
+                     return { ...s, points: scaledPoints };
+                }
+
                 if (s.type === ShapeType.TEXT) {
                      const center = getShapeCenter(s.points, s.type, s.fontSize, s.text);
                      const d = distance(center, rawPos); 
@@ -917,7 +960,23 @@ export default function App() {
       }
 
       if (activeShapeId) {
-          setSelectedIds(new Set([activeShapeId])); setActiveShapeId(null);
+          if (tool !== ToolType.FREEHAND) {
+             setSelectedIds(new Set([activeShapeId])); 
+          }
+          setActiveShapeId(null);
+      }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+      const rawPos = getMousePos(e, false);
+      // Check for hit (top-most first)
+      const hit = [...shapes].reverse().find(s => { 
+          return isPointInShape(rawPos, s, canvasSize.width, canvasSize.height, pixelsPerUnit);
+      });
+
+      if (hit && hit.type === ShapeType.TEXT) {
+          setTextEditing({ id: hit.id, x: hit.points[0].x, y: hit.points[0].y, text: hit.text || '' });
+          setSelectedIds(new Set([hit.id]));
       }
   };
 
@@ -979,7 +1038,7 @@ export default function App() {
       if(textEditing) {
           const newVal = textEditing.text + s;
           setTextEditing(prev => prev ? ({...prev, text: newVal}) : null);
-          setShapes(prev => prev.map(sh => sh.id === textEditing.id ? { ...sh, text: newVal } : sh));
+          // Don't update shapes here, wait for Enter/Blur
       }
   };
 
@@ -1111,23 +1170,50 @@ export default function App() {
                     </div>
                 )}
 
-                <svg ref={svgRef} className="w-full h-full touch-none" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onContextMenu={(e) => e.preventDefault()}>
+                <svg ref={svgRef} className="w-full h-full touch-none" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
                     <defs>
                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" strokeWidth="1"/></pattern>
                     </defs>
                     {axisConfig.showGrid && <rect width="100%" height="100%" fill="url(#grid)" />}
                     <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
-                    {shapes.map(shape => <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} />)}
+                    {shapes.map(shape => {
+                        // FIX: Hide underlying text while editing to prevent ghosting
+                        const displayShape = (textEditing && textEditing.id === shape.id) ? { ...shape, text: '' } : shape;
+                        return <ShapeRenderer key={shape.id} shape={displayShape} isSelected={selectedIds.has(shape.id)} />
+                    })}
                     {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
                     {tool === ToolType.RULER && selectedIds.size === 0 && <RulerOverlay start={null} cursor={cursorPos || {x:0,y:0}} end={null} />}
                     {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
-                    {shapes.filter(s => selectedIds.has(s.id)).map(s => <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => handleRotateStart(e, s)} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => handleCornerClick(s.id, idx)} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => handleAngleDoubleClick(s.id, idx, e)} />)}
+                    {shapes.filter(s => selectedIds.has(s.id)).map(s => {
+                        // FIX 1: Don't render overlay if text is editing
+                        if (textEditing && textEditing.id === s.id) return null;
+                        return <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => handleRotateStart(e, s)} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => handleCornerClick(s.id, idx)} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => handleAngleDoubleClick(s.id, idx, e)} />
+                    })}
                     {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
                     {selectionBox && <rect x={Math.min(selectionBox.start.x, selectionBox.current.x)} y={Math.min(selectionBox.start.y, selectionBox.current.y)} width={Math.abs(selectionBox.current.x - selectionBox.start.x)} height={Math.abs(selectionBox.current.y - selectionBox.start.y)} fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={1} />}
                 </svg>
                 {textEditing && (
                     <div style={{ position: 'absolute', left: textEditing.x, top: textEditing.y, transform: 'translate(0, -50%)' }}>
-                        <input ref={inputRef} type="text" value={textEditing.text} onChange={(e) => { const val = e.target.value; setTextEditing(prev => prev ? ({...prev, text: val}) : null); setShapes(prev => prev.map(s => s.id === textEditing.id ? { ...s, text: val } : s)); }} onKeyDown={(e) => { if(e.key === 'Enter') setTextEditing(null); }} onBlur={() => setTextEditing(null)} className="bg-transparent border border-blue-500 rounded px-1 py-0.5 text-lg font-sans outline-none" style={{ color: currentStyle.stroke, minWidth: '50px' }} autoFocus />
+                        <input ref={inputRef} type="text" value={textEditing.text} 
+                        onChange={(e) => { 
+                            const val = e.target.value; 
+                            setTextEditing(prev => prev ? ({...prev, text: val}) : null); 
+                            // Removed setShapes call to prevent real-time ghosting
+                        }} 
+                        onKeyDown={(e) => { 
+                            if(e.key === 'Enter') { 
+                                saveHistory(); // Save before committing changes
+                                setShapes(prev => prev.map(s => s.id === textEditing.id ? { ...s, text: textEditing.text } : s));
+                                setTextEditing(null); 
+                                setSelectedIds(new Set()); // Deselect after confirmation
+                            } 
+                        }} 
+                        onBlur={() => {
+                            saveHistory(); // Save before committing changes
+                            setShapes(prev => prev.map(s => s.id === textEditing.id ? { ...s, text: textEditing.text } : s));
+                            setTextEditing(null);
+                        }} 
+                        className="bg-transparent border border-blue-500 rounded px-1 py-0.5 text-lg font-sans outline-none" style={{ color: currentStyle.stroke, minWidth: '50px' }} autoFocus />
                         <div className="absolute top-full left-0 bg-white shadow-lg border rounded p-1 flex gap-1 mt-1 z-50 w-64 flex-wrap">
                             {MATH_SYMBOLS.map(sym => (
                                 <button key={sym} onMouseDown={(e) => e.preventDefault()} onClick={() => handleSymbolClick(sym)} className="hover:bg-gray-100 p-1 rounded text-sm min-w-[20px]">{sym}</button>
