@@ -10,11 +10,14 @@ import { exportCanvas, saveProject, loadProject, isElectron } from './utils/expo
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, getAngleArcPath, simplifyToQuadratic, recognizeFreehandShape, recalculateMarker, getClosestPointOnShape, getProjectionParameter, lerp, getShapeIntersection, resolveConstraints, getSmoothSvgPath, getProjectedPointOnLine, getPixelsPerUnit, evaluateQuadratic, mathToScreen, screenToMath, generateQuadraticPath, isPointInShape, getPolygonAngles, getLineIntersection } from './utils/mathUtils';
 import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, Spline, Undo, Eraser, Image as ImageIcon, Radius, Wand2, Calculator, Save, FolderOpen, CaseUpper, Sparkles, CornerRightUp, ArrowRight, Hash, Link2, Footprints, FoldHorizontal, FunctionSquare } from 'lucide-react';
 import { SnippetOverlay } from './components/SnippetOverlay';
+import { SolverWindow } from './components/SolverWindow';
 
 // MAIN ENTRY COMPONENT (Wrapper)
 export default function App() {
-  // Determine mode synchronously from URL to avoid Hook rule violations
-  const isSnippetMode = new URLSearchParams(window.location.search).get('mode') === 'snippet';
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get('mode');
+  const isSnippetMode = mode === 'snippet';
+  const isSolverMode = mode === 'solver';
 
   // Apply window transparency styles based on mode
   useLayoutEffect(() => {
@@ -22,14 +25,43 @@ export default function App() {
         // CRITICAL: Force body and html to be transparent for Electron window transparency
         document.body.style.backgroundColor = 'transparent';
         document.documentElement.style.backgroundColor = 'transparent';
+    } else if (isSolverMode) {
+        document.body.style.backgroundColor = '#ffffff';
     } else {
         // Ensure main app has a background color
         document.body.style.backgroundColor = '#f8fafc'; // slate-50
     }
-  }, [isSnippetMode]);
+  }, [isSnippetMode, isSolverMode]);
+
+  // SECRET SHORTCUT LISTENER (Global for Main App)
+  useEffect(() => {
+    if (isSnippetMode || isSolverMode) return;
+
+    const handleSecretKey = (e: KeyboardEvent) => {
+        // Secret Combo: Ctrl + Alt + Shift + M (for Math)
+        if (e.ctrlKey && e.altKey && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+            e.preventDefault();
+            if (isElectron()) {
+                const { ipcRenderer } = (window as any).require('electron');
+                ipcRenderer.send('OPEN_SOLVER');
+            } else {
+                // WEB FALLBACK: Open in a popup window
+                const url = `${window.location.origin}${window.location.pathname}?mode=solver`;
+                window.open(url, 'MathSolver', 'width=500,height=700,menubar=no,toolbar=no,location=no,status=no');
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleSecretKey);
+    return () => window.removeEventListener('keydown', handleSecretKey);
+  }, [isSnippetMode, isSolverMode]);
 
   if (isSnippetMode) {
       return <SnippetOverlay />;
+  }
+
+  if (isSolverMode) {
+      return <SolverWindow />;
   }
 
   return <Editor />;
