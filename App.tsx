@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, MarkerType, MarkerConfig, Constraint } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
 import { AxisLayer } from './components/AxisLayer';
@@ -9,9 +9,39 @@ import { CompassOverlay, RulerOverlay } from './components/ConstructionTools';
 import { exportCanvas, saveProject, loadProject, isElectron } from './utils/exportUtils';
 import { getSnapPoint, calculateTriangleAngles, parseAngle, solveTriangleASA, getShapeSize, distance, isShapeInRect, getDetailedSnapPoints, getShapeCenter, getRotatedCorners, rotatePoint, bakeRotation, reflectPointAcrossLine, getAngleDegrees, getAngleCurve, getAngleArcPath, simplifyToQuadratic, recognizeFreehandShape, recalculateMarker, getClosestPointOnShape, getProjectionParameter, lerp, getShapeIntersection, resolveConstraints, getSmoothSvgPath, getProjectedPointOnLine, getPixelsPerUnit, evaluateQuadratic, mathToScreen, screenToMath, generateQuadraticPath, isPointInShape, getPolygonAngles, getLineIntersection } from './utils/mathUtils';
 import { Download, Trash2, Settings2, Grid3X3, Minus, Plus, Magnet, Spline, Undo, Eraser, Image as ImageIcon, Radius, Wand2, Calculator, Save, FolderOpen, CaseUpper, Sparkles, CornerRightUp, ArrowRight, Hash, Link2, Footprints, FoldHorizontal, FunctionSquare } from 'lucide-react';
+import { SnippetOverlay } from './components/SnippetOverlay';
 
+// MAIN ENTRY COMPONENT (Wrapper)
 export default function App() {
+  // Determine mode synchronously from URL to avoid Hook rule violations
+  const isSnippetMode = new URLSearchParams(window.location.search).get('mode') === 'snippet';
+
+  // Apply window transparency styles based on mode
+  useLayoutEffect(() => {
+    if (isSnippetMode) {
+        // CRITICAL: Force body and html to be transparent for Electron window transparency
+        document.body.style.backgroundColor = 'transparent';
+        document.documentElement.style.backgroundColor = 'transparent';
+    } else {
+        // Ensure main app has a background color
+        document.body.style.backgroundColor = '#f8fafc'; // slate-50
+    }
+  }, [isSnippetMode]);
+
+  if (isSnippetMode) {
+      return <SnippetOverlay />;
+  }
+
+  return <Editor />;
+}
+
+// ORIGINAL APP LOGIC (Renamed to Editor)
+function Editor() {
+  // This component now contains only the Editor logic.
+  // Snippet logic is handled in the parent App component.
+
   const [shapes, setShapes] = useState<Shape[]>([]);
+  // ... rest of the App component (no changes) ...
   const [history, setHistory] = useState<Shape[][]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set<string>());
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
@@ -430,10 +460,9 @@ export default function App() {
           // Vector B -> A
           const vBA = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
           
-          // Current Vector B -> C (to determine sign/winding)
           const vBC_Old = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
           
-          // Determine winding of angle (B->A to B->C)
+          // Current Vector B -> C (to determine sign/winding)
           // Cross product z-component
           const crossZ = vBA.x * vBC_Old.y - vBA.y * vBC_Old.x;
           // If crossZ > 0, C is "to the right/CW" of BA (in screen coords where Y is down).
@@ -1125,7 +1154,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans">
+    <div className="flex flex-col h-screen overflow-hidden text-slate-900 font-sans bg-slate-50">
         <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shadow-sm z-20 shrink-0 h-14">
             <div className="flex items-center space-x-2">
                 <div className="bg-blue-600 text-white p-1 rounded-lg"><Spline size={20} /></div>
@@ -1238,7 +1267,7 @@ export default function App() {
                     </div>
                 )}
             </div>
-
+            {/* Sidebar code follows... */}
             <div className="w-80 bg-white border-l border-slate-200 flex flex-col h-full overflow-y-auto z-10 custom-scrollbar">
                 
                 {selectedShape?.type === ShapeType.MARKER && selectedShape.markerConfig && (
@@ -1280,7 +1309,6 @@ export default function App() {
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                <div className="flex items-center gap-2"><span className="w-6 font-bold text-slate-500">a</span><input type="number" step="0.1" value={selectedShape.formulaParams.a} onChange={(e) => updateFunctionParam('a', e.target.value)} className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm" /></div>
                                 <div className="flex items-center gap-2"><span className="w-6 font-bold text-slate-500">h</span><input type="number" step="0.1" value={selectedShape.formulaParams.h || 0} onChange={(e) => updateFunctionParam('h', e.target.value)} className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm" /></div>
                                 <div className="flex items-center gap-2"><span className="w-6 font-bold text-slate-500">k</span><input type="number" step="0.1" value={selectedShape.formulaParams.k || 0} onChange={(e) => updateFunctionParam('k', e.target.value)} className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm" /></div>
                             </div>

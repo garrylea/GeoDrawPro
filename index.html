@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -24,7 +25,25 @@
       }
     </script>
     <style>
-      body { margin: 0; padding: 0; overflow: hidden; background-color: #f3f4f6; }
+      /* CRITICAL FIX: Explicitly disable drag on body. 
+         Without this, macOS may treat the entire frameless window as a title bar, 
+         swallowing mouse clicks intended for the app. */
+      body { 
+        margin: 0; 
+        padding: 0; 
+        overflow: hidden; 
+        background-color: transparent; 
+        -webkit-app-region: no-drag !important;
+        pointer-events: auto !important;
+      }
+      
+      /* Ensure root inherits this */
+      #root {
+        width: 100vw;
+        height: 100vh;
+        -webkit-app-region: no-drag !important;
+      }
+
       /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
