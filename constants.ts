@@ -1,6 +1,6 @@
 
 import { ToolType } from './types';
-import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass, Image as ImageIcon } from 'lucide-react';
+import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass, Image as ImageIcon, Eraser } from 'lucide-react';
 
 export const COLORS = [
   'transparent', '#000000', '#ffffff', 
@@ -16,6 +16,7 @@ export const MATH_SYMBOLS = [
 
 export const TOOL_CONFIG = [
   { id: ToolType.SELECT, label: 'Select', icon: MousePointer2 },
+  { id: ToolType.ERASER, label: 'Eraser', icon: Eraser },
   { id: ToolType.FREEHAND, label: 'Pencil', icon: Pencil },
   { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, // New
   { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       // New

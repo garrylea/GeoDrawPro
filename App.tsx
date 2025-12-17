@@ -77,6 +77,7 @@ function Editor() {
   const [history, setHistory] = useState<Shape[][]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set<string>());
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
+  const [clipboard, setClipboard] = useState<Shape[]>([]); // New Clipboard State
   
   // Default Styles
   const [currentStyle, setCurrentStyle] = useState<{
@@ -302,6 +303,53 @@ function Editor() {
           if (target.tagName === 'INPUT') return;
           if (textEditing || angleEditing) return;
 
+          // 1. Shortcut 'a': Switch to SELECT tool
+          if (e.key === 'a' || e.key === 'A') {
+              setTool(ToolType.SELECT);
+              return;
+          }
+
+          // 2. Shortcut Ctrl+C: Copy
+          if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+              const selected = shapes.filter(s => selectedIds.has(s.id));
+              if (selected.length > 0) {
+                  // Deep copy to clipboard
+                  setClipboard(JSON.parse(JSON.stringify(selected)));
+              }
+              return;
+          }
+
+          // 3. Shortcut Ctrl+V: Paste
+          if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+              if (clipboard.length === 0) return;
+              saveHistory();
+              const offset = 20; // Slight offset
+              const newShapes: Shape[] = [];
+              const newIds = new Set<string>();
+
+              clipboard.forEach(s => {
+                  const newId = generateId();
+                  newIds.add(newId);
+                  const newShape = { ...s, id: newId };
+                  
+                  // Apply Offset
+                  if (newShape.points) {
+                      newShape.points = newShape.points.map(p => ({ x: p.x + offset, y: p.y + offset }));
+                  }
+                  
+                  // Clear constraints/markers that might reference old IDs to prevent logic errors
+                  delete newShape.constraint;
+                  delete newShape.markerConfig;
+                  
+                  newShapes.push(newShape);
+              });
+
+              setShapes(prev => [...prev, ...newShapes]);
+              setSelectedIds(newIds);
+              setTool(ToolType.SELECT); // Switch to Select to manipulate pasted items
+              return;
+          }
+
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
           // Ctrl+A: Select All
           if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
@@ -336,7 +384,7 @@ function Editor() {
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
       return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool, compassState]); 
+  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool, compassState, clipboard]); 
 
   const getMousePos = (e: React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -347,7 +395,8 @@ function Editor() {
         setSnapIndicator(null); return raw;
     }
 
-    if (snap && !isShiftPressed) { 
+    // UPDATED: Disable snap if Alt is pressed
+    if (snap && !isShiftPressed && !isAltPressed) { 
         const exclude = activeShapeId ? [activeShapeId] : [];
         // Only snap to grid if it is visible and enabled
         const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) 
@@ -376,6 +425,32 @@ function Editor() {
     setSnapIndicator(null);
     setHoveredConstraint(null);
     return raw;
+  };
+
+  const getHitShape = (pos: Point, shapesList: Shape[]) => {
+      // 1. Find all shapes under cursor
+      const hits = shapesList.filter(s => isPointInShape(pos, s, canvasSize.width, canvasSize.height, pixelsPerUnit));
+      if (hits.length === 0) return null;
+
+      // 2. FIXED: Strict Hierarchy (Hard Priority)
+      // Always select Points or Markers if they exist, ignoring Lines/Shapes under them.
+      const points = hits.filter(s => s.type === ShapeType.POINT || s.type === ShapeType.MARKER);
+      if (points.length > 0) {
+          // Return closest point
+          points.sort((a,b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
+          return points[0];
+      }
+
+      // 3. Next priority: Lines / Functions
+      const lines = hits.filter(s => s.type === ShapeType.LINE || s.type === ShapeType.FUNCTION_GRAPH);
+      if (lines.length > 0) {
+           lines.sort((a,b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
+           return lines[0];
+      }
+      
+      // 4. Default: Closest shape (Rect, Polygon, etc.)
+      hits.sort((a, b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
+      return hits[0];
   };
 
   const handleToolChange = (newTool: ToolType) => {
@@ -551,9 +626,30 @@ function Editor() {
     let pos = getMousePos(e, true);
     const rawPos = getMousePos(e, false);
 
-    if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && !pickingMirrorMode && !markingAnglesMode) {
+    if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) {
         setSelectedIds(new Set());
     }
+
+    // --- ERASER TOOL LOGIC ---
+    if (tool === ToolType.ERASER) {
+        saveHistory(); // Save state before starting erase session
+        setIsDragging(true); // Treat as "dragging" to enable continuous erasing
+        
+        // Check for immediate hit using Hit Priority Logic
+        const hit = getHitShape(rawPos, shapes);
+        
+        if (hit) {
+             setShapes(prev => prev.filter(s => {
+                 if (s.id === hit.id) return false;
+                 // Delete constraints/markers dependent on this shape
+                 if (s.constraint && s.constraint.parentId === hit.id) return false;
+                 if (s.type === ShapeType.MARKER && s.markerConfig && s.markerConfig.targets[0].shapeId === hit.id) return false;
+                 return true;
+             }));
+        }
+        return;
+    }
+    // -------------------------
 
     if (tool === ToolType.COMPASS) {
         if (!compassState.center) {
@@ -565,26 +661,21 @@ function Editor() {
         return;
     }
 
+    // UPDATED: RULER LOGIC - One-click placement
     if (tool === ToolType.RULER) {
-        const existingRuler = shapes.find(s => s.type === ShapeType.RULER);
-        if (existingRuler) {
-            setSelectedIds(new Set([existingRuler.id]));
-            setDragStartPos(rawPos);
-            setIsDragging(true);
-            return;
-        }
         saveHistory();
         const id = generateId();
         const width = 400, height = 50;
+        const center = pos; // snap is enabled in getMousePos(e, true)
+        
         const newShape: Shape = { 
-            id, type: ShapeType.RULER, points: [{ x: pos.x - width/2, y: pos.y - height/2 }, { x: pos.x + width/2, y: pos.y + height/2 }], 
+            id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], 
             fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 
         };
         setShapes(prev => [...prev, newShape]);
         setSelectedIds(new Set([id]));
-        // Initialize drag for new shape too to allow immediate move
-        setDragStartPos(rawPos);
-        setIsDragging(true); 
+        // Switch to Select tool immediately
+        setTool(ToolType.SELECT);
         return;
     }
 
@@ -608,9 +699,13 @@ function Editor() {
     }
 
     if (tool === ToolType.SELECT) {
-        if (hoveredShapeId) {
+        // FIX: Prioritize hit testing directly on MouseDown instead of relying on hoveredShapeId state
+        // This solves the issue where moving quickly or precision issues caused the Line to be selected instead of the Point.
+        const hit = getHitShape(rawPos, shapes);
+
+        if (hit) {
              if (e.altKey) {
-                 const shapeToClone = shapes.find(s => s.id === hoveredShapeId);
+                 const shapeToClone = hit;
                  if (shapeToClone) {
                      saveHistory();
                      const newId = generateId();
@@ -623,7 +718,7 @@ function Editor() {
                  }
              }
              const newSel = new Set(e.shiftKey || e.ctrlKey ? selectedIds : []);
-             newSel.add(hoveredShapeId);
+             newSel.add(hit.id);
              setSelectedIds(newSel);
              setDragStartPos(rawPos);
              setIsDragging(true);
@@ -730,6 +825,23 @@ function Editor() {
          return;
     }
 
+    // --- ERASER CONTINUOUS DRAG ---
+    if (tool === ToolType.ERASER && isDragging) {
+        // Continuous hit testing
+        const hit = getHitShape(rawPos, shapes);
+        
+        if (hit) {
+             setShapes(prev => prev.filter(s => {
+                 if (s.id === hit.id) return false;
+                 if (s.constraint && s.constraint.parentId === hit.id) return false;
+                 if (s.type === ShapeType.MARKER && s.markerConfig && s.markerConfig.targets[0].shapeId === hit.id) return false;
+                 return true;
+             }));
+        }
+        return;
+    }
+    // ------------------------------
+
     if (tool === ToolType.SELECT && selectionBox && isDragging) {
         setSelectionBox(prev => prev ? ({ ...prev, current: rawPos }) : null);
         const box = { start: selectionBox.start, end: rawPos };
@@ -748,15 +860,22 @@ function Editor() {
              const rotatedShapes = prev.map(s => {
                  if (!selectedIds.has(s.id)) return s;
                  const newRotation = (s.rotation || 0) + delta;
+                 
+                 // UPDATED: Rotation Snap with Shift Key
+                 let finalRotation = newRotation;
+                 if (isShiftPressed) {
+                     finalRotation = Math.round(newRotation / 15) * 15;
+                 }
+
                  if (pivotIndex === 'center') {
-                     return { ...s, rotation: newRotation };
+                     return { ...s, rotation: finalRotation };
                  }
                  const oldCenter = getShapeCenter(s.points, s.type, s.fontSize, s.text);
                  const newCenter = rotatePoint(oldCenter, rotationCenter, delta);
                  const dx = newCenter.x - oldCenter.x;
                  const dy = newCenter.y - oldCenter.y;
                  const newPoints = s.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
-                 return { ...s, points: newPoints, rotation: newRotation };
+                 return { ...s, points: newPoints, rotation: finalRotation };
              });
              
              // Sync markers for any rotated shapes
@@ -772,10 +891,7 @@ function Editor() {
     }
 
     if (!isDragging) {
-        // FIX 2: Check shapes in REVERSE order (top-most first) for accurate hit testing when shapes overlap
-        const hit = [...shapes].reverse().find(s => { 
-            return isPointInShape(rawPos, s, canvasSize.width, canvasSize.height, pixelsPerUnit);
-        });
+        const hit = getHitShape(rawPos, shapes);
         setHoveredShapeId(hit ? hit.id : null); 
     }
 
@@ -934,14 +1050,50 @@ function Editor() {
         const dx = rawPos.x - dragStartPos.x;
         const dy = rawPos.y - dragStartPos.y;
         setDragStartPos(rawPos); 
+        
         setShapes(prev => {
-            const movedShapes = prev.map(s => selectedIds.has(s.id) ? { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) } : s);
+            // 1. Identify "Driving" Points (Points currently being dragged)
+            // Use current state from closure or re-find in prev to get PRE-MOVE coordinates for linkage check
+            const drivingPoints: Point[] = [];
+            prev.forEach(s => {
+                if (selectedIds.has(s.id) && s.type === ShapeType.POINT) {
+                    drivingPoints.push(s.points[0]);
+                }
+            });
+
+            const movedShapes = prev.map(s => {
+                // If explicitly selected, move it
+                if (selectedIds.has(s.id)) {
+                     return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
+                }
+                
+                // Linkage Logic: If not selected, but shares a vertex with a driving point, move that vertex
+                if (drivingPoints.length > 0 && !s.constraint) {
+                    const linkedPoints = s.points.map(p => {
+                        // FIX: Use 5.0 tolerance for easier grabbing and prevent floating point miss
+                        if (drivingPoints.some(dp => Math.abs(dp.x - p.x) < 5.0 && Math.abs(dp.y - p.y) < 5.0)) {
+                            return { x: p.x + dx, y: p.y + dy };
+                        }
+                        return p;
+                    });
+                    
+                    // Only update if points changed
+                    const changed = linkedPoints.some((lp, i) => lp.x !== s.points[i].x || lp.y !== s.points[i].y);
+                    if (changed) return { ...s, points: linkedPoints };
+                }
+
+                return s;
+            });
             
-            // Sync markers for moved shapes
+            // Sync markers for ANY shape that moved (either selected or linked)
             return movedShapes.map(s => {
                  if (s.type === ShapeType.MARKER && s.markerConfig) {
                      const targetId = s.markerConfig.targets[0].shapeId;
-                     if (selectedIds.has(targetId)) return recalculateMarker(s, movedShapes) || s;
+                     // Recalculate if target exists in the array (it might have moved)
+                     const updatedTarget = movedShapes.find(ms => ms.id === targetId);
+                     if (updatedTarget) {
+                         return recalculateMarker(s, movedShapes) || s;
+                     }
                  }
                  return s;
             });
@@ -1030,10 +1182,8 @@ function Editor() {
 
   const handleDoubleClick = (e: React.MouseEvent) => {
       const rawPos = getMousePos(e, false);
-      // Check for hit (top-most first)
-      const hit = [...shapes].reverse().find(s => { 
-          return isPointInShape(rawPos, s, canvasSize.width, canvasSize.height, pixelsPerUnit);
-      });
+      // Use getHitShape to find text properly with priority
+      const hit = getHitShape(rawPos, shapes);
 
       if (hit && hit.type === ShapeType.TEXT) {
           setTextEditing({ id: hit.id, x: hit.points[0].x, y: hit.points[0].y, text: hit.text || '' });
@@ -1221,7 +1371,7 @@ function Editor() {
             </div>
 
             <div 
-                className="flex-1 relative bg-white cursor-crosshair"
+                className={`flex-1 relative bg-white ${tool === ToolType.ERASER ? 'cursor-eraser' : 'cursor-crosshair'}`}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
             >
@@ -1243,7 +1393,26 @@ function Editor() {
                         return <ShapeRenderer key={shape.id} shape={displayShape} isSelected={selectedIds.has(shape.id)} />
                     })}
                     {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
-                    {tool === ToolType.RULER && selectedIds.size === 0 && <RulerOverlay start={null} cursor={cursorPos || {x:0,y:0}} end={null} />}
+                    {tool === ToolType.RULER && selectedIds.size === 0 && (
+                        // Ghost Ruler when tool is active but not selected
+                        <g style={{ opacity: 0.6, pointerEvents: 'none' }}>
+                             <ShapeRenderer 
+                                shape={{
+                                    id: 'ghost-ruler',
+                                    type: ShapeType.RULER,
+                                    points: [
+                                        { x: (cursorPos?.x || 0) - 200, y: (cursorPos?.y || 0) - 25 }, 
+                                        { x: (cursorPos?.x || 0) + 200, y: (cursorPos?.y || 0) + 25 }
+                                    ],
+                                    fill: 'transparent',
+                                    stroke: '#94a3b8',
+                                    strokeWidth: 1,
+                                    rotation: 0
+                                }}
+                                isSelected={false}
+                            />
+                        </g>
+                    )}
                     {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
                     {shapes.filter(s => selectedIds.has(s.id)).map(s => {
                         // FIX 1: Don't render overlay if text is editing
@@ -1253,6 +1422,7 @@ function Editor() {
                     {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
                     {selectionBox && <rect x={Math.min(selectionBox.start.x, selectionBox.current.x)} y={Math.min(selectionBox.start.y, selectionBox.current.y)} width={Math.abs(selectionBox.current.x - selectionBox.start.x)} height={Math.abs(selectionBox.current.y - selectionBox.start.y)} fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={1} />}
                 </svg>
+                {/* ... rest of UI ... */}
                 {textEditing && (
                     <div style={{ position: 'absolute', left: textEditing.x, top: textEditing.y, transform: 'translate(0, -50%)' }}>
                         <input ref={inputRef} type="text" value={textEditing.text} 

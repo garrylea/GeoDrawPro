@@ -1,6 +1,7 @@
 
 export enum ToolType {
   SELECT = 'SELECT',
+  ERASER = 'ERASER', // Added
   POINT = 'POINT',
   LINE = 'LINE',
   RECTANGLE = 'RECTANGLE',

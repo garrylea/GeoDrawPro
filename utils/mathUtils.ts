@@ -182,6 +182,14 @@ export const getShapeCenter = (points: Point[], type?: ShapeType, fontSize?: num
         return { x: points[0].x + w/2, y: points[0].y + h/2 };
     }
 
+    // NEW: Use Centroid for Triangles to make rotation center natural
+    if (type === ShapeType.TRIANGLE && points.length === 3) {
+        return {
+            x: (points[0].x + points[1].x + points[2].x) / 3,
+            y: (points[0].y + points[1].y + points[2].y) / 3
+        };
+    }
+
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
         if (p.x < minX) minX = p.x;
@@ -289,12 +297,8 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     }
 
     // 4. Path/Compass Detection
-    // For these, we might still need to account for rotation if they were rotatable,
-    // but Compass/Path are usually complex. We'll use the generic edge detection.
     if (shape.type === ShapeType.PATH) {
         if (shape.points && shape.points.length > 1) {
-            // NOTE: If paths support rotation later, this needs `rotatePoint` logic or transforming the path.
-            // Currently assuming paths (compass arcs) aren't arbitrarily rotated after creation via 'rotation' prop.
             const closest = getClosestPointOnShape(p, shape);
             return distance(p, closest) < threshold;
         }
@@ -302,7 +306,6 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     }
 
     // 5. Circle/Ellipse Detection
-    // For Circle, rotation doesn't change hit area (unless resized to ellipse, handled by Ellipse logic).
     if (shape.type === ShapeType.CIRCLE) {
          const center = getShapeCenter(shape.points);
          const width = Math.abs(shape.points[0].x - shape.points[1].x);
@@ -311,15 +314,6 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     }
     
     if (shape.type === ShapeType.ELLIPSE) {
-        // For rotated ellipse hit testing, we either rotate point back or do complex math.
-        // Since we are avoiding "rotate point back" per request preference for other shapes,
-        // but Ellipse is NOT a polygon, we keep the original logic (or would need General Ellipse Eq).
-        // However, user specifically asked about Ruler/Rect style selection.
-        // For consistency with the "Don't rotate point back" request, we *could* approximate with a polygon
-        // using getRotatedCorners (bounding box), but that includes empty corners.
-        // Let's stick to the cleanest mathematical check for Ellipse which implies local space.
-        // To respect "Minimal changes", we keep existing ellipse logic but it requires localP.
-        // Since I removed localP global calculation, I will re-introduce localP LOCALLY just for Ellipse.
         const center = getShapeCenter(shape.points);
         let localP = p;
         if (shape.rotation) {
@@ -336,23 +330,17 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
 
     // 6. Polygon/Triangle Detection
     if ((shape.type === ShapeType.POLYGON || shape.type === ShapeType.TRIANGLE) && shape.points.length >= 3) {
-        // Use rotated corners (which returns all points for polygons)
         const corners = getRotatedCorners(shape);
         if (isPointInPolygon(p, corners)) return true;
     }
 
     // 7. General Edge Detection (Lines, Freehand, etc.)
-    // For rotated lines, getRotatedCorners handles it if we treat it as polygon? No, Line is 1D.
-    // We need to check distance to rotated segment.
     let pointsToCheck = shape.points;
     if (shape.rotation) {
-         // Create temporary rotated points for hit testing
          const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
          pointsToCheck = shape.points.map(pt => rotatePoint(pt, center, shape.rotation));
     }
     
-    // Standard edge distance check on (potentially rotated) points
-    // Re-implement getClosestPointOnShape logic inline or create temp shape object
     const tempShape = { ...shape, points: pointsToCheck };
     const closest = getClosestPointOnShape(p, tempShape);
     return distance(p, closest) < threshold;
@@ -364,12 +352,10 @@ export const isShapeInRect = (shape: Shape, rect: { start: Point, end: Point }):
     const yMin = Math.min(rect.start.y, rect.end.y);
     const yMax = Math.max(rect.start.y, rect.end.y);
 
-    // Use Rotated Corners to ensure box selection works on what user sees
     const corners = getRotatedCorners(shape);
     if (corners.length > 0) {
         return corners.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
     }
-    // Fallback for points
     if (shape.points) {
         return shape.points.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
     }
@@ -384,7 +370,7 @@ export const getSnapPoint = (
     excludeIds: string[] = [],
     gridConfig?: { width: number; height: number; ppu: number }
 ): { point: Point; snapped: boolean; constraint?: any } => {
-    const snapDist = 10;
+    const snapDist = 5; // REDUCED from 10 to 5 for better precision
     let closestPt = cursor;
     let minD = snapDist;
     let snapped = false;
@@ -393,7 +379,7 @@ export const getSnapPoint = (
     for (const s of shapes) {
         if (excludeIds.includes(s.id)) continue;
         if (s.type === ShapeType.FUNCTION_GRAPH) continue; 
-        if (s.type === ShapeType.MARKER) continue; // Don't snap to markers
+        if (s.type === ShapeType.MARKER) continue; 
 
         const pointsToCheck = s.points.length > 50 ? [s.points[0], s.points[s.points.length-1]] : s.points;
 
@@ -459,10 +445,6 @@ export const getAngleArcPath = (center: Point, start: Point, end: Point, radius:
     let diff = endAngle - startAngle;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
-
-    // We want the arc to always be positive sweep?
-    // SVG Arc flags: rx ry x-axis-rotation large-arc-flag sweep-flag x y
-    // sweep-flag 1 is positive angle direction
     
     const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
     const sweepFlag = diff > 0 ? 1 : 0;
@@ -523,27 +505,21 @@ export const recalculateMarker = (marker: Shape, shapes: Shape[]): Shape | null 
     if (mag1 === 0 || mag2 === 0) return null;
 
     // Calculate dynamic radius based on proportional size of legs
-    // Min 15, Max 40, aiming for roughly 25% of the shortest leg length
     const minLeg = Math.min(mag1, mag2);
     const radius = Math.max(15, Math.min(40, minLeg * 0.25));
 
-    // Unit vectors
     const u1 = { x: v1.x / mag1, y: v1.y / mag1 };
     const u2 = { x: v2.x / mag2, y: v2.y / mag2 };
 
     let pathData = "";
 
     if (marker.markerConfig.type === 'perpendicular') {
-        // Draw rhombus (parallelogram) for right angle
         const p1 = { x: pCurr.x + u1.x * radius, y: pCurr.y + u1.y * radius };
         const p2 = { x: pCurr.x + u2.x * radius, y: pCurr.y + u2.y * radius };
-        // Vector addition p1 + u2*radius OR p2 + u1*radius
         const p3 = { x: p1.x + u2.x * radius, y: p1.y + u2.y * radius }; 
-        
         pathData = `M ${p1.x} ${p1.y} L ${p3.x} ${p3.y} L ${p2.x} ${p2.y}`;
     } else {
-        // Default: angle_arc
-        const rArc = radius + 5; // Slight offset for arc to look nice
+        const rArc = radius + 5; 
         const start = { x: pCurr.x + u1.x * rArc, y: pCurr.y + u1.y * rArc };
         const end = { x: pCurr.x + u2.x * rArc, y: pCurr.y + u2.y * rArc };
         pathData = getAngleArcPath(pCurr, start, end, rArc);
@@ -603,8 +579,6 @@ export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null 
     const pLast = points[points.length - 1];
     const totalLen = distance(p0, pLast);
 
-    // 1. OPEN SHAPE -> LINE
-    // Threshold: 40px gap between start and end to consider it "Open"
     if (totalLen > 40) {
         return {
             type: ShapeType.LINE,
@@ -612,9 +586,6 @@ export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null 
         };
     }
 
-    // 2. CLOSED SHAPE
-    
-    // Calculate bounding box for fallback types
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
         minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
@@ -622,46 +593,35 @@ export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null 
     });
     const w = maxX - minX;
     const h = maxY - minY;
-    // Standard bounding box points for Rect/Square/Circle/Ellipse in this app
     const bboxPoints = [{x: minX, y: minY}, {x: maxX, y: maxY}];
     const ratio = w > h ? w/h : h/w;
     
-    // Check circularity to distinguish Round vs Angular
     const center = getShapeCenter(points);
     const radii = points.map(p => distance(p, center));
     const avgRadius = radii.reduce((a,b) => a+b, 0) / radii.length;
     const variance = radii.reduce((a,b) => a + Math.pow(b - avgRadius, 2), 0) / radii.length;
-    const cv = Math.sqrt(variance) / avgRadius; // Coefficient of Variation
+    const cv = Math.sqrt(variance) / avgRadius; 
 
-    // Detect Corners using RDP
     const corners = simplifyPoints(points, 20);
-    // Remove duplicate end point if it closed the loop
     const uniqueCorners = [...corners];
     if (distance(uniqueCorners[0], uniqueCorners[uniqueCorners.length-1]) < 40) {
         uniqueCorners.pop();
     }
     
-    // TRIANGLE (Strictly 3 corners)
     if (uniqueCorners.length === 3) {
          return { type: ShapeType.TRIANGLE, points: uniqueCorners };
     }
 
-    // QUADRILATERAL (Strictly 4 corners)
     if (uniqueCorners.length === 4) {
          if (ratio < 1.2) return { type: ShapeType.SQUARE, points: bboxPoints };
          return { type: ShapeType.RECTANGLE, points: bboxPoints };
     }
 
-    // ROUND (Circle/Ellipse) 
-    // If CV is low (round), map to Circle or Ellipse based on aspect ratio.
     if (cv < 0.22) {
          if (ratio < 1.2) return { type: ShapeType.CIRCLE, points: bboxPoints };
          return { type: ShapeType.ELLIPSE, points: bboxPoints };
     }
 
-    // FALLBACK -> RECTANGLE / SQUARE
-    // Maps everything else (Quads, Pentagons, messy shapes) to a bounding box Rectangle/Square.
-    // This eliminates POLYGON and FREEHAND types.
     if (ratio < 1.2) {
          return { type: ShapeType.SQUARE, points: bboxPoints };
     } else {
