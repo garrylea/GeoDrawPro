@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, MarkerType, MarkerConfig, Constraint } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
@@ -1173,6 +1172,58 @@ function Editor() {
       }
 
       if (activeShapeId) {
+          // Bug Fix 1: Min size for Rect/Square
+          if (tool === ToolType.RECTANGLE || tool === ToolType.SQUARE) {
+             const s = shapes.find(sh => sh.id === activeShapeId);
+             if (s && s.points.length >= 2) {
+                 const p0 = s.points[0];
+                 const p1 = s.points[1];
+                 const dist = distance(p0, p1);
+                 // Threshold: 10 pixels (to detect a "click" vs "drag")
+                 if (dist < 10) {
+                     // 2 units width, 1 unit height (or 2 for square)
+                     const wUnits = 2;
+                     const hUnits = tool === ToolType.SQUARE ? 2 : 1;
+                     
+                     // pixelsPerUnit is calculated in the component
+                     const wPx = wUnits * pixelsPerUnit;
+                     const hPx = hUnits * pixelsPerUnit;
+                     
+                     // Center it around the mouse release point (rawPos)
+                     const cx = rawPos.x;
+                     const cy = rawPos.y;
+                     
+                     const newP0 = { x: cx - wPx/2, y: cy - hPx/2 };
+                     const newP1 = { x: cx + wPx/2, y: cy + hPx/2 };
+                     
+                     setShapes(prev => prev.map(sh => sh.id === activeShapeId ? { ...sh, points: [newP0, newP1] } : sh));
+                 }
+             }
+          } else if (tool === ToolType.TRIANGLE) {
+              const s = shapes.find(sh => sh.id === activeShapeId);
+              if (s && s.points.length >= 1) {
+                  const p0 = s.points[0];
+                  // Use rawPos (current mouse up pos) to calculate drag distance
+                  const dist = distance(p0, rawPos);
+                  if (dist < 10) {
+                      // 2 units size
+                      const sizePx = 2 * pixelsPerUnit;
+                      const cx = rawPos.x;
+                      const cy = rawPos.y;
+                      
+                      // Isosceles Triangle
+                      // Top
+                      const newP0 = { x: cx, y: cy - sizePx/2 };
+                      // Bottom Right
+                      const newP1 = { x: cx + sizePx/2, y: cy + sizePx/2 };
+                      // Bottom Left
+                      const newP2 = { x: cx - sizePx/2, y: cy + sizePx/2 };
+                      
+                      setShapes(prev => prev.map(sh => sh.id === activeShapeId ? { ...sh, points: [newP0, newP1, newP2] } : sh));
+                  }
+              }
+          }
+
           if (tool !== ToolType.FREEHAND) {
              setSelectedIds(new Set([activeShapeId])); 
           }

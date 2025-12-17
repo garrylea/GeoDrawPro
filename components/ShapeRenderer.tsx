@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getShapeCenter, getSmoothSvgPath, distance } from '../utils/mathUtils';
@@ -118,7 +117,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
           );
       };
 
-      const center = getShapeCenter(points);
+      const center = getShapeCenter(points, type); // Fix label calculation too
 
       // Determine vertices based on shape type
       if (type === ShapeType.TRIANGLE && points.length >= 3) {
@@ -356,7 +355,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       return null;
   }
 
-  const center = getShapeCenter(points);
+  // FIX: Pass type to getShapeCenter so Triangles use centroid for rendering transform
+  const center = getShapeCenter(points, type);
   const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
 
   return (
