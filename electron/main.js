@@ -42,6 +42,7 @@ function createWindow() {
     height: 800,
     title: "GeoDraw Pro",
     icon: iconPath, 
+    show: false, // Don't show immediately
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false, 
@@ -51,12 +52,27 @@ function createWindow() {
     },
   });
 
+  // DEBUG: Open Detached DevTools to see renderer errors
+  if (isDev) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools(); // Optional
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // FORCE WINDOW TO FRONT
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    if (process.platform === 'darwin') {
+      app.dock.show();
+      // Explicitly steal focus on macOS to ensure it pops over other apps
+      app.focus({ steal: true });
+    }
+    mainWindow.focus();
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -93,6 +109,7 @@ function createSnippetWindow() {
   });
 
   if (process.platform === 'darwin') {
+      // Set to floating/pop-up level to ensure it is above full screen apps
       snippetWindow.setAlwaysOnTop(true, 'pop-up-menu'); 
       snippetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
@@ -115,11 +132,13 @@ function createSnippetWindow() {
 
 function createSolverWindow() {
     if (solverWindow && !solverWindow.isDestroyed()) {
+        console.log('[DEBUG] Solver window already exists, showing it.');
         solverWindow.show();
         solverWindow.focus();
         return;
     }
 
+    console.log('[DEBUG] Creating new Solver Window...');
     solverWindow = new BrowserWindow({
         width: 500,
         height: 700,
@@ -132,11 +151,15 @@ function createSolverWindow() {
         }
     });
 
+    // DEBUG: Open Detached DevTools to see renderer errors
+    solverWindow.webContents.openDevTools({ mode: 'detach' });
+
     const isDev = !app.isPackaged;
     const url = isDev 
         ? 'http://localhost:5173?mode=solver' 
         : `file://${path.join(__dirname, '../dist/index.html')}?mode=solver`;
     
+    console.log(`[DEBUG] Loading Solver URL: ${url}`);
     solverWindow.loadURL(url);
 
     solverWindow.on('closed', () => {
@@ -149,16 +172,19 @@ app.on('ready', () => {
     createWindow();
     createSnippetWindow();
 
-    const shortcutKey = 'CommandOrControl+Alt+C';
-    console.log(`[DEBUG] Attempting to register shortcut: ${shortcutKey}`);
-    
-    const ret = globalShortcut.register(shortcutKey, async () => {
-        // ... (Existing snippet logic remains unchanged) ...
-        console.log(`[DEBUG] 🚀 Shortcut ${shortcutKey} triggered!`);
+    // Force app focus on launch (especially for macOS)
+    if (process.platform === 'darwin') {
+        app.dock.show();
+        app.focus({ steal: true });
+    } else {
+        app.focus();
+    }
 
-        if (!snippetWindow || snippetWindow.isDestroyed()) {
-            createSnippetWindow();
-        }
+    // 1. Snippet Tool Shortcut
+    const snippetShortcut = 'CommandOrControl+Alt+C';
+    globalShortcut.register(snippetShortcut, async () => {
+        console.log(`[DEBUG] 🚀 Snippet Shortcut triggered!`);
+        if (!snippetWindow || snippetWindow.isDestroyed()) createSnippetWindow();
 
         if (snippetWindow.isVisible()) {
             snippetWindow.hide();
@@ -192,6 +218,28 @@ app.on('ready', () => {
             if (snippetWindow) snippetWindow.hide();
         }
     });
+
+    // 2. Math Solver Global Shortcut (FIXED & DEBUGGED)
+    const solverShortcut = 'CommandOrControl+Alt+Shift+M';
+    const isRegistered = globalShortcut.register(solverShortcut, () => {
+        console.log(`[DEBUG] 🧮 Math Solver Shortcut triggered!`);
+        
+        // VISUAL FEEDBACK FOR DEBUGGING
+        // If you see this dialog, the shortcut works, but the window might be failing to load.
+        dialog.showMessageBox(mainWindow, {
+             type: 'info',
+             title: 'Debug',
+             message: 'Math Solver Shortcut Triggered!'
+        }).catch(err => console.error(err));
+
+        createSolverWindow();
+    });
+
+    if (!isRegistered) {
+        console.error(`[ERROR] Failed to register shortcut: ${solverShortcut}`);
+    } else {
+        console.log(`[DEBUG] Shortcut registered successfully: ${solverShortcut}`);
+    }
 });
 
 app.on('before-quit', () => {
@@ -211,6 +259,8 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
+  } else {
+    mainWindow.show();
   }
 });
 

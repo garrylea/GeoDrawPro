@@ -10,10 +10,10 @@ export const SolverWindow = () => {
 
     // Determines the backend URL.
     // 1. Checks Vite environment variable (for production/web).
-    // 2. Defaults to localhost for local development.
+    // 2. Defaults to localhost:8888 for local development.
     const getApiUrl = () => {
         // @ts-ignore
-        return import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        return import.meta.env.VITE_API_URL || 'http://localhost:8888';
     };
 
     const handleSolve = async () => {

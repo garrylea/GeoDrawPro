@@ -8,7 +8,8 @@ const { GoogleGenAI } = require('@google/genai');
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// CHANGED: Default port is now 8888
+const PORT = process.env.PORT || 8888;
 
 // Middleware
 app.use(cors()); // Allow Cross-Origin requests
