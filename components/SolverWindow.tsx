@@ -36,11 +36,14 @@ export const SolverWindow = () => {
                 body: JSON.stringify({ prompt: userMsg }),
             });
 
-            if (!response.ok) {
-                throw new Error(`Server responded with status: ${response.status}`);
-            }
+            // Try to parse JSON regardless of status to get error details
+            const data = await response.json().catch(() => ({}));
 
-            const data = await response.json();
+            if (!response.ok) {
+                // Prefer server-provided error message, fallback to status text
+                const errorMsg = data.error || data.details || `Server Error (${response.status})`;
+                throw new Error(errorMsg);
+            }
             
             if (data.error) {
                 throw new Error(data.error);
@@ -49,8 +52,8 @@ export const SolverWindow = () => {
             setMessages(prev => [...prev, { role: 'model', text: data.text || "Sorry, I couldn't generate a solution." }]);
 
         } catch (error: any) {
-            console.error(error);
-            setMessages(prev => [...prev, { role: 'model', text: `Error: ${error.message || "Failed to connect to the Server."}\nMake sure the backend server is running.` }]);
+            console.error("Solver Error:", error);
+            setMessages(prev => [...prev, { role: 'model', text: `Error: ${error.message || "Failed to connect to the Server."}` }]);
         } finally {
             setLoading(false);
             setTimeout(() => {

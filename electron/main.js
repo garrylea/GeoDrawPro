@@ -20,7 +20,10 @@ app.whenReady().then(() => {
         // URL format: app-screenshot://current?t=123456
         if (currentScreenshotBuffer) {
             return new Response(currentScreenshotBuffer, {
-                headers: { 'content-type': 'image/png' }
+                headers: { 
+                    'content-type': 'image/png',
+                    'Access-Control-Allow-Origin': '*' // CRITICAL FIX: Allow Canvas to read this image without tainting
+                }
             });
         }
         return new Response('No image data', { status: 404 });
