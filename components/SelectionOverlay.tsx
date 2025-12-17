@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
@@ -10,12 +9,13 @@ interface SelectionOverlayProps {
   pivotIndex: number | 'center';
   isAltPressed: boolean;
   isMarkingAngles?: boolean;
+  isDragging?: boolean; // New Prop
   onResizeStart: (index: number, e: React.MouseEvent) => void;
   onAngleChange: (index: number, newVal: string) => void;
   onRotateStart: (e: React.MouseEvent) => void;
   onSetPivot: (index: number | 'center') => void;
   onMarkAngle?: (index: number) => void;
-  onAngleDoubleClick?: (index: number, e: React.MouseEvent) => void; // Added prop
+  onAngleDoubleClick?: (index: number, e: React.MouseEvent) => void; 
 }
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ 
@@ -24,22 +24,26 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   pivotIndex, 
   isAltPressed, 
   isMarkingAngles, 
+  isDragging, // Destructure
   onResizeStart, 
   onAngleChange, 
   onRotateStart, 
   onSetPivot, 
   onMarkAngle,
-  onAngleDoubleClick // Destructure
+  onAngleDoubleClick 
 }) => {
   const { points, type, rotation } = shape;
   const handleSize = 10;
   const offset = handleSize / 2;
 
+  // Change color to dark slate/blue when dragging to satisfy "darken" request
+  const activeStroke = isDragging ? '#475569' : '#3b82f6';
+
   const handleStyle = {
     width: handleSize,
     height: handleSize,
     fill: '#ffffff',
-    stroke: '#3b82f6',
+    stroke: activeStroke,
     strokeWidth: 2,
     rx: 2, 
     cursor: 'pointer'
@@ -284,22 +288,23 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
       ));
   }
 
+  // Increased opacity to 0.5 (was 0.3) for darker/more visible effect
   return (
-    <g transform={transform}>
+    <g transform={transform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s' }}>
         {/* Bounding Box */}
         {showBoundingBox && (
             <rect 
                 x={minX} y={minY} width={width} height={height} 
-                fill="none" stroke="#3b82f6" strokeWidth={1} strokeDasharray="4,4" 
+                fill="none" stroke={activeStroke} strokeWidth={1} strokeDasharray="4,4" 
                 style={{ pointerEvents: 'none' }}
             />
         )}
         
         {/* Rotate Handle */}
-        <line x1={minX + width/2} y1={minY} x2={rotHandlePos.x} y2={rotHandlePos.y} stroke="#3b82f6" strokeWidth={1} />
+        <line x1={minX + width/2} y1={minY} x2={rotHandlePos.x} y2={rotHandlePos.y} stroke={activeStroke} strokeWidth={1} />
         <circle 
             cx={rotHandlePos.x} cy={rotHandlePos.y} r={5} 
-            fill="#ffffff" stroke="#3b82f6" strokeWidth={2} 
+            fill="#ffffff" stroke={activeStroke} strokeWidth={2} 
             style={{ cursor: 'grab' }}
             onMouseDown={onRotateStart}
         />

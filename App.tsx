@@ -305,13 +305,47 @@ function Editor() {
           if (target.tagName === 'INPUT') return;
           if (textEditing || angleEditing) return;
 
-          // 1. Shortcut 'a': Switch to SELECT tool
+          // 1. Arrow Key Movement (Nudge)
+          if (selectedIds.size > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+              e.preventDefault();
+              const step = 1; // Updated to 1px for fine-tuning
+              const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+              const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+
+              saveHistory();
+              
+              setShapes(prev => {
+                  const movedShapes = prev.map(s => {
+                      if (selectedIds.has(s.id)) {
+                          if (s.type === ShapeType.FUNCTION_GRAPH) return s; // Functions are complex to nudge by point
+                          const newPoints = s.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+                          return { ...s, points: newPoints };
+                      }
+                      return s;
+                  });
+
+                  // Sync markers for moved shapes
+                  return movedShapes.map(s => {
+                       if (s.type === ShapeType.MARKER && s.markerConfig) {
+                           const targetId = s.markerConfig.targets[0].shapeId;
+                           const updatedTarget = movedShapes.find(ms => ms.id === targetId);
+                           if (updatedTarget) {
+                               return recalculateMarker(s, movedShapes) || s;
+                           }
+                       }
+                       return s;
+                  });
+              });
+              return;
+          }
+
+          // 2. Shortcut 'a': Switch to SELECT tool
           if (e.key === 'a' || e.key === 'A') {
               setTool(ToolType.SELECT);
               return;
           }
 
-          // 2. Shortcut Ctrl+C: Copy
+          // 3. Shortcut Ctrl+C: Copy
           if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
               const selected = shapes.filter(s => selectedIds.has(s.id));
               if (selected.length > 0) {
@@ -321,7 +355,7 @@ function Editor() {
               return;
           }
 
-          // 3. Shortcut Ctrl+V: Paste
+          // 4. Shortcut Ctrl+V: Paste
           if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
               if (clipboard.length === 0) return;
               saveHistory();
@@ -1225,6 +1259,27 @@ function Editor() {
                       setShapes(prev => prev.map(sh => sh.id === activeShapeId ? { ...sh, points: [newP0, newP1, newP2] } : sh));
                   }
               }
+          } else if (tool === ToolType.CIRCLE || tool === ToolType.ELLIPSE) {
+              const s = shapes.find(sh => sh.id === activeShapeId);
+              if (s && s.points.length >= 2) {
+                  const p0 = s.points[0];
+                  // For circle/ellipse, points[1] is the corner of the bounding box.
+                  // Checking dist between p0 and rawPos (cursor up) is safer for determining user intent (click vs drag).
+                  const dist = distance(p0, rawPos);
+
+                  if (dist < 10) {
+                      const cx = rawPos.x;
+                      const cy = rawPos.y;
+                      // Unit sizes: Circle D=100 (R=50), Ellipse 150x100
+                      const wHalf = (tool === ToolType.CIRCLE) ? 50 : 75;
+                      const hHalf = 50;
+                      
+                      const newP0 = { x: cx - wHalf, y: cy - hHalf };
+                      const newP1 = { x: cx + wHalf, y: cy + hHalf };
+                      
+                      setShapes(prev => prev.map(sh => sh.id === activeShapeId ? { ...sh, points: [newP0, newP1] } : sh));
+                  }
+              }
           }
 
           if (tool !== ToolType.FREEHAND) {
@@ -1494,7 +1549,21 @@ function Editor() {
                     {shapes.filter(s => selectedIds.has(s.id)).map(s => {
                         // FIX 1: Don't render overlay if text is editing
                         if (textEditing && textEditing.id === s.id) return null;
-                        return <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => handleRotateStart(e, s)} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => handleCornerClick(s.id, idx)} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => handleAngleDoubleClick(s.id, idx, e)} />
+                        return <SelectionOverlay 
+                            key={'sel-' + s.id} 
+                            shape={s} 
+                            isSelected={true} 
+                            pivotIndex={pivotIndex} 
+                            isAltPressed={isAltPressed} 
+                            isMarkingAngles={markingAnglesMode}
+                            isDragging={isDragging} // Pass dragging state for opacity control
+                            onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} 
+                            onRotateStart={(e) => handleRotateStart(e, s)} 
+                            onSetPivot={(idx) => setPivotIndex(idx)} 
+                            onMarkAngle={(idx) => handleCornerClick(s.id, idx)} 
+                            onAngleChange={() => {}} 
+                            onAngleDoubleClick={(idx, e) => handleAngleDoubleClick(s.id, idx, e)} 
+                        />
                     })}
                     {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
                     {selectionBox && <rect x={Math.min(selectionBox.start.x, selectionBox.current.x)} y={Math.min(selectionBox.start.y, selectionBox.current.y)} width={Math.abs(selectionBox.current.x - selectionBox.start.x)} height={Math.abs(selectionBox.current.y - selectionBox.start.y)} fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={1} />}

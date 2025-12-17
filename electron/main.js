@@ -56,9 +56,9 @@ function createWindow() {
   });
 
   // DEBUG: Open Detached DevTools to see renderer errors
-  if (isDev) {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  // if (isDev) {
+  //     mainWindow.webContents.openDevTools({ mode: 'detach' });
+  // }
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -155,7 +155,7 @@ function createSolverWindow() {
     });
 
     // DEBUG: Open Detached DevTools to see renderer errors
-    solverWindow.webContents.openDevTools({ mode: 'detach' });
+    // solverWindow.webContents.openDevTools({ mode: 'detach' });
 
     const isDev = !app.isPackaged;
     const url = isDev 
