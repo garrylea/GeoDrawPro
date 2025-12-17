@@ -161,7 +161,10 @@ function Editor() {
 
   useEffect(() => {
       if (textEditing && inputRef.current) {
-          setTimeout(() => inputRef.current?.focus(), 50);
+          // Fix 1: Check if already focused to prevent cursor jumping to end during typing
+          if (document.activeElement !== inputRef.current) {
+             setTimeout(() => inputRef.current?.focus(), 50);
+          }
       }
       if (angleEditing && angleInputRef.current) {
           // Fix: Check if already focused to prevent re-selecting text on every keystroke
@@ -1239,6 +1242,29 @@ function Editor() {
       if (hit && hit.type === ShapeType.TEXT) {
           setTextEditing({ id: hit.id, x: hit.points[0].x, y: hit.points[0].y, text: hit.text || '' });
           setSelectedIds(new Set([hit.id]));
+          return;
+      }
+
+      // New Logic: Double click on empty space in Select mode -> Create Text
+      if (!hit && tool === ToolType.SELECT) {
+          const id = generateId();
+          const newShape: Shape = {
+              id,
+              type: ShapeType.TEXT,
+              points: [rawPos],
+              text: '',
+              fontSize: 16,
+              fill: currentStyle.fill,
+              stroke: currentStyle.stroke,
+              strokeWidth: currentStyle.strokeWidth,
+              strokeType: currentStyle.strokeType,
+              rotation: 0
+          };
+          
+          saveHistory();
+          setShapes(prev => [...prev, newShape]);
+          setTextEditing({ id, x: rawPos.x, y: rawPos.y, text: '' });
+          setSelectedIds(new Set([id]));
       }
   };
 

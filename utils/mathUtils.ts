@@ -1,4 +1,3 @@
-
 import { Point, Shape, ShapeType, MarkerType } from '../types';
 
 export interface RecognizedShape {
@@ -353,11 +352,13 @@ export const isShapeInRect = (shape: Shape, rect: { start: Point, end: Point }):
     const yMax = Math.max(rect.start.y, rect.end.y);
 
     const corners = getRotatedCorners(shape);
+    
+    // Fix 2: Use containment logic (.every) instead of intersection (.some)
     if (corners.length > 0) {
-        return corners.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
+        return corners.every(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
     }
-    if (shape.points) {
-        return shape.points.some(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
+    if (shape.points && shape.points.length > 0) {
+        return shape.points.every(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
     }
     return false;
 };
