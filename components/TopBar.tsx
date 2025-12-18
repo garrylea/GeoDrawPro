@@ -54,19 +54,19 @@ export const TopBar: React.FC<TopBarProps> = ({
           {showIconDropdown && (
             <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden py-1">
               <button 
-                onClick={() => { setShowIconDropdown(false); exportAppIcon('/icon.svg', 'icns'); }} 
+                onClick={() => { setShowIconDropdown(false); exportAppIcon('icon.svg', 'icns'); }} 
                 className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition-colors"
               >
                 <Apple size={16} className="text-slate-400" /> <span className="flex-1">MacOS</span>
               </button>
               <button 
-                onClick={() => { setShowIconDropdown(false); exportAppIcon('/icon.svg', 'ico'); }} 
+                onClick={() => { setShowIconDropdown(false); exportAppIcon('icon.svg', 'ico'); }} 
                 className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition-colors"
               >
                 <Monitor size={16} className="text-slate-400" /> <span className="flex-1">Windows</span>
               </button>
               <button 
-                onClick={() => { setShowIconDropdown(false); exportAppIcon('/icon.svg', 'png'); }} 
+                onClick={() => { setShowIconDropdown(false); exportAppIcon('icon.svg', 'png'); }} 
                 className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 transition-colors"
               >
                 <Terminal size={16} className="text-slate-400" /> <span className="flex-1">Linux</span>

@@ -205,21 +205,34 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
             : [512]; // Linux standard single high-res png
 
     let svgText = '';
-    if (typeof svgSource === 'string') {
-        const response = await fetch(svgSource);
-        svgText = await response.text();
-    } else {
-        svgText = new XMLSerializer().serializeToString(svgSource);
+    try {
+        if (typeof svgSource === 'string') {
+            const response = await fetch(svgSource);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status} when fetching ${svgSource}`);
+            svgText = await response.text();
+        } else {
+            svgText = new XMLSerializer().serializeToString(svgSource);
+        }
+    } catch (err) {
+        console.error("Failed to fetch/serialize SVG source:", err);
+        alert(`Failed to load icon source. If you are in Electron, please check if the path is relative. Error: ${err.message}`);
+        return;
     }
 
     const imgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
     const image = new Image();
     image.src = imgSrc;
 
-    await new Promise((resolve, reject) => {
-        image.onload = resolve;
-        image.onerror = reject;
-    });
+    try {
+        await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = (e) => reject(new Error("Image failed to load: " + e));
+        });
+    } catch (err) {
+        console.error("Failed to render icon source to image object:", err);
+        alert("Failed to process icon graphics.");
+        return;
+    }
 
     const iconData = await Promise.all(sizes.map(async (size) => {
         const canvas = document.createElement('canvas');
@@ -242,9 +255,14 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
             size: icon.size,
             base64: btoa(String.fromCharCode(...icon.data))
         }));
-        const { ipcRenderer } = (window as any).require('electron');
-        const result = await ipcRenderer.invoke('EXPORT_APP_ICON', { format, icons: base64Icons });
-        if (result.error) alert("Failed to export icon: " + result.error);
+        try {
+            const { ipcRenderer } = (window as any).require('electron');
+            const result = await ipcRenderer.invoke('EXPORT_APP_ICON', { format, icons: base64Icons });
+            if (result.error) alert("Failed to export icon: " + result.error);
+        } catch (err) {
+            console.error("Electron IPC failed:", err);
+            alert("IPC Error: Icon could not be saved to disk.");
+        }
     } else {
         if (format === 'png') {
             const blob = new Blob([iconData[0].data], { type: 'image/png' });
