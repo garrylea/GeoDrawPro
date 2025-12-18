@@ -394,17 +394,93 @@ export const getSmoothSvgPath = (points: Point[]): string => {
     return d;
 };
 
+// --- Ramer-Douglas-Peucker simplification for better recognition ---
+const simplifyPath = (points: Point[], tolerance: number): Point[] => {
+    if (points.length <= 2) return points;
+    
+    let dmax = 0;
+    let index = 0;
+    const end = points.length - 1;
+    
+    for (let i = 1; i < end; i++) {
+        const d = distanceToLine(points[i], points[0], points[end]);
+        if (d > dmax) {
+            index = i;
+            dmax = d;
+        }
+    }
+    
+    if (dmax > tolerance) {
+        const res1 = simplifyPath(points.slice(0, index + 1), tolerance);
+        const res2 = simplifyPath(points.slice(index), tolerance);
+        return [...res1.slice(0, -1), ...res2];
+    } else {
+        return [points[0], points[end]];
+    }
+};
+
+const distanceToLine = (p: Point, a: Point, b: Point): number => {
+    const l2 = Math.pow(distance(a, b), 2);
+    if (l2 === 0) return distance(p, a);
+    const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+    const projection = lerp(a, b, Math.max(0, Math.min(1, t)));
+    return distance(p, projection);
+};
+
 export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null => {
-    if (points.length < 10) return null;
+    if (points.length < 5) return null;
+
+    // 1. Line Recognition (is it just a straight stroke?)
+    const totalPathLen = points.reduce((acc, p, i) => i === 0 ? 0 : acc + distance(points[i-1], p), 0);
+    const startEndDist = distance(points[0], points[points.length - 1]);
+    if (totalPathLen / startEndDist < 1.15 && totalPathLen > 30) {
+        return { type: ShapeType.LINE, points: [points[0], points[points.length - 1]] };
+    }
+
+    // 2. Closed Shape Pre-processing
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
-        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     });
     const w = maxX - minX, h = maxY - minY;
-    if (w < 20 || h < 20) return null;
+    const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    
+    // 3. Circle/Ellipse Recognition (Radius variance check)
+    const radii = points.map(p => distance(p, center));
+    const avgRadius = radii.reduce((a, b) => a + b) / radii.length;
+    const variance = radii.reduce((a, b) => a + Math.pow(b - avgRadius, 2), 0) / radii.length;
+    const stdDev = Math.sqrt(variance);
+
+    // If std deviation is low relative to radius, it's round
+    if (stdDev / avgRadius < 0.15) {
+        const ratio = w / h;
+        const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
+        if (Math.abs(1 - ratio) < 0.2) {
+            return { type: ShapeType.CIRCLE, points: pts };
+        } else {
+            return { type: ShapeType.ELLIPSE, points: pts };
+        }
+    }
+
+    // 4. Polygon Recognition (Triangle vs Rectangle)
+    // Simplify the path significantly to find corners
+    const corners = simplifyPath(points, Math.max(w, h) * 0.15);
+    
+    // Douglas-Peucker might leave a "close" point at the end, clean it
+    const distinctCorners = corners.filter((p, i) => i === 0 || distance(p, corners[i-1]) > 20);
+    
+    // Check if it's effectively a triangle
+    if (distinctCorners.length === 3 || (distinctCorners.length === 4 && distance(distinctCorners[0], distinctCorners[3]) < 50)) {
+        return { type: ShapeType.TRIANGLE, points: distinctCorners.slice(0, 3) };
+    }
+
+    // 5. Fallback: Rectangle / Square
+    const ratio = w / h;
     const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
-    if (Math.abs(w - h) < Math.max(w, h) * 0.2) return { type: ShapeType.SQUARE, points: pts };
+    if (Math.abs(1 - ratio) < 0.15) {
+        return { type: ShapeType.SQUARE, points: pts };
+    }
     return { type: ShapeType.RECTANGLE, points: pts };
 };
 
