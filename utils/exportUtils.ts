@@ -9,6 +9,18 @@ export const isElectron = () => {
 };
 
 /**
+ * Safely converts Uint8Array to Base64 string without blowing the stack.
+ */
+const uint8ArrayToBase64 = (array: Uint8Array): string => {
+    let binary = '';
+    const len = array.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(array[i]);
+    }
+    return btoa(binary);
+};
+
+/**
  * Packs multiple PNG buffers into a single ICO file buffer.
  */
 const createIcoBuffer = (pngDatas: { size: number, data: Uint8Array }[]): ArrayBuffer => {
@@ -253,7 +265,8 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
     if (isElectron()) {
         const base64Icons = iconData.map(icon => ({
             size: icon.size,
-            base64: btoa(String.fromCharCode(...icon.data))
+            // CRITICAL FIX: Use the robust helper instead of spread operator to avoid stack overflow for 1024x1024 icons
+            base64: uint8ArrayToBase64(icon.data)
         }));
         try {
             const { ipcRenderer } = (window as any).require('electron');
