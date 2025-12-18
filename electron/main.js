@@ -4,25 +4,20 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-// Load environment variables from .env file if present (for API_KEY)
 dotenv.config();
 
-// Prevent garbage collection
 let mainWindow;
 let snippetWindow;
-let solverWindow; // New hidden window
-// Global buffer to store the latest screenshot in memory (avoiding IPC transfer)
+let solverWindow; 
 let currentScreenshotBuffer = null;
 
-// Register the custom protocol immediately when ready
 app.whenReady().then(() => {
     protocol.handle('app-screenshot', (request) => {
-        // URL format: app-screenshot://current?t=123456
         if (currentScreenshotBuffer) {
             return new Response(currentScreenshotBuffer, {
                 headers: { 
                     'content-type': 'image/png',
-                    'Access-Control-Allow-Origin': '*' // CRITICAL FIX: Allow Canvas to read this image without tainting
+                    'Access-Control-Allow-Origin': '*' 
                 }
             });
         }
@@ -45,20 +40,14 @@ function createWindow() {
     height: 800,
     title: "GeoDraw Pro",
     icon: iconPath, 
-    show: false, // Don't show immediately
+    show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false, 
       webSecurity: false,
-      // Inject API Key into the renderer process securely
       additionalArguments: [`--api-key=${process.env.API_KEY || ''}`]
     },
   });
-
-  // DEBUG: Open Detached DevTools to see renderer errors
-  // if (isDev) {
-  //     mainWindow.webContents.openDevTools({ mode: 'detach' });
-  // }
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -66,12 +55,10 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // FORCE WINDOW TO FRONT
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     if (process.platform === 'darwin') {
       app.dock.show();
-      // Explicitly steal focus on macOS to ensure it pops over other apps
       app.focus({ steal: true });
     }
     mainWindow.focus();
@@ -79,7 +66,6 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-    // CRITICAL FIX: Force the app to quit when the main window is closed.
     app.quit();
   });
 }
@@ -92,7 +78,7 @@ function createSnippetWindow() {
     width, height,
     x: 0, y: 0,
     frame: false,
-    show: false, // Keep hidden initially
+    show: false,
     transparent: true, 
     backgroundColor: '#00000000', 
     alwaysOnTop: true, 
@@ -102,7 +88,7 @@ function createSnippetWindow() {
     enableLargerThanScreen: true,
     hasShadow: false,
     fullscreen: false, 
-    focusable: true, // Allow focus
+    focusable: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -112,7 +98,6 @@ function createSnippetWindow() {
   });
 
   if (process.platform === 'darwin') {
-      // Set to floating/pop-up level to ensure it is above full screen apps
       snippetWindow.setAlwaysOnTop(true, 'pop-up-menu'); 
       snippetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
@@ -135,13 +120,11 @@ function createSnippetWindow() {
 
 function createSolverWindow() {
     if (solverWindow && !solverWindow.isDestroyed()) {
-        console.log('[DEBUG] Solver window already exists, showing it.');
         solverWindow.show();
         solverWindow.focus();
         return;
     }
 
-    console.log('[DEBUG] Creating new Solver Window...');
     solverWindow = new BrowserWindow({
         width: 500,
         height: 700,
@@ -154,15 +137,11 @@ function createSolverWindow() {
         }
     });
 
-    // DEBUG: Open Detached DevTools to see renderer errors
-    // solverWindow.webContents.openDevTools({ mode: 'detach' });
-
     const isDev = !app.isPackaged;
     const url = isDev 
         ? 'http://localhost:5173?mode=solver' 
         : `file://${path.join(__dirname, '../dist/index.html')}?mode=solver`;
     
-    console.log(`[DEBUG] Loading Solver URL: ${url}`);
     solverWindow.loadURL(url);
 
     solverWindow.on('closed', () => {
@@ -171,11 +150,9 @@ function createSolverWindow() {
 }
 
 app.on('ready', () => {
-    console.log('[DEBUG] App is ready, initializing windows...');
     createWindow();
     createSnippetWindow();
 
-    // Force app focus on launch (especially for macOS)
     if (process.platform === 'darwin') {
         app.dock.show();
         app.focus({ steal: true });
@@ -183,22 +160,17 @@ app.on('ready', () => {
         app.focus();
     }
 
-    // 1. Snippet Tool Shortcut
     const snippetShortcut = 'CommandOrControl+Alt+C';
     globalShortcut.register(snippetShortcut, async () => {
-        console.log(`[DEBUG] 🚀 Snippet Shortcut triggered!`);
         if (!snippetWindow || snippetWindow.isDestroyed()) createSnippetWindow();
-
         if (snippetWindow.isVisible()) {
             snippetWindow.hide();
             if (mainWindow) mainWindow.focus();
             return;
         }
-        
         const display = screen.getPrimaryDisplay();
         const { width, height } = display.bounds;
         const scaleFactor = display.scaleFactor;
-
         try {
             const sources = await desktopCapturer.getSources({ 
                 types: ['screen'], 
@@ -217,32 +189,15 @@ app.on('ready', () => {
                 setTimeout(() => { snippetWindow.focus(); }, 50);
             }
         } catch (e) {
-            console.error('[DEBUG] ❌ Failed to capture screen:', e);
+            console.error(e);
             if (snippetWindow) snippetWindow.hide();
         }
     });
 
-    // 2. Math Solver Global Shortcut (FIXED & DEBUGGED)
     const solverShortcut = 'CommandOrControl+Alt+Shift+M';
-    const isRegistered = globalShortcut.register(solverShortcut, () => {
-        console.log(`[DEBUG] 🧮 Math Solver Shortcut triggered!`);
-        
-        // VISUAL FEEDBACK FOR DEBUGGING
-        // If you see this dialog, the shortcut works, but the window might be failing to load.
-        dialog.showMessageBox(mainWindow, {
-             type: 'info',
-             title: 'Debug',
-             message: 'Math Solver Shortcut Triggered!'
-        }).catch(err => console.error(err));
-
+    globalShortcut.register(solverShortcut, () => {
         createSolverWindow();
     });
-
-    if (!isRegistered) {
-        console.error(`[ERROR] Failed to register shortcut: ${solverShortcut}`);
-    } else {
-        console.log(`[DEBUG] Shortcut registered successfully: ${solverShortcut}`);
-    }
 });
 
 app.on('before-quit', () => {
@@ -267,7 +222,103 @@ app.on('activate', () => {
   }
 });
 
+// --- ICO/ICNS Packaging Logic ---
+
+function createIco(pngIcons) {
+    const header = Buffer.alloc(6);
+    header.writeUInt16LE(0, 0); // Reserved
+    header.writeUInt16LE(1, 2); // Type (1 = ICO)
+    header.writeUInt16LE(pngIcons.length, 4);
+
+    const directories = [];
+    const dataBlocks = [];
+    let currentOffset = 6 + (16 * pngIcons.length);
+
+    pngIcons.forEach(({ size, buffer }) => {
+        const dir = Buffer.alloc(16);
+        dir.writeUInt8(size >= 256 ? 0 : size, 0);
+        dir.writeUInt8(size >= 256 ? 0 : size, 1);
+        dir.writeUInt8(0, 2); // Color count
+        dir.writeUInt8(0, 3); // Reserved
+        dir.writeUInt16LE(1, 4); // Planes
+        dir.writeUInt16LE(32, 6); // BPP
+        dir.writeUInt32LE(buffer.length, 8);
+        dir.writeUInt32LE(currentOffset, 12);
+        
+        directories.push(dir);
+        dataBlocks.push(buffer);
+        currentOffset += buffer.length;
+    });
+
+    return Buffer.concat([header, ...directories, ...dataBlocks]);
+}
+
+function createIcns(pngIcons) {
+    // Map size to ICNS type identifiers
+    const ICNS_TYPES = {
+        16: 'icp4', 32: 'icp5', 64: 'icp6', 128: 'ic07', 
+        256: 'ic08', 512: 'ic09', 1024: 'ic10'
+    };
+
+    const blocks = [];
+    let totalSize = 8; // Header size ('icns' + length)
+
+    pngIcons.forEach(({ size, buffer }) => {
+        const typeId = ICNS_TYPES[size];
+        if (!typeId) return;
+
+        const blockHeader = Buffer.alloc(8);
+        blockHeader.write(typeId, 0, 4, 'ascii');
+        blockHeader.writeUInt32BE(buffer.length + 8, 4);
+        
+        blocks.push(blockHeader);
+        blocks.push(buffer);
+        totalSize += (buffer.length + 8);
+    });
+
+    const fileHeader = Buffer.alloc(8);
+    fileHeader.write('icns', 0, 4, 'ascii');
+    fileHeader.writeUInt32BE(totalSize, 4);
+
+    return Buffer.concat([fileHeader, ...blocks]);
+}
+
 // --- IPC Handlers ---
+
+ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
+    if (!mainWindow) return { success: false };
+
+    const pngIcons = icons.map(icon => ({
+        size: icon.size,
+        buffer: Buffer.from(icon.base64, 'base64')
+    }));
+
+    const extension = format;
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: `Export ${format.toUpperCase()} Icon`,
+        defaultPath: `app-icon.${extension}`,
+        filters: [{ name: `${format.toUpperCase()} Icon`, extensions: [extension] }]
+    });
+
+    if (canceled || !filePath) return { success: false };
+
+    try {
+        let outputBuffer;
+        if (format === 'ico') {
+            outputBuffer = createIco(pngIcons);
+        } else if (format === 'icns') {
+            outputBuffer = createIcns(pngIcons);
+        } else {
+            throw new Error("Unsupported format");
+        }
+
+        fs.writeFileSync(filePath, outputBuffer);
+        return { success: true };
+    } catch (e) {
+        console.error(e);
+        return { success: false, error: e.message };
+    }
+});
 
 ipcMain.on('RENDERER_LOG', (event, message) => {
     console.log(`[SNIPPET_RENDERER] ${message}`);
@@ -281,11 +332,7 @@ ipcMain.on('CLOSE_SNIPPET', () => {
     }
 });
 
-ipcMain.on('SNIPPET_READY', () => {});
-
-ipcMain.on('OPEN_SOLVER', () => {
-    createSolverWindow();
-});
+ipcMain.on('OPEN_SOLVER', () => { createSolverWindow(); });
 
 ipcMain.handle('save-dialog', async (event, data) => {
   if (!mainWindow) return { success: false };

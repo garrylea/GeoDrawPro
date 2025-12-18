@@ -9,11 +9,97 @@ export const isElectron = () => {
 };
 
 /**
- * Exports an SVG element to a PNG or JPG file.
- * Crops the output to the bounding box of the drawn shapes + padding.
+ * Packs multiple PNG buffers into a single ICO file buffer.
  */
+const createIcoBuffer = (pngDatas: { size: number, data: Uint8Array }[]): ArrayBuffer => {
+    const headerSize = 6;
+    const dirEntrySize = 16;
+    const totalHeaderSize = headerSize + (dirEntrySize * pngDatas.length);
+    
+    let totalDataSize = 0;
+    pngDatas.forEach(p => totalDataSize += p.data.length);
+
+    const buffer = new ArrayBuffer(totalHeaderSize + totalDataSize);
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+
+    // ICO Header
+    view.setUint16(0, 0, true);    // Reserved
+    view.setUint16(2, 1, true);    // Type 1 = ICO
+    view.setUint16(4, pngDatas.length, true); // Image count
+
+    let currentOffset = totalHeaderSize;
+
+    pngDatas.forEach((png, i) => {
+        const entryOffset = headerSize + (i * dirEntrySize);
+        const size = png.size >= 256 ? 0 : png.size;
+        
+        view.setUint8(entryOffset + 0, size); // Width
+        view.setUint8(entryOffset + 1, size); // Height
+        view.setUint8(entryOffset + 2, 0);    // Color palette
+        view.setUint8(entryOffset + 3, 0);    // Reserved
+        view.setUint16(entryOffset + 4, 1, true);  // Color planes
+        view.setUint16(entryOffset + 6, 32, true); // Bits per pixel
+        view.setUint32(entryOffset + 8, png.data.length, true); // Data size
+        view.setUint32(entryOffset + 12, currentOffset, true);  // Data offset
+
+        bytes.set(png.data, currentOffset);
+        currentOffset += png.data.length;
+    });
+
+    return buffer;
+};
+
+/**
+ * Packs multiple PNG buffers into a single ICNS file buffer (Apple Icon Image).
+ */
+const createIcnsBuffer = (pngDatas: { size: number, data: Uint8Array }[]): ArrayBuffer => {
+    const ICNS_TYPES: Record<number, string> = {
+        16: 'icp4', 32: 'icp5', 64: 'icp6', 128: 'ic07', 
+        256: 'ic08', 512: 'ic09', 1024: 'ic10'
+    };
+
+    let totalSize = 8; // 'icns' + length
+    const validIcons = pngDatas.filter(p => ICNS_TYPES[p.size]);
+    validIcons.forEach(p => totalSize += (8 + p.data.length));
+
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+
+    // ICNS Header
+    bytes.set([105, 99, 110, 115], 0); // 'icns'
+    view.setUint32(4, totalSize, false); // Big-endian total size
+
+    let offset = 8;
+    validIcons.forEach(png => {
+        const typeStr = ICNS_TYPES[png.size];
+        for (let i = 0; i < 4; i++) {
+            bytes[offset + i] = typeStr.charCodeAt(i);
+        }
+        view.setUint32(offset + 4, png.data.length + 8, false);
+        bytes.set(png.data, offset + 8);
+        offset += (png.data.length + 8);
+    });
+
+    return buffer;
+};
+
+/**
+ * Triggers a browser download for a blob.
+ */
+const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
 export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', filename: string) => {
-  // 1. Calculate Content Bounding Box
   const shapeGroups = svgElement.querySelectorAll('.shape-group');
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   
@@ -21,7 +107,6 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
       const svgRect = svgElement.getBoundingClientRect();
       shapeGroups.forEach(g => {
           const rect = g.getBoundingClientRect();
-          // Convert to SVG local coordinates relative to the viewport origin (top-left of SVG)
           const x1 = rect.left - svgRect.left;
           const y1 = rect.top - svgRect.top;
           const x2 = rect.right - svgRect.left;
@@ -33,12 +118,10 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
           if (y2 > maxY) maxY = y2;
       });
   } else {
-      // Fallback: Use full canvas if no shapes are present
       const rect = svgElement.getBoundingClientRect();
       minX = 0; minY = 0; maxX = rect.width; maxY = rect.height;
   }
 
-  // Add Padding
   const padding = 40;
   minX = Math.floor(minX - padding);
   minY = Math.floor(minY - padding);
@@ -48,18 +131,13 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
   const width = Math.max(1, maxX - minX);
   const height = Math.max(1, maxY - minY);
 
-  // 2. Serialize and Adjust SVG
   const serializer = new XMLSerializer();
   let source = serializer.serializeToString(svgElement);
 
-  // Parse to DOM to safely manipulate attributes for cropping
   const parser = new DOMParser();
   const doc = parser.parseFromString(source, "image/svg+xml");
   const svgRoot = doc.documentElement;
 
-  // Fix: The background rect (width="100%") does not automatically adjust to the new viewBox origin/size
-  // when we crop. We must explicitly set it to cover the cropped area.
-  // This prevents the "partially transparent, partially white" glitch.
   const bgRect = svgRoot.querySelector('rect[width="100%"][height="100%"]');
   if (bgRect) {
       bgRect.setAttribute('x', `${minX}`);
@@ -68,31 +146,25 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
       bgRect.setAttribute('height', `${height}`);
   }
 
-  // Set viewBox to crop the image to the calculated bounds
   svgRoot.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
   svgRoot.setAttribute('width', `${width}`);
   svgRoot.setAttribute('height', `${height}`);
 
-  // Ensure namespaces exist
   if (!svgRoot.getAttribute('xmlns')) {
       svgRoot.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   }
 
-  // Re-serialize the cropped SVG
   source = serializer.serializeToString(svgRoot);
 
-  // 3. Render to Canvas
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   
-  // Scale up for high resolution export
   const scale = 2;
   canvas.width = width * scale;
   canvas.height = height * scale;
 
   if (context) {
     context.scale(scale, scale);
-    // Fill white background for JPEG
     if (format === 'jpeg') {
         context.fillStyle = '#ffffff';
         context.fillRect(0, 0, width, height);
@@ -103,10 +175,7 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
   const image = new Image();
 
   image.onload = () => {
-    // Draw image at 0,0 with calculated width/height.
-    // Since viewBox is set, the browser renders the cropped view into this rect.
     context?.drawImage(image, 0, 0, width, height);
-    
     const imgUrl = canvas.toDataURL(`image/${format}`, 0.9);
     
     const downloadLink = document.createElement('a');
@@ -126,33 +195,85 @@ export const exportCanvas = (svgElement: SVGSVGElement, format: 'png' | 'jpeg', 
 };
 
 /**
- * Saves the current shapes state to a .geo (JSON) file.
- * In Electron, this triggers a native Save Dialog.
+ * Renders an SVG (from canvas or URL) to multiple PNG buffers and packages them.
  */
+export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: 'ico' | 'icns' | 'png') => {
+    const sizes = format === 'ico' 
+        ? [16, 32, 48, 64, 128, 256] 
+        : format === 'icns' 
+            ? [16, 32, 64, 128, 256, 512, 1024]
+            : [512]; // Linux standard single high-res png
+
+    let svgText = '';
+    if (typeof svgSource === 'string') {
+        const response = await fetch(svgSource);
+        svgText = await response.text();
+    } else {
+        svgText = new XMLSerializer().serializeToString(svgSource);
+    }
+
+    const imgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+    const image = new Image();
+    image.src = imgSrc;
+
+    await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+    });
+
+    const iconData = await Promise.all(sizes.map(async (size) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(image, 0, 0, size, size);
+        }
+        
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+        if (!blob) throw new Error(`Failed to render icon size ${size}`);
+        
+        const arrayBuffer = await blob.arrayBuffer();
+        return { size, data: new Uint8Array(arrayBuffer) };
+    }));
+
+    if (isElectron()) {
+        const base64Icons = iconData.map(icon => ({
+            size: icon.size,
+            base64: btoa(String.fromCharCode(...icon.data))
+        }));
+        const { ipcRenderer } = (window as any).require('electron');
+        const result = await ipcRenderer.invoke('EXPORT_APP_ICON', { format, icons: base64Icons });
+        if (result.error) alert("Failed to export icon: " + result.error);
+    } else {
+        if (format === 'png') {
+            const blob = new Blob([iconData[0].data], { type: 'image/png' });
+            triggerDownload(blob, `app-icon-linux.png`);
+        } else {
+            const buffer = format === 'ico' ? createIcoBuffer(iconData) : createIcnsBuffer(iconData);
+            const blob = new Blob([buffer], { type: format === 'ico' ? 'image/x-icon' : 'image/x-icns' });
+            triggerDownload(blob, `app-icon.${format}`);
+        }
+    }
+};
+
 export const saveProject = async (shapes: Shape[], filename: string) => {
     const data = JSON.stringify(shapes, null, 2);
 
     if (isElectron()) {
         try {
-            // Use Electron's IPC to show native save dialog and write file
-            // We need to use `window.require` to access electron modules in renderer
             const { ipcRenderer } = (window as any).require('electron');
             const result = await ipcRenderer.invoke('save-dialog', data);
-            
             if (!result.success && result.error) {
                 alert('Failed to save project: ' + result.error);
             }
-            // If result.success is true, file is saved. 
-            // If false without error, user likely cancelled.
         } catch (e) {
             console.error('Electron Save Error:', e);
             alert('An error occurred while saving.');
         }
     } else {
-        // Web fallback: download as blob
         const blob = new Blob([data], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        
         const link = document.createElement('a');
         link.href = url;
         link.download = `${filename}.geo`;
@@ -163,51 +284,29 @@ export const saveProject = async (shapes: Shape[], filename: string) => {
     }
 };
 
-/**
- * Loads shapes from a .geo file.
- * In Electron, if no file argument is provided, it triggers a native Open Dialog.
- */
 export const loadProject = (file?: File): Promise<Shape[]> => {
     return new Promise(async (resolve, reject) => {
         if (isElectron() && !file) {
             try {
-                // Use Electron's IPC to show native open dialog and read file
                 const { ipcRenderer } = (window as any).require('electron');
                 const result = await ipcRenderer.invoke('open-dialog');
-                
-                if (result.canceled) return; // User cancelled
+                if (result.canceled) return;
                 if (result.error) throw new Error(result.error);
-                
                 const shapes = JSON.parse(result.data);
-                if (Array.isArray(shapes)) {
-                    resolve(shapes);
-                } else {
-                    reject(new Error("Invalid file format: content is not an array"));
-                }
-            } catch (e) {
-                reject(e);
-            }
+                if (Array.isArray(shapes)) { resolve(shapes); } 
+                else { reject(new Error("Invalid file format")); }
+            } catch (e) { reject(e); }
         } else {
-            // Web fallback: Read from HTML Input File object
-            if (!file) {
-                reject(new Error("No file provided"));
-                return;
-            }
+            if (!file) { reject(new Error("No file provided")); return; }
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
                     const result = e.target?.result as string;
                     const shapes = JSON.parse(result);
-                    if (Array.isArray(shapes)) {
-                        resolve(shapes);
-                    } else {
-                        reject(new Error("Invalid file format: content is not an array"));
-                    }
-                } catch (err) {
-                    reject(err);
-                }
+                    if (Array.isArray(shapes)) { resolve(shapes); } 
+                    else { reject(new Error("Invalid file format")); }
+                } catch (err) { reject(err); }
             };
-            reader.onerror = () => reject(new Error("Failed to read file"));
             reader.readAsText(file);
         }
     });
