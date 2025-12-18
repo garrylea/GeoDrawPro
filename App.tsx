@@ -455,7 +455,12 @@ function Editor() {
     if (tool === ToolType.TEXT) { e.preventDefault(); const id = generateId(); const newShape: Shape = { id, type: ShapeType.TEXT, points: [pos], text: '', fontSize: 16, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setTextEditing({ id, x: pos.x, y: pos.y, text: '' }); setSelectedIds(new Set<string>([id])); return; }
     if (tool === ToolType.LINE) { if (activeShapeId) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [...s.points.slice(0, -1), pos] } : s)); setActiveShapeId(null); setDragStartPos(null); return; } else { setDragStartPos(rawPos); const id = generateId(); const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setActiveShapeId(id); return; } }
     setDragStartPos(rawPos); setIsDragging(true); const id = generateId(); let points: Point[] = [pos, pos]; if (tool === ToolType.TRIANGLE) points = [pos, pos, pos]; if (tool === ToolType.POINT || tool === ToolType.FREEHAND) points = [pos];
-    let labels: string[] | undefined = autoLabelMode ? getNextLabels(tool === ToolType.TRIANGLE ? 3 : (tool === ToolType.RECTANGLE || tool === ToolType.SQUARE ? 4 : points.length)) : undefined;
+    
+    // Updated: Skip labels for Point and Freehand (manual Line tool doesn't even use this block)
+    let labels: string[] | undefined = (autoLabelMode && tool !== ToolType.POINT && tool !== ToolType.FREEHAND) 
+        ? getNextLabels(tool === ToolType.TRIANGLE ? 3 : (tool === ToolType.RECTANGLE || tool === ToolType.SQUARE ? 4 : points.length)) 
+        : undefined;
+        
     const newShape: Shape = { id, type: tool as unknown as ShapeType, points, labels, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 };
     if (tool === ToolType.POINT && hoveredConstraint) newShape.constraint = hoveredConstraint;
     setShapes(prev => [...prev, newShape]); setActiveShapeId(id);
@@ -527,7 +532,22 @@ function Editor() {
       if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!, radius = distance(center, compassState.radiusPoint!), startAngle = compassState.startAngle!, endAngle = getAngleDegrees(center, rawPos), arcPoints = []; const step = (endAngle - startAngle) / 20; for(let i=0; i<=20; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: [center, ...arcPoints], pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); } setCompassState(prev => ({ ...prev, radiusPoint: null, startAngle: null })); setCompassPreviewPath(null); return; }
       if (activeShapeId && tool === ToolType.LINE) { if (dragStartPos && distance(dragStartPos, rawPos) > 5) setActiveShapeId(null); setDragStartPos(null); return; }
       setDragStartPos(null);
-      if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) { const shape = shapes.find(s => s.id === activeShapeId); if (shape && shape.points.length > 5) { const recognized = recognizeFreehandShape(shape.points); if (recognized) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, type: recognized.type, points: recognized.points, labels: autoLabelMode ? getNextLabels(recognized.type === ShapeType.TRIANGLE ? 3 : 4) : undefined } : s)); } } }
+      
+      // Updated: Smart Sketch Recognition logic to skip labels for Lines and Points
+      if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) { 
+          const shape = shapes.find(s => s.id === activeShapeId); 
+          if (shape && shape.points.length > 5) { 
+              const recognized = recognizeFreehandShape(shape.points); 
+              if (recognized) { 
+                  let labels: string[] | undefined = undefined;
+                  if (autoLabelMode && recognized.type !== ShapeType.LINE) {
+                      labels = getNextLabels(recognized.type === ShapeType.TRIANGLE ? 3 : 4);
+                  }
+                  setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, type: recognized.type, points: recognized.points, labels } : s)); 
+              } 
+          } 
+      }
+      
       if (activeShapeId) {
           const s = shapes.find(sh => sh.id === activeShapeId);
           if (s && distance(s.points[0], rawPos) < 10) {
