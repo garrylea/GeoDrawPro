@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getShapeCenter, getSmoothSvgPath, distance } from '../utils/mathUtils';
@@ -17,7 +18,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
           <path 
               d={pathData} 
               fill="none" 
-              stroke={isSelected ? '#3b82f6' : '#ef4444'} // Markers usually Red or Black. Let's make them Red by default to stand out, or follow props.
+              stroke={isSelected ? '#3b82f6' : '#ef4444'} 
               strokeWidth={2} 
               strokeLinecap="round" 
               strokeLinejoin="round"
@@ -28,16 +29,16 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   // Determine Dash Array based on strokeType
   let dashArray = 'none';
   if (strokeType === 'dashed') {
-      dashArray = `${strokeWidth * 4},${strokeWidth * 2}`; // e.g., 8,4
+      dashArray = `${strokeWidth * 4},${strokeWidth * 2}`; 
   } else if (strokeType === 'dotted') {
-      dashArray = `${strokeWidth},${strokeWidth * 2}`; // e.g., 2,4
+      dashArray = `${strokeWidth},${strokeWidth * 2}`; 
   }
 
   const commonProps = {
     fill,
     stroke: isSelected ? '#3b82f6' : stroke, 
     strokeWidth: isSelected ? Math.max(strokeWidth, 2) : strokeWidth,
-    strokeDasharray: isSelected ? 'none' : dashArray, // Don't dash the selection highlight
+    strokeDasharray: isSelected ? 'none' : dashArray, 
     opacity: 0.9,
     vectorEffect: 'non-scaling-stroke', 
     strokeLinejoin: 'round' as const,
@@ -47,10 +48,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   // --- Function Graph Renderer ---
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
-      // Functions are pure paths
       return (
           <g className="shape-group" style={{ cursor: isSelected ? 'pointer' : 'pointer' }}>
-              {/* Thick transparent hit target */}
               <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} />
               {isSelected && <path d={pathData} fill="none" stroke="#60a5fa" strokeWidth={strokeWidth + 4} opacity={0.3} />}
               <path d={pathData} {...commonProps} fill="none" />
@@ -58,7 +57,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       );
   }
 
-  // For other shapes, we need points
   if (!points || points.length === 0) return null;
 
   let element = null;
@@ -72,30 +70,17 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
 
   // --- Smart Labeling Logic ---
   let labelElements: React.ReactNode[] = [];
-  
-  // Only render labels if they exist
   if (labels && labels.length > 0) {
-      // Helper to calculate label position: Vertex + (Vertex - Center).normalized * padding
       const renderLabel = (vertex: Point, label: string, index: number, center: Point) => {
           if (!label) return null;
-          
-          // Vector from center to vertex
           const dx = vertex.x - center.x;
           const dy = vertex.y - center.y;
           const len = Math.sqrt(dx * dx + dy * dy);
-          
-          // Padding offset (push label away from shape)
           const padding = 20; 
-          
-          // If length is 0 (single point), just offset up-right
           const offsetX = len > 0 ? (dx / len) * padding : 15;
           const offsetY = len > 0 ? (dy / len) * padding : -15;
-
           const labelX = vertex.x + offsetX;
           const labelY = vertex.y + offsetY;
-
-          // Counter-rotate the text so it stays upright relative to the screen,
-          // negating the group's rotation.
           const counterRotate = `rotate(${-rotation}, ${labelX}, ${labelY})`;
 
           return (
@@ -103,7 +88,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
                   key={`lbl-${index}`}
                   x={labelX}
                   y={labelY}
-                  fill={stroke} // Use shape color for label
+                  fill={stroke} 
                   fontSize={14}
                   fontWeight="bold"
                   fontFamily="sans-serif"
@@ -117,9 +102,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
           );
       };
 
-      const center = getShapeCenter(points, type); // Fix label calculation too
-
-      // Determine vertices based on shape type
+      const center = getShapeCenter(points, type);
       if (type === ShapeType.TRIANGLE && points.length >= 3) {
           labels.forEach((l, i) => {
               if (points[i]) labelElements.push(renderLabel(points[i], l, i, center));
@@ -129,212 +112,163 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
              if (points[i]) labelElements.push(renderLabel(points[i], l, i, center));
           });
       } else if ((type === ShapeType.RECTANGLE || type === ShapeType.SQUARE) && labels.length >= 4) {
-          // Logic for Rect corners: TL, TR, BR, BL
-          // Points are just diagonal [p0, p1], so we must derive 4 corners
           const corners = [
-              { x: x, y: y },         // TL
-              { x: x + width, y: y }, // TR
-              { x: x + width, y: y + height }, // BR
-              { x: x, y: y + height } // BL
+              { x: x, y: y },         
+              { x: x + width, y: y }, 
+              { x: x + width, y: y + height }, 
+              { x: x, y: y + height } 
           ];
           corners.forEach((c, i) => {
               if (labels[i]) labelElements.push(renderLabel(c, labels[i], i, { x: x + width/2, y: y + height/2 }));
           });
       } else if (type === ShapeType.POINT) {
            labels.forEach((l, i) => {
-               // For single point, just offset slightly
                labelElements.push(renderLabel(points[0], l, i, { x: points[0].x - 1, y: points[0].y + 1 }));
            });
       }
   }
-  // -----------------------------
 
   switch (type) {
     case ShapeType.RECTANGLE:
     case ShapeType.SQUARE:
       element = <rect x={x} y={y} width={width} height={height} {...commonProps} />;
       break;
-    
     case ShapeType.CIRCLE:
       const r = Math.min(width, height) / 2;
       element = <circle cx={x + width / 2} cy={y + height / 2} r={r} {...commonProps} />;
       break;
-
     case ShapeType.ELLIPSE:
       element = <ellipse cx={x + width / 2} cy={y + height / 2} rx={width / 2} ry={height / 2} {...commonProps} />;
       break;
-
     case ShapeType.LINE:
       element = <line x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} {...commonProps} />;
       break;
-      
     case ShapeType.TRIANGLE:
-      if (points.length < 3) return null;
-      const pts = points.map(p => `${p.x},${p.y}`).join(' ');
-      element = <polygon points={pts} {...commonProps} />;
-      break;
-    
     case ShapeType.POLYGON:
-        if (points.length < 3) return null;
-        const ptsPoly = points.map(p => `${p.x},${p.y}`).join(' ');
-        element = <polygon points={ptsPoly} {...commonProps} />;
-        break;
-
+      if (points.length < 3) return null;
+      element = <polygon points={points.map(p => `${p.x},${p.y}`).join(' ')} {...commonProps} />;
+      break;
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
-        // Use smooth path algorithm instead of raw polyline
-        const pathDataSmooth = getSmoothSvgPath(points);
-        element = <path d={pathDataSmooth} {...commonProps} fill="none" />;
+        element = <path d={getSmoothSvgPath(points)} {...commonProps} fill="none" />;
         break;
-
     case ShapeType.PATH:
         if (!pathData) return null;
         element = <path d={pathData} {...commonProps} />;
         break;
-
     case ShapeType.POINT:
         element = <circle cx={p0.x} cy={p0.y} r={Math.max(4, strokeWidth * 2)} fill={stroke} stroke={isSelected ? '#3b82f6' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
         break;
-
     case ShapeType.TEXT:
-        element = (
-            <text 
-                x={p0.x} 
-                y={p0.y} 
-                fill={stroke} 
-                fontSize={fontSize || 16} 
-                fontFamily="sans-serif"
-                dominantBaseline="hanging"
-                style={{ userSelect: 'none' }}
-            >
-                {text}
-            </text>
-        );
+        element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
         break;
-
     case ShapeType.IMAGE:
         if (!imageUrl) return null;
-        element = (
-            <image 
-                href={imageUrl}
-                x={x} y={y} 
-                width={width} height={height}
-                preserveAspectRatio="none"
-                // Removed pointerEvents: 'none' so that the group cursor style works on hover
-            />
-        );
+        element = <image href={imageUrl} x={x} y={y} width={width} height={height} preserveAspectRatio="none" />;
         break;
-
     case ShapeType.PROTRACTOR:
-        // Protractor Logic
         const cx = x + width / 2;
-        const cy = y + height; // Base line is at the bottom
+        const cy = y + height; 
         const radius = width / 2;
-        
-        // Generate Ticks
-        const ticks = [];
-        const labelsP = [];
+        const pticks = [];
+        const plabels = [];
         for (let i = 0; i <= 180; i++) {
             const rad = (Math.PI * i) / 180;
-            // Note: SVG Y is down, so we subtract Math.sin for "up"
             const cos = Math.cos(rad);
             const sin = Math.sin(rad);
-
-            // Tick length logic
             let len = 5;
             if (i % 5 === 0) len = 8;
             if (i % 10 === 0) len = 12;
-
-            // Outer arc edge
-            const xOuter = cx - radius * cos; // 0 degrees is usually right side, 180 left. Let's make 0 right.
+            const xOuter = cx - radius * cos;
             const yOuter = cy - radius * sin;
-            
-            // Inner tick start
             const xInner = cx - (radius - len) * cos;
             const yInner = cy - (radius - len) * sin;
-
-            if (i % 1 === 0) {
-               ticks.push(<line key={`t-${i}`} x1={xInner} y1={yInner} x2={xOuter} y2={yOuter} stroke={stroke} strokeWidth={i % 10 === 0 ? 1.5 : 0.5} />);
-            }
-
-            // Labels every 15 degrees
+            pticks.push(<line key={`t-${i}`} x1={xInner} y1={yInner} x2={xOuter} y2={yOuter} stroke={stroke} strokeWidth={i % 10 === 0 ? 1.5 : 0.5} />);
             if (i % 15 === 0 && i !== 180 && i !== 0) {
                  const xText = cx - (radius - 25) * cos;
                  const yText = cy - (radius - 25) * sin;
-                 labelsP.push(
-                     <text 
-                        key={`l-${i}`} 
-                        x={xText} y={yText} 
-                        fill={stroke} 
-                        fontSize={Math.min(12, radius / 10)} 
-                        textAnchor="middle" 
-                        dominantBaseline="middle"
-                        transform={`rotate(${90 - i} ${xText} ${yText})`}
-                        style={{ userSelect: 'none' }}
-                     >
-                         {i}
-                     </text>
-                 );
+                 plabels.push(<text key={`l-${i}`} x={xText} y={yText} fill={stroke} fontSize={Math.min(12, radius / 10)} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${90 - i} ${xText} ${yText})`} style={{ userSelect: 'none' }}>{i}</text>);
             }
         }
-
         element = (
             <g>
-                <path 
-                    d={`M ${x} ${cy} A ${radius} ${radius} 0 0 1 ${x + width} ${cy} Z`} 
-                    fill="#bae6fd" 
-                    fillOpacity="0.3" 
-                    stroke={stroke} 
-                    strokeWidth={2}
-                />
+                <path d={`M ${x} ${cy} A ${radius} ${radius} 0 0 1 ${x + width} ${cy} Z`} fill="#bae6fd" fillOpacity="0.3" stroke={stroke} strokeWidth={2} />
                 <line x1={cx - radius} y1={cy} x2={cx + radius} y2={cy} stroke={stroke} strokeWidth={2} />
                 <line x1={cx} y1={cy - 10} x2={cx} y2={cy} stroke="#ef4444" strokeWidth={2} />
                 <circle cx={cx} cy={cy} r={3} fill="#ef4444" />
-                {ticks}
-                {labelsP}
+                {pticks}
+                {plabels}
             </g>
         );
         break;
 
     case ShapeType.RULER:
-        // Ruler Logic
-        // Rectangle body + ticks on top edge
-        const rulerBody = <rect x={x} y={y} width={width} height={height} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} rx={2} />;
+        // --- High-Precision Ruler Logic ---
+        const bodyColor = isSelected ? '#dbeafe' : '#f8fafc';
+        const borderColor = isSelected ? '#3b82f6' : '#cbd5e1';
+        
+        const rulerBody = (
+            <rect 
+                x={x} y={y} 
+                width={width} height={height} 
+                fill={bodyColor} 
+                fillOpacity="0.85"
+                stroke={borderColor} 
+                strokeWidth={1} 
+                rx={4} 
+            />
+        );
         
         const rulerTicks = [];
         const rulerLabels = [];
-        const tickSpacing = 10; // Pixels
+        // New Specs: 2px (Minor), 10px (Mid), 20px (Major)
+        const tickSpacing = 2; 
         const numTicks = Math.floor(width / tickSpacing);
 
         for(let i=0; i<=numTicks; i++) {
             const tx = x + i * tickSpacing;
-            const isMajor = i % 5 === 0;
-            const isLabel = i % 5 === 0 && i !== 0; // Simplified label logic (every 50px usually)
+            
+            let tickLen = 4;
+            let tickWeight = 0.4;
+            let opacity = 0.4;
+            
+            if (i % 10 === 0) {
+                tickLen = 14; // Major (every 20px since i=10 and spacing=2)
+                tickWeight = 1.2;
+                opacity = 1.0;
+            } else if (i % 5 === 0) {
+                tickLen = 8; // Mid (every 10px since i=5 and spacing=2)
+                tickWeight = 0.8;
+                opacity = 0.7;
+            }
             
             rulerTicks.push(
                 <line 
                     key={`rt-${i}`}
                     x1={tx} y1={y}
-                    x2={tx} y2={y + (isMajor ? 15 : 8)}
+                    x2={tx} y2={y + tickLen}
                     stroke="#64748b"
-                    strokeWidth={1}
+                    strokeWidth={tickWeight}
+                    strokeOpacity={opacity}
+                    strokeLinecap="square"
                 />
             );
 
-            if (isLabel) {
-                // Assuming 1 tick = 1mm approx visually, so 50px = 5cm? Or just abstract units.
-                // Let's print 'i' as the index.
-                // Or better: i/5 to simulate cm?
+            // Label at every 10 ticks (20px intervals)
+            if (i % 10 === 0) {
                 rulerLabels.push(
                     <text
                         key={`rl-${i}`}
-                        x={tx + 2}
-                        y={y + 25}
-                        fontSize={10}
-                        fill="#64748b"
+                        x={tx}
+                        y={y + 28}
+                        fontSize={9}
+                        fill="#475569"
                         fontFamily="monospace"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        style={{ userSelect: 'none', pointerEvents: 'none' }}
                     >
-                        {i}
+                        {i / 10}
                     </text>
                 );
             }
@@ -345,8 +279,10 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
                 {rulerBody}
                 {rulerTicks}
                 {rulerLabels}
-                {/* Shine effect */}
-                <rect x={x} y={y} width={width} height={5} fill="white" fillOpacity={0.3} rx={2} />
+                {/* Subtle Shine/Highlight on Top Edge */}
+                <rect x={x + 1} y={y + 1} width={width - 2} height={2} fill="white" fillOpacity={0.4} rx={1} />
+                {/* Visual indicator for the 0 mark */}
+                <circle cx={x} cy={y} r={1.5} fill="#ef4444" />
             </g>
         );
         break;
@@ -355,7 +291,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       return null;
   }
 
-  // FIX: Pass type to getShapeCenter so Triangles use centroid for rendering transform
   const center = getShapeCenter(points, type);
   const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
 
@@ -366,7 +301,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 
                  strokeWidth: (strokeWidth || 1) + 6, 
-                 fill: type === ShapeType.TEXT || type === ShapeType.PROTRACTOR || type === ShapeType.RULER ? 'none' : 'none',
+                 fill: 'none',
                  strokeDasharray: 'none' 
              })}
           </g>
