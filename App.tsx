@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
@@ -196,6 +197,7 @@ function Editor() {
 
   useEffect(() => {
       const handlePaste = (e: ClipboardEvent) => {
+          let imageFound = false;
           if (e.clipboardData?.items) {
               for (let i = 0; i < e.clipboardData.items.length; i++) {
                   const item = e.clipboardData.items[i];
@@ -204,14 +206,36 @@ function Editor() {
                       if (file) {
                           e.preventDefault(); 
                           processImageFile(file, cursorPosRef.current || undefined);
+                          imageFound = true;
                       }
                   }
               }
           }
+          
+          // If no image found in system clipboard, check internal clipboard
+          if (!imageFound && clipboard.length > 0) {
+              e.preventDefault();
+              saveHistory();
+              const offset = 20;
+              const newShapes: Shape[] = [];
+              const newIds = new Set<string>();
+              clipboard.forEach(s => {
+                  const newId = generateId();
+                  newIds.add(newId);
+                  const newShape = { ...s, id: newId };
+                  if (newShape.points) newShape.points = newShape.points.map(p => ({ x: p.x + offset, y: p.y + offset }));
+                  delete newShape.constraint;
+                  delete newShape.markerConfig;
+                  newShapes.push(newShape);
+              });
+              setShapes(prev => [...prev, ...newShapes]);
+              setSelectedIds(newIds);
+              setTool(ToolType.SELECT);
+          }
       };
       window.addEventListener('paste', handlePaste);
       return () => window.removeEventListener('paste', handlePaste);
-  }, [processImageFile]);
+  }, [processImageFile, clipboard]);
 
   const getNextLabels = (count: number): string[] => {
       const used = new Set<string>();
@@ -301,26 +325,7 @@ function Editor() {
               if (selected.length > 0) setClipboard(JSON.parse(JSON.stringify(selected)));
               return;
           }
-          if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
-              if (clipboard.length === 0) return;
-              saveHistory();
-              const offset = 20;
-              const newShapes: Shape[] = [];
-              const newIds = new Set<string>();
-              clipboard.forEach(s => {
-                  const newId = generateId();
-                  newIds.add(newId);
-                  const newShape = { ...s, id: newId };
-                  if (newShape.points) newShape.points = newShape.points.map(p => ({ x: p.x + offset, y: p.y + offset }));
-                  delete newShape.constraint;
-                  delete newShape.markerConfig;
-                  newShapes.push(newShape);
-              });
-              setShapes(prev => [...prev, ...newShapes]);
-              setSelectedIds(newIds);
-              setTool(ToolType.SELECT);
-              return;
-          }
+          // Ctrl+V logic removed from here and moved to paste event listener
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
           if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelectedIds(new Set(shapes.map(s => s.id))); return; }
           if (e.key === 'Escape') {
@@ -476,11 +481,32 @@ function Editor() {
                 setIsDragging(true); 
                 return; 
             } 
-            const newSel = new Set(e.shiftKey || e.ctrlKey ? selectedIds : []); 
-            newSel.add(hit.id); 
-            setSelectedIds(newSel); 
-            setDragStartPos(rawPos); 
-            setIsDragging(true); 
+            
+            // Allow selecting multiple items with Shift/Ctrl
+            if (e.shiftKey || e.ctrlKey) {
+                const newSel = new Set(selectedIds);
+                if (newSel.has(hit.id)) {
+                    newSel.delete(hit.id);
+                } else {
+                    newSel.add(hit.id);
+                }
+                setSelectedIds(newSel);
+                setDragStartPos(rawPos); 
+                setIsDragging(true); 
+                return; 
+            }
+
+            // If clicking on an item that is ALREADY selected, keep the selection group
+            // This enables dragging multiple selected items together.
+            if (selectedIds.has(hit.id)) {
+                setDragStartPos(rawPos);
+                setIsDragging(true);
+            } else {
+                // Otherwise, clear previous selection and select the new one
+                setSelectedIds(new Set([hit.id])); 
+                setDragStartPos(rawPos); 
+                setIsDragging(true); 
+            }
             return; 
         } 
         if (!e.shiftKey && !e.ctrlKey) { setSelectedIds(new Set()); } 
