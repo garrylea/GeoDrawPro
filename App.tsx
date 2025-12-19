@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint } from './types';
 import { TOOL_CONFIG, COLORS, DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from './constants';
@@ -372,21 +371,60 @@ function Editor() {
     setSnapIndicator(null); setHoveredConstraint(null); return raw;
   };
 
+  /**
+   * Enhanced hit testing logic with priorities.
+   * Priority (High to Low):
+   * 1. Markers/Points (Handles)
+   * 2. Tools (Ruler, Protractor) - Always on top
+   * 3. 1D Elements (Lines, Paths) - Harder to click
+   * 4. Text - Standard element
+   * 5. 2D Shapes (Rect, Circle)
+   * 6. Backgrounds / Images
+   * 
+   * Secondary Sort: Smaller area wins (Small inside Large).
+   */
   const getHitShape = (pos: Point, shapesList: Shape[]) => {
       const hits = shapesList.filter(s => isPointInShape(pos, s, canvasSize.width, canvasSize.height, pixelsPerUnit));
       if (hits.length === 0) return null;
-      const points = hits.filter(s => s.type === ShapeType.POINT || s.type === ShapeType.MARKER);
-      if (points.length > 0) {
-          points.sort((a,b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
-          return points[0];
-      }
-      const lines = hits.filter(s => s.type === ShapeType.LINE || s.type === ShapeType.FUNCTION_GRAPH);
-      if (lines.length > 0) {
-           lines.sort((a,b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
-           return lines[0];
-      }
-      hits.sort((a, b) => distance(pos, getClosestPointOnShape(pos, a)) - distance(pos, getClosestPointOnShape(pos, b)));
-      return hits[0];
+
+      return hits.sort((a, b) => {
+          const getPriority = (s: Shape) => {
+               if (s.type === ShapeType.POINT || s.type === ShapeType.MARKER) return 0;
+               if (s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR) return 1;
+               if (s.type === ShapeType.LINE || s.type === ShapeType.PATH || s.type === ShapeType.FUNCTION_GRAPH || s.type === ShapeType.FREEHAND) return 2;
+               if (s.type === ShapeType.TEXT) return 3;
+               if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(s.type)) return 4;
+               if (s.type === ShapeType.IMAGE) return 5;
+               return 4;
+          };
+  
+          const pa = getPriority(a);
+          const pb = getPriority(b);
+          if (pa !== pb) return pa - pb;
+  
+          // Tie-breaker: Smaller object wins
+          const getSize = (s: Shape) => {
+               const corners = getRotatedCorners(s);
+               if (corners.length === 0) return 0;
+               let minX = corners[0].x, maxX = corners[0].x, minY = corners[0].y, maxY = corners[0].y;
+               corners.forEach(p => {
+                   minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                   minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+               });
+               const w = maxX - minX;
+               const h = maxY - minY;
+               return w * h;
+          };
+          
+          // Special case for lines: prefer closer distance if priorities match
+          if (pa === 2) { 
+               const da = distance(pos, getClosestPointOnShape(pos, a));
+               const db = distance(pos, getClosestPointOnShape(pos, b));
+               return da - db;
+          }
+  
+          return getSize(a) - getSize(b);
+      })[0];
   };
 
   const handleToolChange = (newTool: ToolType) => {
@@ -511,7 +549,7 @@ function Editor() {
         });
         return;
     }
-    if (activeShapeId) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].y ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
+    if (activeShapeId) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].x ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
     else if (selectedIds.size > 0 && dragStartPos && isDragging) {
         const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; setDragStartPos(rawPos);
         setShapes(prev => {
@@ -562,9 +600,24 @@ function Editor() {
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
-      const rawPos = getMousePos(e, false); const hit = getHitShape(rawPos, shapes);
-      if (hit && hit.type === ShapeType.TEXT) { setTextEditing({ id: hit.id, x: hit.points[0].x, y: hit.points[0].y, text: hit.text || '' }); setSelectedIds(new Set([hit.id])); return; }
-      if (!hit && tool === ToolType.SELECT) { const id = generateId(); saveHistory(); setShapes(prev => [...prev, { id, type: ShapeType.TEXT, points: [rawPos], text: '', fontSize: 16, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }]); setTextEditing({ id, x: rawPos.x, y: rawPos.y, text: '' }); setSelectedIds(new Set([id])); }
+      const rawPos = getMousePos(e, false); 
+      const hit = getHitShape(rawPos, shapes);
+      
+      // Fix: Only enter edit mode if explicitly hitting a Text object
+      if (hit && hit.type === ShapeType.TEXT) { 
+          setTextEditing({ id: hit.id, x: hit.points[0].x, y: hit.points[0].y, text: hit.text || '' }); 
+          setSelectedIds(new Set([hit.id])); 
+          return; 
+      }
+
+      // Otherwise, always create new text (even if hitting a shape)
+      if (tool === ToolType.SELECT) { 
+          const id = generateId(); 
+          saveHistory(); 
+          setShapes(prev => [...prev, { id, type: ShapeType.TEXT, points: [rawPos], text: '', fontSize: 16, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }]); 
+          setTextEditing({ id, x: rawPos.x, y: rawPos.y, text: '' }); 
+          setSelectedIds(new Set([id])); 
+      }
   };
 
   const finishTextEditing = useCallback(() => {
@@ -593,6 +646,9 @@ function Editor() {
   };
 
   const selectedShape = selectedIds.size === 1 ? shapes.find(s => s.id === [...selectedIds][0]) : null;
+
+  // Separate shapes for rendering order: Normal shapes first, Tools (Ruler/Protractor) last
+  const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
 
   return (
     <div className="flex flex-col h-screen overflow-hidden text-slate-900 font-sans bg-slate-50 relative">
@@ -638,7 +694,13 @@ function Editor() {
                     <defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" strokeWidth="1"/></pattern></defs>
                     {axisConfig.showGrid && <rect width="100%" height="100%" fill="url(#grid)" />}
                     <AxisLayer config={axisConfig} width={canvasSize.width} height={canvasSize.height} />
-                    {shapes.map(shape => <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} />)}
+                    
+                    {/* Render Standard Shapes First */}
+                    {shapes.filter(s => !isTool(s)).map(shape => <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} />)}
+                    
+                    {/* Render Tools (Ruler/Protractor) Last so they are on top */}
+                    {shapes.filter(s => isTool(s)).map(shape => <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} />)}
+
                     {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
                     {tool === ToolType.RULER && selectedIds.size === 0 && (
                         <g style={{ opacity: 0.35, pointerEvents: 'none' }}>
