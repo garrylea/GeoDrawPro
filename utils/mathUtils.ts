@@ -1,4 +1,3 @@
-
 import { Point, Shape, ShapeType, MarkerType } from '../types';
 
 export interface RecognizedShape {
@@ -31,11 +30,14 @@ export const getLineIntersection = (p1: Point, v1: Point, p2: Point, v2: Point):
 
 // --- Coordinate System Utilities ---
 export const getPixelsPerUnit = (width: number, height: number, ticks: number) => {
+    if (width <= 0 || height <= 0) return 40; // Default fallback if dimensions are invalid
     const maxDimension = Math.max(width, height) / 2;
-    return (maxDimension * 0.9) / (ticks || 5);
+    const result = (maxDimension * 0.9) / (ticks || 5);
+    return result > 0 ? result : 40; // Prevent returning 0
 };
 
 export const screenToMath = (p: Point, width: number, height: number, ppu: number): Point => {
+    if (ppu <= 0) return { x: 0, y: 0 };
     const centerX = width / 2;
     const centerY = height / 2;
     return {
@@ -53,23 +55,72 @@ export const mathToScreen = (p: Point, width: number, height: number, ppu: numbe
     };
 };
 
-export const evaluateQuadratic = (x: number, params: { a: number; b: number; c: number; h?: number; k?: number }, form: 'standard' | 'vertex' = 'standard'): number => {
+export const evaluateQuadratic = (
+    x: number, 
+    params: { a?: number; b?: number; c?: number; h?: number; k?: number }, 
+    form: 'standard' | 'vertex' = 'standard',
+    type: 'quadratic' | 'linear' = 'quadratic'
+): number => {
+    // Safety check for parameters
+    if (!params) return 0;
+
+    if (type === 'linear') {
+        // Linear: y = kx + b
+        const slope = params.k ?? 1;
+        const intercept = params.b ?? 0;
+        return slope * x + intercept;
+    }
+
     if (form === 'vertex') {
         const h = params.h || 0;
-        const k = params.k || 0;
-        return params.a * Math.pow(x - h, 2) + k;
+        const k = params.k || 0; // This 'k' is vertex Y, different from slope 'k'
+        const a = params.a ?? 1;
+        return a * Math.pow(x - h, 2) + k;
     } else {
-        return params.a * x * x + params.b * x + params.c;
+        const a = params.a ?? 1;
+        const b = params.b || 0;
+        const c = params.c || 0;
+        return a * x * x + b * x + c;
     }
 };
 
 export const generateQuadraticPath = (
-    params: { a: number; b: number; c: number; h?: number; k?: number }, 
+    params: { a?: number; b?: number; c?: number; h?: number; k?: number }, 
     form: 'standard' | 'vertex',
     width: number, 
     height: number, 
-    ppu: number
+    ppu: number,
+    type: 'quadratic' | 'linear' = 'quadratic'
 ): string => {
+    // Critical safety check: if ppu is invalid, return empty path to prevent NaN
+    if (!ppu || ppu <= 0) return "";
+    
+    // Ensure params exists
+    if (!params) params = { a: 1, b: 0, c: 0, k: 1 };
+
+    if (type === 'linear') {
+        // Optimization for straight lines: just calculate start and end points
+        // Visible range in Math coordinates
+        const minScreenX = -50;
+        const maxScreenX = width + 50;
+        
+        // Calculate Y at minScreenX
+        const mx1 = (minScreenX - (width / 2)) / ppu;
+        const my1 = evaluateQuadratic(mx1, params, form, 'linear');
+        const sy1 = (height / 2) - my1 * ppu;
+
+        // Calculate Y at maxScreenX
+        const mx2 = (maxScreenX - (width / 2)) / ppu;
+        const my2 = evaluateQuadratic(mx2, params, form, 'linear');
+        const sy2 = (height / 2) - my2 * ppu;
+
+        // Final Safety Check for NaN/Infinity
+        if (!isFinite(sy1) || !isFinite(sy2)) return "";
+
+        return `M ${minScreenX} ${sy1} L ${maxScreenX} ${sy2}`;
+    }
+
+    // Existing Quadratic Logic
     const minScreenX = -50;
     const maxScreenX = width + 50;
     const pixelStep = 4; 
@@ -78,10 +129,11 @@ export const generateQuadraticPath = (
 
     for (let sx = minScreenX; sx <= maxScreenX; sx += pixelStep) {
         const mx = (sx - (width / 2)) / ppu;
-        const my = evaluateQuadratic(mx, params, form);
+        const my = evaluateQuadratic(mx, params, form, 'quadratic');
         const sy = (height / 2) - my * ppu;
         
-        if (sy < -height * 2 || sy > height * 2) {
+        // Optimization: Don't draw way off screen or invalid values
+        if (!isFinite(sy) || sy < -height * 2 || sy > height * 2) {
             first = true;
             continue;
         }
@@ -231,7 +283,7 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
 };
 
 export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, canvasHeight?: number, ppu?: number): boolean => {
-    const threshold = 10;
+    const threshold = 18; // Increased from 10 to 18 for better hit testing on desktop
     if (shape.type === ShapeType.MARKER) {
         if (!shape.points || shape.points.length === 0) return false;
         const v = shape.points[0];
@@ -240,9 +292,15 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     }
     if (shape.type === ShapeType.FUNCTION_GRAPH) {
         if (!shape.formulaParams || !canvasWidth || !canvasHeight || !ppu) return false;
+        if (ppu <= 0) return false;
+        
         const mPos = screenToMath(p, canvasWidth, canvasHeight, ppu);
-        const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm);
+        const fType = shape.functionType || 'quadratic';
+        const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm, fType);
         const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu);
+        
+        if (!isFinite(expectedSP.y)) return false;
+        
         return Math.abs(expectedSP.y - p.y) < threshold;
     }
     if (shape.type === ShapeType.POINT) {

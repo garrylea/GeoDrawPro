@@ -1,6 +1,6 @@
 
 import { ToolType } from './types';
-import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass, Image as ImageIcon, Eraser } from 'lucide-react';
+import { MousePointer2, Dot, Minus, Square, Circle, Triangle, Egg, Maximize, Type, Pencil, Gauge, FunctionSquare, Ruler, Compass, Eraser, TrendingUp } from 'lucide-react';
 
 export const COLORS = [
   'transparent', '#000000', '#ffffff', 
@@ -18,10 +18,11 @@ export const TOOL_CONFIG = [
   { id: ToolType.SELECT, label: 'Select', icon: MousePointer2 },
   { id: ToolType.ERASER, label: 'Eraser', icon: Eraser },
   { id: ToolType.FREEHAND, label: 'Pencil', icon: Pencil },
-  { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, // New
-  { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       // New
-  { id: ToolType.FUNCTION, label: 'Function', icon: FunctionSquare },
-  // IMAGE Removed from sidebar, moved to top bar
+  { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, 
+  { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       
+  { id: ToolType.LINEAR_FUNCTION, label: 'Linear Function', icon: TrendingUp }, // New
+  { id: ToolType.FUNCTION, label: 'Quadratic Function', icon: FunctionSquare },
+  
   { id: ToolType.POINT, label: 'Point', icon: Dot },
   { id: ToolType.LINE, label: 'Line', icon: Minus },
   { id: ToolType.RECTANGLE, label: 'Rectangle', icon: Maximize },

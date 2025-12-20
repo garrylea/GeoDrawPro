@@ -219,6 +219,7 @@ function Editor() {
               }
           }
           
+          // If no image found in system clipboard, check internal clipboard
           if (!imageFound && clipboard.length > 0) {
               e.preventDefault();
               saveHistory();
@@ -331,6 +332,7 @@ function Editor() {
               if (selected.length > 0) setClipboard(JSON.parse(JSON.stringify(selected)));
               return;
           }
+          // Ctrl+V logic removed from here and moved to paste event listener
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
           if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelectedIds(new Set(shapes.map(s => s.id))); return; }
           if (e.key === 'Escape') {
@@ -381,6 +383,9 @@ function Editor() {
     setSnapIndicator(null); setHoveredConstraint(null); return raw;
   };
 
+  /**
+   * Enhanced hit testing logic with priorities.
+   */
   const getHitShape = (pos: Point, shapesList: Shape[]) => {
       const hits = shapesList.filter(s => isPointInShape(pos, s, canvasSize.width, canvasSize.height, pixelsPerUnit));
       if (hits.length === 0) return null;
@@ -400,6 +405,7 @@ function Editor() {
           const pb = getPriority(b);
           if (pa !== pb) return pa - pb;
   
+          // Tie-breaker: Smaller object wins
           const getSize = (s: Shape) => {
                const corners = getRotatedCorners(s);
                if (corners.length === 0) return 0;
@@ -413,6 +419,7 @@ function Editor() {
                return w * h;
           };
           
+          // Special case for lines: prefer closer distance if priorities match
           if (pa === 2) { 
                const da = distance(pos, getClosestPointOnShape(pos, a));
                const db = distance(pos, getClosestPointOnShape(pos, b));
@@ -433,38 +440,9 @@ function Editor() {
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (textEditing || angleEditing) return;
-    const pos = getMousePos(e, true);
+    let pos = getMousePos(e, true);
     const rawPos = getMousePos(e, false);
-    
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
-    
-    if (tool === ToolType.LINE) {
-        if (activeShapeId) {
-            setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s));
-            saveHistory(); // Save when line is finished
-            setActiveShapeId(null);
-            setDragStartPos(null);
-            return;
-        } else {
-            saveHistory();
-            const id = generateId();
-            const newShape: Shape = { 
-                id, 
-                type: ShapeType.LINE, 
-                points: [pos, pos], 
-                fill: currentStyle.fill, 
-                stroke: currentStyle.stroke, 
-                strokeWidth: currentStyle.strokeWidth, 
-                strokeType: currentStyle.strokeType, 
-                rotation: 0 
-            };
-            setShapes(prev => [...prev, newShape]);
-            setActiveShapeId(id);
-            setDragStartPos(rawPos);
-            return;
-        }
-    }
-
     if (tool === ToolType.ERASER) { saveHistory(); setIsDragging(true); const hit = getHitShape(rawPos, shapes); if (hit) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; }
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { setCompassState({ ...compassState, radiusPoint: pos, startAngle: getAngleDegrees(compassState.center, pos) }); } return; }
     if (tool === ToolType.RULER) { 
@@ -487,16 +465,43 @@ function Editor() {
     }
     if (pickingMirrorMode) { const line = shapes.find(s => (s.type === ShapeType.LINE || s.type === ShapeType.FREEHAND) && distance(pos, getClosestPointOnShape(pos, s)) < 10); if (line) handleFold(line.id); return; }
     
+    // UPDATED: Handle both FUNCTION (Quadratic) and LINEAR_FUNCTION
     if (tool === ToolType.FUNCTION || tool === ToolType.LINEAR_FUNCTION) { 
         saveHistory(); 
         const id = generateId(); 
-        // Removed auto-offset to ensure functions start at (0,0) as requested
+        const offset = shapes.filter(s => s.type === ShapeType.FUNCTION_GRAPH).length * 2; 
         const isLinear = tool === ToolType.LINEAR_FUNCTION;
-        const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; 
-        const fType = isLinear ? 'linear' : 'quadratic';
-        const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, canvasSize.height, pixelsPerUnit, fType); 
+        
+        // Use different default params for Linear vs Quadratic
+        const params = isLinear 
+            ? { k: 1, b: 0 } 
+            : { a: 1, b: 0, c: offset, h: 0, k: offset }; 
 
-        const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; 
+        const fType = isLinear ? 'linear' : 'quadratic';
+
+        // Call generateQuadraticPath with 6 arguments
+        const pathData = generateQuadraticPath(
+            params, 
+            'standard', 
+            canvasSize.width, 
+            canvasSize.height, 
+            pixelsPerUnit,
+            fType 
+        ); 
+
+        const newShape: Shape = { 
+            id, 
+            type: ShapeType.FUNCTION_GRAPH, 
+            points: [], 
+            formulaParams: params, 
+            functionForm: 'standard',
+            functionType: fType, // Store the type
+            pathData, 
+            fill: 'none', 
+            stroke: currentStyle.stroke, 
+            strokeWidth: currentStyle.strokeWidth, 
+            rotation: 0 
+        }; 
         setShapes(prev => [...prev, newShape]); 
         setSelectedIds(new Set([id])); 
         return; 
@@ -515,15 +520,28 @@ function Editor() {
                 setIsDragging(true); 
                 return; 
             } 
+            
             if (e.shiftKey || e.ctrlKey) {
                 const newSel = new Set(selectedIds);
-                if (newSel.has(hit.id)) { newSel.delete(hit.id); } else { newSel.add(hit.id); }
+                if (newSel.has(hit.id)) {
+                    newSel.delete(hit.id);
+                } else {
+                    newSel.add(hit.id);
+                }
                 setSelectedIds(newSel);
                 setDragStartPos(rawPos); 
                 setIsDragging(true); 
                 return; 
             }
-            if (selectedIds.has(hit.id)) { setDragStartPos(rawPos); setIsDragging(true); } else { setSelectedIds(new Set([hit.id])); setDragStartPos(rawPos); setIsDragging(true); }
+
+            if (selectedIds.has(hit.id)) {
+                setDragStartPos(rawPos);
+                setIsDragging(true);
+            } else {
+                setSelectedIds(new Set([hit.id])); 
+                setDragStartPos(rawPos); 
+                setIsDragging(true); 
+            }
             return; 
         } 
         if (!e.shiftKey && !e.ctrlKey) { setSelectedIds(new Set()); } 
@@ -534,7 +552,7 @@ function Editor() {
     saveHistory(); 
     if (tool === ToolType.PROTRACTOR) { const existingProtractor = shapes.find(s => s.type === ShapeType.PROTRACTOR); if (existingProtractor) { setSelectedIds(new Set([existingProtractor.id])); setDragStartPos(rawPos); setIsDragging(true); return; } const id = generateId(); const newShape: Shape = { id, type: ShapeType.PROTRACTOR, points: [{ x: pos.x - 150, y: pos.y - 150 }, { x: pos.x + 150, y: pos.y }], fill: 'transparent', stroke: currentStyle.stroke, strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setDragStartPos(rawPos); setIsDragging(true); return; }
     if (tool === ToolType.TEXT) { e.preventDefault(); const id = generateId(); const newShape: Shape = { id, type: ShapeType.TEXT, points: [pos], text: '', fontSize: 16, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setTextEditing({ id, x: pos.x, y: pos.y, text: '' }); setSelectedIds(new Set<string>([id])); return; }
-    
+    if (tool === ToolType.LINE) { if (activeShapeId) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [...s.points.slice(0, -1), pos] } : s)); setActiveShapeId(null); setDragStartPos(null); return; } else { setDragStartPos(rawPos); const id = generateId(); const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setActiveShapeId(id); return; } }
     setDragStartPos(rawPos); setIsDragging(true); const id = generateId(); let points: Point[] = [pos, pos]; if (tool === ToolType.TRIANGLE) points = [pos, pos, pos]; if (tool === ToolType.POINT || tool === ToolType.FREEHAND) points = [pos];
     
     let labels: string[] | undefined = (autoLabelMode && tool !== ToolType.POINT && tool !== ToolType.FREEHAND) 
@@ -547,15 +565,7 @@ function Editor() {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    const pos = getMousePos(e, true); 
-    const rawPos = getMousePos(e, false); 
-    setCursorPos(rawPos); 
-    cursorPosRef.current = rawPos;
-
-    if (activeShapeId && tool === ToolType.LINE) {
-        setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s));
-    }
-
+    const pos = getMousePos(e, true); const rawPos = getMousePos(e, false); setCursorPos(rawPos); cursorPosRef.current = rawPos;
     if (tool === ToolType.COMPASS && compassState.radiusPoint) { const radius = distance(compassState.center!, compassState.radiusPoint); const angleRad = Math.atan2(rawPos.y - compassState.center!.y, rawPos.x - compassState.center!.x); const startRad = (compassState.startAngle! * Math.PI) / 180; const arcEnd = { x: compassState.center!.x + radius * Math.cos(angleRad), y: compassState.center!.y + radius * Math.sin(angleRad) }; const arcStart = { x: compassState.center!.x + radius * Math.cos(startRad), y: compassState.center!.y + radius * Math.sin(startRad) }; setCompassPreviewPath(getAngleArcPath(compassState.center!, arcStart, arcEnd, radius)); return; }
     if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes); if (hit) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
     if (tool === ToolType.SELECT && selectionBox && isDragging) { setSelectionBox(prev => prev ? ({ ...prev, current: rawPos }) : null); const box = { start: selectionBox.start, end: rawPos }; const newSelection = new Set<string>(); shapes.forEach(s => { if (isShapeInRect(s, box)) newSelection.add(s.id); }); setSelectedIds(newSelection); return; }
@@ -598,47 +608,13 @@ function Editor() {
         });
         return;
     }
-    if (activeShapeId && tool !== ToolType.LINE) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].y ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
+    if (activeShapeId) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].x ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
     else if (selectedIds.size > 0 && dragStartPos && isDragging) {
-        const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; 
-        setDragStartPos(rawPos);
-        
-        // Convert screen delta to math deltas for functions
-        const dmx = dx / pixelsPerUnit;
-        const dmy = -dy / pixelsPerUnit;
-
+        const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; setDragStartPos(rawPos);
         setShapes(prev => {
             const drivingPoints: Point[] = []; prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
             const movedShapes = prev.map(s => {
-                if (selectedIds.has(s.id)) {
-                    // IMPLEMENTATION: Moving Function Graphs
-                    if (s.type === ShapeType.FUNCTION_GRAPH && s.formulaParams) {
-                        const params = { ...s.formulaParams };
-                        const fType = s.functionType || 'quadratic';
-                        if (fType === 'linear') {
-                            // y = kx + b -> y - dmy = k(x - dmx) + b -> y = kx - k*dmx + b + dmy
-                            params.b = (params.b || 0) + dmy - (params.k || 1) * dmx;
-                        } else {
-                            if (s.functionForm === 'vertex') {
-                                // y = a(x - h)^2 + k -> y - dmy = a(x - dmx - h)^2 + k -> y = a(x - (h + dmx))^2 + k + dmy
-                                params.h = (params.h || 0) + dmx;
-                                params.k = (params.k || 0) + dmy;
-                            } else {
-                                // y = ax^2 + bx + c
-                                // b' = b - 2a*dmx
-                                // c' = c + a*dmx^2 - b*dmx + dmy
-                                const a = params.a ?? 1;
-                                const b = params.b || 0;
-                                const c = params.c || 0;
-                                params.b = b - 2 * a * dmx;
-                                params.c = c + a * Math.pow(dmx, 2) - b * dmx + dmy;
-                            }
-                        }
-                        const path = generateQuadraticPath(params, s.functionForm || 'standard', canvasSize.width, canvasSize.height, pixelsPerUnit, fType);
-                        return { ...s, formulaParams: params, pathData: path };
-                    }
-                    return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
-                }
+                if (selectedIds.has(s.id)) return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
                 if (drivingPoints.length > 0 && !s.constraint) { const linkedPoints = s.points.map(p => drivingPoints.some(dp => Math.abs(dp.x - p.x) < 5.0 && Math.abs(dp.y - p.y) < 5.0) ? { x: p.x + dx, y: p.y + dy } : p); if (linkedPoints.some((lp, i) => lp.x !== s.points[i].x || lp.y !== s.points[i].y)) return { ...s, points: linkedPoints }; }
                 return s;
             });
@@ -648,28 +624,10 @@ function Editor() {
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
+      setIsDragging(false); setIsRotating(false); setDragHandleIndex(null); setSelectionBox(null);
       const rawPos = getMousePos(e, false);
-      
-      // Save history if we were dragging
-      if (isDragging) {
-          saveHistory();
-      }
-
-      setIsDragging(false); 
-      setIsRotating(false); 
-      setDragHandleIndex(null); 
-      setSelectionBox(null);
-      
       if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!, radius = distance(center, compassState.radiusPoint!), startAngle = compassState.startAngle!, endAngle = getAngleDegrees(center, rawPos), arcPoints = []; const step = (endAngle - startAngle) / 20; for(let i=0; i<=20; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: [center, ...arcPoints], pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); } setCompassState(prev => ({ ...prev, radiusPoint: null, startAngle: null })); setCompassPreviewPath(null); return; }
-      
-      if (activeShapeId && tool === ToolType.LINE) {
-          if (dragStartPos && distance(dragStartPos, rawPos) > 5) {
-              setActiveShapeId(null);
-              saveHistory(); // Ensure finalized state is saved
-          }
-          setDragStartPos(null);
-          return;
-      }
+      if (activeShapeId && tool === ToolType.LINE) { if (dragStartPos && distance(dragStartPos, rawPos) > 5) setActiveShapeId(null); setDragStartPos(null); return; }
       setDragStartPos(null);
       
       if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) { 

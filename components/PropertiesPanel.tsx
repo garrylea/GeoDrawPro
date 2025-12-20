@@ -1,11 +1,10 @@
-
 import React from 'react';
 import { Shape, ShapeType, AxisConfig } from '../types';
 import { COLORS } from '../constants';
 import { recalculateMarker, generateQuadraticPath } from '../utils/mathUtils';
 import { 
   Radius, FunctionSquare, Grid3X3, Sparkles, CaseUpper, 
-  Wand2, FoldHorizontal, Maximize, Minus, Plus 
+  Wand2, FoldHorizontal, Maximize, Minus, Plus, TrendingUp 
 } from 'lucide-react';
 
 interface PropertiesPanelProps {
@@ -38,7 +37,16 @@ interface PropertiesPanelProps {
   canvasSize: { width: number; height: number };
   pixelsPerUnit: number;
   onFitToViewport: () => void;
+  saveHistory: () => void;
 }
+
+const PARAM_DESCRIPTIONS: Record<string, string> = {
+    a: "Controls the width and direction (vertical stretch).",
+    b: "Affects the horizontal position of the axis of symmetry.",
+    c: "The Y-intercept (vertical shift).",
+    h: "Horizontal shift of the vertex.",
+    k: "Vertical shift of the vertex."
+};
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   selectedShape,
@@ -60,22 +68,32 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   canvasSize,
   pixelsPerUnit,
   onFitToViewport,
+  saveHistory,
 }) => {
   const toggleFunctionForm = (newForm: 'standard' | 'vertex') => {
     if (selectedIds.size !== 1) return;
+    saveHistory();
     const id = [...selectedIds][0];
     setShapes(prev => prev.map(s => 
       (s.id === id && s.formulaParams) 
         ? { 
             ...s, 
             functionForm: newForm, 
-            pathData: generateQuadraticPath(s.formulaParams, newForm, canvasSize.width, canvasSize.height, pixelsPerUnit) 
+            pathData: generateQuadraticPath(
+                s.formulaParams, 
+                newForm, 
+                canvasSize.width, 
+                canvasSize.height, 
+                pixelsPerUnit, 
+                s.functionType || 'quadratic'
+            ) 
           } 
         : s
     ));
   };
 
   const updateShapeColor = (color: string) => {
+    saveHistory();
     setCurrentStyle(p => ({ ...p, stroke: color }));
     if (selectedIds.size > 0) {
       setShapes(prev => prev.map(s => selectedIds.has(s.id) ? { ...s, stroke: color } : s));
@@ -90,10 +108,34 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   };
 
   const updateStrokeType = (type: 'solid' | 'dashed' | 'dotted') => {
+    saveHistory();
     setCurrentStyle(p => ({ ...p, strokeType: type }));
     if (selectedIds.size > 0) {
       setShapes(prev => prev.map(s => selectedIds.has(s.id) ? { ...s, strokeType: type } : s));
     }
+  };
+
+  const updateFunctionParams = (key: string, val: number) => {
+      if (!selectedShape) return;
+      setShapes(prev => prev.map(s => {
+          if (s.id === selectedShape.id && s.formulaParams) {
+              const newParams = { ...s.formulaParams, [key]: val };
+              const fType = s.functionType || 'quadratic';
+              return { 
+                  ...s, 
+                  formulaParams: newParams, 
+                  pathData: generateQuadraticPath(
+                      newParams, 
+                      s.functionForm || 'standard', 
+                      canvasSize.width, 
+                      canvasSize.height, 
+                      pixelsPerUnit,
+                      fType
+                  ) 
+              };
+          }
+          return s;
+      }));
   };
 
   return (
@@ -106,13 +148,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </div>
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button 
-              onClick={() => setShapes(ps => ps.map(s => (s.id === selectedShape.id && s.markerConfig) ? (recalculateMarker({ ...s, markerConfig: { ...s.markerConfig, type: 'angle_arc' } }, ps) || s) : s))} 
+              onClick={() => { saveHistory(); setShapes(ps => ps.map(s => (s.id === selectedShape.id && s.markerConfig) ? (recalculateMarker({ ...s, markerConfig: { ...s.markerConfig, type: 'angle_arc' } }, ps) || s) : s)); }} 
               className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.markerConfig?.type === 'angle_arc' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
             >
               Arc
             </button>
             <button 
-              onClick={() => setShapes(ps => ps.map(s => (s.id === selectedShape.id && s.markerConfig) ? (recalculateMarker({ ...s, markerConfig: { ...s.markerConfig, type: 'perpendicular' } }, ps) || s) : s))} 
+              onClick={() => { saveHistory(); setShapes(ps => ps.map(s => (s.id === selectedShape.id && s.markerConfig) ? (recalculateMarker({ ...s, markerConfig: { ...s.markerConfig, type: 'perpendicular' } }, ps) || s) : s)); }} 
               className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.markerConfig?.type === 'perpendicular' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
             >
               Right Angle
@@ -124,39 +166,77 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       {selectedShape?.type === ShapeType.FUNCTION_GRAPH && selectedShape.formulaParams && (
         <div className="p-5 border-b border-slate-100">
           <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
-            <FunctionSquare size={16} /> Function Properties
+             {/* Use fallback 'quadratic' for legacy shapes */}
+             {(selectedShape.functionType || 'quadratic') === 'linear' ? <TrendingUp size={16} /> : <FunctionSquare size={16} />}
+             {(selectedShape.functionType || 'quadratic') === 'linear' ? 'Linear Function' : 'Quadratic Function'}
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
-            <button 
-              onClick={() => toggleFunctionForm('standard')} 
-              className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.functionForm === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              Standard
-            </button>
-            <button 
-              onClick={() => toggleFunctionForm('vertex')} 
-              className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.functionForm === 'vertex' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              Vertex
-            </button>
-          </div>
-          <div className="space-y-3">
-            {(selectedShape.functionForm === 'standard' ? ['a', 'b', 'c'] : ['h', 'k']).map(p => (
-              <div key={p} className="flex items-center gap-2">
-                <span className="w-6 font-bold text-slate-500">{p}</span>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  value={selectedShape.formulaParams![p as keyof typeof selectedShape.formulaParams] || 0} 
-                  onChange={(e) => { 
-                    const v = parseFloat(e.target.value) || 0; 
-                    setShapes(prev => prev.map(s => (s.id === selectedShape.id && s.formulaParams) ? { ...s, formulaParams: { ...s.formulaParams, [p]: v }, pathData: generateQuadraticPath({ ...s.formulaParams, [p]: v }, s.functionForm || 'standard', canvasSize.width, canvasSize.height, pixelsPerUnit) } : s)); 
-                  }} 
-                  className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm" 
-                />
+
+          {(selectedShape.functionType || 'quadratic') === 'quadratic' ? (
+              <>
+                <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
+                    <button 
+                    onClick={() => toggleFunctionForm('standard')} 
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.functionForm === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                    >
+                    Standard
+                    </button>
+                    <button 
+                    onClick={() => toggleFunctionForm('vertex')} 
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${selectedShape.functionForm === 'vertex' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                    >
+                    Vertex
+                    </button>
+                </div>
+                <div className="space-y-3">
+                    {/* UPDATED: Vertex form now includes 'a' parameter */}
+                    {(selectedShape.functionForm === 'standard' ? ['a', 'b', 'c'] : ['a', 'h', 'k']).map(p => (
+                    <div key={p} className="flex items-center gap-2" title={PARAM_DESCRIPTIONS[p]}>
+                        <span className="w-6 font-bold text-slate-500 cursor-help border-b border-dotted border-slate-300">{p}</span>
+                        <input 
+                        type="number" 
+                        step="0.1" 
+                        value={selectedShape.formulaParams![p as keyof typeof selectedShape.formulaParams] ?? 0} 
+                        onFocus={() => saveHistory()}
+                        onChange={(e) => updateFunctionParams(p, parseFloat(e.target.value) || 0)}
+                        className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                        placeholder={PARAM_DESCRIPTIONS[p]}
+                        />
+                    </div>
+                    ))}
+                </div>
+              </>
+          ) : (
+              // LINEAR FUNCTION UI
+              <div className="space-y-3">
+                   <div className="flex items-center gap-2" title="Slope (k)">
+                        <span className="w-6 font-bold text-slate-500 italic border-b border-dotted border-slate-300 cursor-help">k</span>
+                        <input 
+                            type="number" 
+                            step="0.1" 
+                            title="Slope of the line"
+                            value={selectedShape.formulaParams.k ?? 1} 
+                            onFocus={() => saveHistory()}
+                            onChange={(e) => updateFunctionParams('k', parseFloat(e.target.value) || 0)}
+                            className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                        />
+                   </div>
+                   <div className="flex items-center gap-2" title="Y-Intercept (b)">
+                        <span className="w-6 font-bold text-slate-500 italic border-b border-dotted border-slate-300 cursor-help">b</span>
+                        <input 
+                            type="number" 
+                            step="0.1" 
+                            title="Y-intercept of the line"
+                            value={selectedShape.formulaParams.b ?? 0} 
+                            onFocus={() => saveHistory()}
+                            onChange={(e) => updateFunctionParams('b', parseFloat(e.target.value) || 0)}
+                            className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                        />
+                   </div>
+                   <div className="text-xs text-slate-400 mt-2 bg-slate-50 p-2 rounded">
+                       Format: y = kx + b
+                   </div>
               </div>
-            ))}
-          </div>
+          )}
         </div>
       )}
 
@@ -227,7 +307,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         </div>
         <div className="flex items-center space-x-2">
           <div className="text-slate-400"><Minus size={14} /></div>
-          <input type="range" min="1" max="10" value={currentStyle.strokeWidth} onChange={(e) => updateStrokeWidth(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+          <input 
+             type="range" min="1" max="10" 
+             value={currentStyle.strokeWidth} 
+             onPointerDown={() => saveHistory()}
+             onChange={(e) => updateStrokeWidth(parseInt(e.target.value))} 
+             className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" 
+          />
           <div className="text-slate-400"><Plus size={14} /></div>
         </div>
       </div>
