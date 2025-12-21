@@ -432,6 +432,7 @@ export const getSmoothSvgPath = (points: Point[]): string => {
 
 /**
  * Generates an SVG path representing the outline of a variable-width stroke based on point pressure.
+ * FIX 5: Use a more generous formula so lines are visible even with low pressure.
  */
 export const getVariableWidthPath = (points: Point[], baseWidth: number): string => {
     if (points.length < 2) return "";
@@ -442,7 +443,11 @@ export const getVariableWidthPath = (points: Point[], baseWidth: number): string
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
         const pressure = p.p ?? 0.5;
-        const width = baseWidth * pressure;
+        
+        // FIX: Ensure minimum thickness and boost curve
+        // Old: baseWidth * pressure
+        // New: baseWidth * (0.3 + pressure * 0.9) to make it visible but still sensitive
+        const width = baseWidth * (0.3 + Math.max(0.1, pressure) * 0.9);
         
         let dx, dy;
         if (i < points.length - 1) {

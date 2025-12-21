@@ -61,87 +61,151 @@ export const getHitShape = (
 };
 
 /**
+ * Calculates the bounding box for a set of selected shapes.
+ */
+export const getSelectionBounds = (shapes: Shape[], selectedIds: Set<string>) => {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let hasSelection = false;
+
+    shapes.forEach(s => {
+        if (selectedIds.has(s.id)) {
+            hasSelection = true;
+            const corners = getRotatedCorners(s);
+            corners.forEach(p => {
+                minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+            });
+        }
+    });
+
+    if (!hasSelection || minX === Infinity) return null;
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+};
+
+/**
  * Calculates the new geometry of a shape when a specific handle is dragged (Resizing).
+ * Supports both individual shape resizing and group resizing (via groupBounds).
  */
 export const calculateResizedShape = (
     shape: Shape,
     cursorPos: Point,
     handleIndex: number,
-    isShiftPressed: boolean
+    isShiftPressed: boolean,
+    groupBounds?: { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }
 ): Shape => {
-    if (shape.type === ShapeType.FREEHAND && handleIndex < 4) {
-         const xs = shape.points.map(p => p.x), ys = shape.points.map(p => p.y);
-         const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys), w = maxX - minX, h = maxY - minY;
-         if (w === 0 || h === 0) return shape;
-         
-         const corners = [ { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY } ];
-         const fixedPoint = corners[(handleIndex + 2) % 4];
-         let targetPos = { ...cursorPos };
+    // Determine if we are doing a box scale.
+    // Group bounds presence forces box scaling logic for all included shapes.
+    const isBoxScale = groupBounds !== undefined || [
+        ShapeType.RECTANGLE, 
+        ShapeType.SQUARE, 
+        ShapeType.IMAGE, 
+        ShapeType.CIRCLE, 
+        ShapeType.ELLIPSE, 
+        ShapeType.RULER,
+        ShapeType.PATH,
+        ShapeType.FREEHAND
+    ].includes(shape.type);
 
-         if (isShiftPressed) { 
-             const ratio = w / h;
-             const dx = targetPos.x - fixedPoint.x;
-             const dy = targetPos.y - fixedPoint.y; 
-             if (Math.abs(dx) / Math.abs(dy) > ratio) { 
-                 targetPos.y = fixedPoint.y + (dy > 0 ? Math.abs(dx) / ratio : -Math.abs(dx) / ratio); 
-             } else { 
-                 targetPos.x = fixedPoint.x + (dx > 0 ? Math.abs(dy) * ratio : -Math.abs(dy) * ratio); 
-             } 
-         }
+    console.log(`[Resize] Shape: ${shape.type}, Handle: ${handleIndex}, IsBoxScale: ${isBoxScale}, Group: ${!!groupBounds}`);
 
-         const nMinX = Math.min(fixedPoint.x, targetPos.x), nMinY = Math.min(fixedPoint.y, targetPos.y);
-         const nW = Math.abs(targetPos.x - fixedPoint.x), nH = Math.abs(targetPos.y - fixedPoint.y);
-         
-         return { ...shape, points: shape.points.map(p => ({ x: nMinX + ((p.x - minX) / w) * nW, y: nMinY + ((p.y - minY) / h) * nH, p: p.p })) };
-    }
-
-    if (shape.type === ShapeType.TEXT) { 
-        // Simple scale heuristic for text
+    // Special Case: Single Text Element Resize (updates font size directly)
+    if (!groupBounds && shape.type === ShapeType.TEXT) { 
         const center = shape.points[0]; 
         const dist = distance(center, cursorPos);
         return { ...shape, fontSize: Math.max(8, Math.round(dist / 2)) }; 
     }
 
-    const isBoxShape = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.RULER].includes(shape.type);
-    
-    // Explicitly handle 2-point box shapes (Rectangle, Image, Square, Circle, Ellipse)
-    if (isBoxShape && shape.points.length === 2) {
-         const p0 = shape.points[0], p1 = shape.points[1];
-         const minX = Math.min(p0.x, p1.x), maxX = Math.max(p0.x, p1.x);
-         const minY = Math.min(p0.y, p1.y), maxY = Math.max(p0.y, p1.y);
-         // Corners correspond to SelectionOverlay handles: 0:TL, 1:TR, 2:BR, 3:BL
-         const corners = [ { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY } ];
+    if (isBoxScale && handleIndex >= 0 && handleIndex < 4) {
+         // Determine Bounds: either the Group's bounds or the Shape's own bounds
+         let minX, maxX, minY, maxY, w, h;
          
-         if (handleIndex >= 0 && handleIndex < 4) {
-             const fixedPoint = corners[(handleIndex + 2) % 4]; 
-             let targetPos = { ...cursorPos };
-             
-             if (shape.type === ShapeType.RULER) {
-                 const currentHeight = Math.abs(p1.y - p0.y);
-                 const sign = Math.sign(targetPos.y - fixedPoint.y) || 1;
-                 return { ...shape, points: [fixedPoint, { x: targetPos.x, y: fixedPoint.y + sign * currentHeight }] };
-             }
-             
-             // Ensure IMAGE is included in proportional scaling check
-             if (isShiftPressed || shape.type === ShapeType.SQUARE || shape.type === ShapeType.CIRCLE || shape.type === ShapeType.IMAGE) { 
-                 const w = maxX - minX, h = maxY - minY; 
-                 if (w > 0 && h > 0) { 
-                     const ratio = w / h;
-                     const dx = targetPos.x - fixedPoint.x;
-                     const dy = targetPos.y - fixedPoint.y; 
-                     // Adjust targetPos to maintain aspect ratio
-                     if (Math.abs(dx) / Math.abs(dy) > ratio) { 
-                         targetPos.y = fixedPoint.y + (dy > 0 ? Math.abs(dx) / ratio : -Math.abs(dx) / ratio); 
-                     } else { 
-                         targetPos.x = fixedPoint.x + (dx > 0 ? Math.abs(dy) * ratio : -Math.abs(dy) * ratio); 
-                     } 
-                 } 
-             }
-             return { ...shape, points: [fixedPoint, targetPos] };
+         if (groupBounds) {
+             ({ minX, maxX, minY, maxY, width: w, height: h } = groupBounds);
+         } else {
+             // Calculate Shape Bounds locally
+             minX = Infinity; maxX = -Infinity; minY = Infinity; maxY = -Infinity;
+             shape.points.forEach(p => {
+                 minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                 minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+             });
+             w = maxX - minX;
+             h = maxY - minY;
          }
+         
+         if (w === 0 || h === 0) return shape;
+
+         // Fixed Corner Map: 0(TL)->BR(2), 1(TR)->BL(3), 2(BR)->TL(0), 3(BL)->TR(1)
+         // Note: handleIndex 0-3 comes from the SelectionOverlay (TL, TR, BR, BL)
+         
+         // Edges of the BOUNDING BOX
+         const currentCorners = [
+            {x: minX, y: minY}, // 0 TL
+            {x: maxX, y: minY}, // 1 TR
+            {x: maxX, y: maxY}, // 2 BR
+            {x: minX, y: maxY}  // 3 BL
+         ];
+         
+         const fixedIdx = (handleIndex + 2) % 4;
+         const fixedPoint = currentCorners[fixedIdx];
+         let targetPos = { ...cursorPos };
+
+         // Aspect Ratio / Shift Lock Logic
+         // If group bounds, we use group aspect ratio.
+         if (isShiftPressed || (!groupBounds && [ShapeType.SQUARE, ShapeType.CIRCLE].includes(shape.type))) {
+             const ratio = w / h;
+             const dx = targetPos.x - fixedPoint.x;
+             const dy = targetPos.y - fixedPoint.y; 
+             
+             if (Math.abs(dx) / Math.abs(dy) > ratio) { 
+                 // Constrain Width based on Height
+                 targetPos.y = fixedPoint.y + (dy > 0 ? Math.abs(dx) / ratio : -Math.abs(dx) / ratio); 
+             } else { 
+                 // Constrain Height based on Width
+                 targetPos.x = fixedPoint.x + (dx > 0 ? Math.abs(dy) * ratio : -Math.abs(dy) * ratio); 
+             }
+         }
+         
+         // Calculate New Edges for the BOUNDING BOX
+         let newLeft = minX, newRight = maxX, newTop = minY, newBottom = maxY;
+         
+         // Horizontal
+         if (handleIndex === 0 || handleIndex === 3) { // Left Handles
+             newLeft = targetPos.x;
+             newRight = maxX; 
+         } else { // Right Handles
+             newLeft = minX; 
+             newRight = targetPos.x;
+         }
+         
+         // Vertical
+         if (handleIndex === 0 || handleIndex === 1) { // Top Handles
+             newTop = targetPos.y;
+             newBottom = maxY; 
+         } else { // Bottom Handles
+             newTop = minY; 
+             newBottom = targetPos.y;
+         }
+
+         // Perform Interpolation for all points in the shape
+         // x' = newLeft + ((x - minX) / w) * (newRight - newLeft)
+         const newPoints = shape.points.map(p => ({
+             x: newLeft + ((p.x - minX) / w) * (newRight - newLeft),
+             y: newTop + ((p.y - minY) / h) * (newBottom - newTop),
+             p: p.p
+         }));
+         
+         const updatedShape = { ...shape, points: newPoints };
+
+         // If resizing Text in a group, scale font size approximately by vertical scale
+         if (groupBounds && shape.type === ShapeType.TEXT && shape.fontSize) {
+             const scaleY = Math.abs(newBottom - newTop) / h;
+             updatedShape.fontSize = shape.fontSize * scaleY;
+         }
+
+         return updatedShape;
     }
 
-    // Default point dragging for Polygons, Lines, Triangles
+    // Default Vertex Dragging (Single Polygon/Line/Triangle)
     const newPoints = [...shape.points]; 
     if (handleIndex < newPoints.length) {
         newPoints[handleIndex] = cursorPos;

@@ -19,7 +19,7 @@ import {
   generateQuadraticPath, isPointInShape, getPolygonAngles, 
   getLineIntersection, fitShapesToViewport 
 } from '../utils/mathUtils';
-import { getHitShape, calculateMovedShape, calculateResizedShape } from '../utils/shapeOperations';
+import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds } from '../utils/shapeOperations';
 
 export function Editor() {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -45,6 +45,9 @@ export function Editor() {
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
   const cursorPosRef = useRef<Point | null>(null);
   
+  // FIX 1: Ref to track if history has been saved for the current drag session
+  const dragHistorySaved = useRef(false);
+
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
   const [hoveredConstraint, setHoveredConstraint] = useState<Constraint | null>(null);
   
@@ -81,7 +84,12 @@ export function Editor() {
   const pixelsPerUnit = getPixelsPerUnit(canvasSize.width, canvasSize.height, axisConfig.ticks);
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
-  const saveHistory = useCallback(() => setHistory(prev => [...prev, shapes]), [shapes]);
+  
+  // LOGGING ADDED HERE
+  const saveHistory = useCallback(() => {
+      console.log(`[History] Saving state. Previous stack size: ${history.length}`);
+      setHistory(prev => [...prev, shapes]);
+  }, [shapes, history.length]);
 
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -89,26 +97,38 @@ export function Editor() {
         const { clientWidth, clientHeight } = svgRef.current;
         const oldW = canvasSizeRef.current.width;
         const oldH = canvasSizeRef.current.height;
-        const wasLandscape = oldW > oldH;
-        const isLandscape = clientWidth > clientHeight;
+        
+        if (Math.abs(clientWidth - oldW) < 1 && Math.abs(clientHeight - oldH) < 1) return;
+
         setShapes(prev => {
             if (prev.length === 0) return prev;
-            if (wasLandscape !== isLandscape) {
-                return fitShapesToViewport(prev, clientWidth, clientHeight);
-            } else {
-                const dx = (clientWidth - oldW) / 2;
-                const dy = (clientHeight - oldH) / 2;
-                if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return prev;
-                return prev.map(s => {
-                    if (s.type === ShapeType.FUNCTION_GRAPH) return s;
-                    return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy, p: p.p })) };
-                });
-            }
+            const scaleX = clientWidth / oldW;
+            const scaleY = clientHeight / oldH;
+            
+            return prev.map(s => {
+                if (s.type === ShapeType.FUNCTION_GRAPH) return s;
+                const newPoints = s.points.map(p => ({ 
+                    x: p.x * scaleX, 
+                    y: p.y * scaleY, 
+                    p: p.p 
+                }));
+                return { ...s, points: newPoints };
+            }).map(s => {
+                 if (s.type === ShapeType.MARKER) return recalculateMarker(s, prev) || s;
+                 return s;
+            });
         });
+
         canvasSizeRef.current = { width: clientWidth, height: clientHeight };
         setCanvasSize({ width: clientWidth, height: clientHeight });
     };
-    updateCanvasSize();
+    
+    if (svgRef.current) {
+        const { clientWidth, clientHeight } = svgRef.current;
+        canvasSizeRef.current = { width: clientWidth, height: clientHeight };
+        setCanvasSize({ width: clientWidth, height: clientHeight });
+    }
+
     const observer = new ResizeObserver(() => updateCanvasSize());
     if (svgRef.current) observer.observe(svgRef.current);
     return () => observer.disconnect();
@@ -215,6 +235,7 @@ export function Editor() {
   };
 
   const undo = () => {
+      console.log(`[History] Undo triggered. Current stack size: ${history.length}`);
       if (history.length === 0) return;
       const previousState = history[history.length - 1];
       setHistory(prev => prev.slice(0, -1)); 
@@ -301,7 +322,9 @@ export function Editor() {
   const getMousePos = (e: React.PointerEvent | PointerEvent | React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0, p: 0.5 };
     const rect = svgRef.current.getBoundingClientRect();
-    const pressure = (e as PointerEvent).pressure !== undefined ? (e as PointerEvent).pressure : 0.5;
+    let pressure = (e as PointerEvent).pressure;
+    if (pressure === undefined || (e as any).pointerType === 'mouse') pressure = 0.5;
+    
     const raw = { x: (e as any).clientX - rect.left, y: (e as any).clientY - rect.top, p: pressure };
     if (tool === ToolType.FREEHAND) { setSnapIndicator(null); return raw; }
     if (snap && !isShiftPressed && !isAltPressed) { 
@@ -341,12 +364,18 @@ export function Editor() {
     const pos = getMousePos(e, true);
     const rawPos = getMousePos(e, false);
     
+    // FIX 1: Reset drag history flag on new interaction
+    dragHistorySaved.current = false;
+    
+    // NOTE: Removed redundant saveHistory() call here for SELECT tool. 
+    // We only save history when a modification *actually* starts (in move, rotate, resize).
+
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
     
     if (tool === ToolType.LINE) {
         if (activeShapeId) {
             setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s));
-            saveHistory();
+            // Removed redundant saveHistory() here to prevent double undo steps
             setActiveShapeId(null);
             setDragStartPos(null);
             return;
@@ -406,8 +435,8 @@ export function Editor() {
     if (tool === ToolType.SELECT) { 
         const hit = getHitShape(rawPos, shapes, canvasSize.width, canvasSize.height, pixelsPerUnit); 
         if (hit) { 
-            saveHistory(); 
             if (e.altKey) { 
+                saveHistory();
                 const newId = generateId(); 
                 const clonedShape = { ...hit, id: newId }; 
                 setShapes(prev => [...prev, clonedShape]); 
@@ -419,6 +448,9 @@ export function Editor() {
             if (e.shiftKey || e.ctrlKey) {
                 const newSel = new Set(selectedIds);
                 if (newSel.has(hit.id)) { newSel.delete(hit.id); } else { newSel.add(hit.id); }
+                // Selection change is a UI state change, not always a history undoable action unless we consider selection part of history.
+                // Usually selection is transient. If we want undoable selection, we save here. 
+                // For now, let's NOT save history on simple selection change to keep history clean for geometry.
                 setSelectedIds(newSel);
                 setDragStartPos(rawPos); 
                 setIsDragging(true); 
@@ -464,14 +496,21 @@ export function Editor() {
     if (!isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, canvasSize.height, pixelsPerUnit); setHoveredShapeId(hit ? hit.id : null); }
     
     // --- RESIZING LOGIC ---
-    if (dragHandleIndex !== null && selectedIds.size === 1) {
-        const id = (Array.from(selectedIds) as string[])[0];
+    // FIXED: Allow group resizing by checking size > 0, and passing group bounds for correct interpolation
+    if (dragHandleIndex !== null && selectedIds.size > 0) {
         setShapes(prev => {
+            // Recalculate group bounds from the *previous state* to ensure interpolation is consistent with the current frame's drag
+            const currentGroupBounds = selectedIds.size > 1 ? getSelectionBounds(prev, selectedIds) : undefined;
+            
+            // Note: If size === 1, currentGroupBounds is undefined, calculateResizedShape uses shape's own bounds.
+            // If size > 1, we pass the group bounds so all shapes scale as part of the box.
+
             const resizedShapes = prev.map(s => {
-                if (s.id !== id) return s;
-                return calculateResizedShape(s, pos, dragHandleIndex, isShiftPressed);
+                if (!selectedIds.has(s.id)) return s;
+                // Force box scaling if we are in a group resize context
+                return calculateResizedShape(s, pos, dragHandleIndex!, isShiftPressed, currentGroupBounds || undefined);
             });
-            return resizedShapes.map(s => (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === id) ? (recalculateMarker(s, resizedShapes) || s) : s);
+            return resizedShapes.map(s => (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId && selectedIds.has(s.markerConfig.targets[0].shapeId)) ? (recalculateMarker(s, resizedShapes) || s) : s);
         });
         return;
     }
@@ -480,10 +519,17 @@ export function Editor() {
     if (activeShapeId && tool !== ToolType.LINE) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].x ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
     else if (selectedIds.size > 0 && dragStartPos && isDragging) {
         const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; 
+        
+        // FIX 1: Save history exactly ONCE when the drag actually creates a visible move
+        if (!dragHistorySaved.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+             console.log('[PointerMove] Drag threshold met. Saving History.');
+             saveHistory();
+             dragHistorySaved.current = true;
+        }
+
         setDragStartPos(rawPos);
         
         setShapes(prev => {
-            // Identify driving points (e.g., standalone points that others might depend on)
             const drivingPoints: Point[] = []; 
             prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
 
@@ -491,13 +537,9 @@ export function Editor() {
                 if (selectedIds.has(s.id)) {
                     return calculateMovedShape(s, dx, dy, pixelsPerUnit, canvasSize.width, canvasSize.height);
                 }
-                
-                // Handle dependent points logic (constraints) via the utility
-                // Pass drivingPoints to allow moving linked/constrained points
                 if (drivingPoints.length > 0 && !s.constraint) {
                      return calculateMovedShape(s, dx, dy, pixelsPerUnit, canvasSize.width, canvasSize.height, drivingPoints);
                 }
-                
                 return s;
             });
             return movedShapes.map(s => (s.type === ShapeType.MARKER && s.markerConfig) ? (recalculateMarker(s, movedShapes) || s) : s);
@@ -507,10 +549,16 @@ export function Editor() {
 
   const handlePointerUp = (e: React.PointerEvent) => {
       const rawPos = getMousePos(e, false);
-      if (isDragging) saveHistory();
       setIsDragging(false); setIsRotating(false); setDragHandleIndex(null); setSelectionBox(null);
       if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!, radius = distance(center, compassState.radiusPoint!), startAngle = compassState.startAngle!, endAngle = getAngleDegrees(center, rawPos), arcPoints = []; const step = (endAngle - startAngle) / 20; for(let i=0; i<=20; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: [center, ...arcPoints], pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); } setCompassState(prev => ({ ...prev, radiusPoint: null, startAngle: null })); setCompassPreviewPath(null); return; }
-      if (activeShapeId && tool === ToolType.LINE) { if (dragStartPos && distance(dragStartPos, rawPos) > 5) { setActiveShapeId(null); saveHistory(); } setDragStartPos(null); return; }
+      if (activeShapeId && tool === ToolType.LINE) { 
+          if (dragStartPos && distance(dragStartPos, rawPos) > 5) { 
+              setActiveShapeId(null); 
+              // Removed redundant saveHistory() here to prevent double undo steps
+          } 
+          setDragStartPos(null); 
+          return; 
+      }
       setDragStartPos(null);
       if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) { 
           const shape = shapes.find(s => s.id === activeShapeId); 
@@ -552,12 +600,36 @@ export function Editor() {
       const line = shapes.find(s => s.id === lineId); if (!line || line.points.length < 2) return;
       saveHistory(); const p1 = line.points[0], p2 = line.points[1];
       const newShapes = shapes.map(s => selectedIds.has(s.id) && s.id !== lineId ? { ...s, fill: 'transparent', stroke: '#cbd5e1' } : s);
-      shapes.forEach(s => { if (selectedIds.has(s.id) && s.id !== lineId) { let sourcePoints = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.TRIANGLE, ShapeType.POLYGON, ShapeType.LINE].includes(s.type) ? getRotatedCorners(s) : s.points; newShapes.push({ ...s, id: generateId(), type: s.type === ShapeType.LINE ? ShapeType.LINE : ShapeType.POLYGON, points: sourcePoints.map(p => ({ ...reflectPointAcrossLine(p, p1, p2), p: p.p })), rotation: 0, labels: undefined, text: s.text, fill: s.fill, stroke: s.stroke === '#cbd5e1' ? '#000000' : s.stroke }); } });
+      shapes.forEach(s => { 
+          if (selectedIds.has(s.id) && s.id !== lineId) { 
+              let sourcePoints = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.TRIANGLE, ShapeType.POLYGON, ShapeType.LINE].includes(s.type) ? getRotatedCorners(s) : s.points; 
+              
+              let newType = s.type;
+              if (s.type === ShapeType.LINE) newType = ShapeType.LINE;
+              else if (s.type === ShapeType.POINT) newType = ShapeType.POINT;
+              else newType = ShapeType.POLYGON;
+
+              newShapes.push({ 
+                  ...s, 
+                  id: generateId(), 
+                  type: newType, 
+                  points: sourcePoints.map(p => ({ ...reflectPointAcrossLine(p, p1, p2), p: p.p })), 
+                  rotation: 0, 
+                  labels: undefined, 
+                  text: s.text, 
+                  fill: s.fill, 
+                  stroke: s.stroke === '#cbd5e1' ? '#000000' : s.stroke 
+              }); 
+          } 
+      });
       setShapes(newShapes); setPickingMirrorMode(false); setSelectedIds(new Set());
   };
 
   const selectedShape = selectedIds.size === 1 ? shapes.find(s => s.id === [...selectedIds][0]) : null;
   const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
+
+  // Calculate Group Bounds for UI
+  const groupBounds = selectedIds.size > 1 ? getSelectionBounds(shapes, selectedIds) : null;
 
   return (
     <div className="flex flex-col h-screen overflow-hidden text-slate-900 font-sans bg-slate-50 relative">
@@ -584,7 +656,36 @@ export function Editor() {
                         </g>
                     )}
                     {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
-                    {shapes.filter(s => selectedIds.has(s.id)).map(s => (!textEditing || textEditing.id !== s.id) && <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} isDragging={isDragging} onResizeStart={(idx, e) => { e.stopPropagation(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => { e.stopPropagation(); setIsRotating(true); let center = getShapeCenter(s.points, s.type, s.fontSize, s.text); if (pivotIndex !== 'center') center = getRotatedCorners(s)[pivotIndex as number]; setRotationCenter(center); lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI); }} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => { const corners = getRotatedCorners(s); const len = corners.length, prevIdx = (idx - 1 + len) % len, nextIdx = (idx + 1) % len; const existing = shapes.find(m => m.type === ShapeType.MARKER && m.markerConfig?.targets[0].shapeId === s.id && m.markerConfig?.targets[0].pointIndices[1] === idx); if (existing) { setShapes(ps => ps.map(m => m.id === existing.id ? (recalculateMarker({ ...m, markerConfig: { ...m.markerConfig!, type: m.markerConfig!.type === 'angle_arc' ? 'perpendicular' : 'angle_arc' } }, ps) || m) : m)); } else { saveHistory(); const nm = recalculateMarker({ id: generateId(), type: ShapeType.MARKER, points: [corners[idx]], fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0, markerConfig: { type: 'angle_arc', targets: [{ shapeId: s.id, pointIndices: [prevIdx, idx, nextIdx] }] } }, shapes); if (nm) setShapes(ps => [...ps, nm]); } }} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => { e.stopPropagation(); const c = getShapeCenter(s.points), p = s.points[idx], dx = c.x - p.x, dy = c.y - p.y, len = Math.sqrt(dx*dx + dy*dy) || 1, tx = p.x + (dx/len) * 25, ty = p.y + (dy/len) * 25; setAngleEditing({ id: s.id, index: idx, x: tx, y: ty, value: getPolygonAngles(s.points)[idx]?.toString() || "0" }); }} />)}
+                    
+                    {/* Render Individual Selection Overlays only for single selection */}
+                    {selectedIds.size === 1 && shapes.filter(s => selectedIds.has(s.id)).map(s => (!textEditing || textEditing.id !== s.id) && <SelectionOverlay key={'sel-' + s.id} shape={s} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isMarkingAngles={markingAnglesMode} isDragging={isDragging} onResizeStart={(idx, e) => { e.stopPropagation(); saveHistory(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => { e.stopPropagation(); saveHistory(); setIsRotating(true); let center = getShapeCenter(s.points, s.type, s.fontSize, s.text); if (pivotIndex !== 'center') center = getRotatedCorners(s)[pivotIndex as number]; setRotationCenter(center); lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI); }} onSetPivot={(idx) => setPivotIndex(idx)} onMarkAngle={(idx) => { const corners = getRotatedCorners(s); const len = corners.length, prevIdx = (idx - 1 + len) % len, nextIdx = (idx + 1) % len; const existing = shapes.find(m => m.type === ShapeType.MARKER && m.markerConfig?.targets[0].shapeId === s.id && m.markerConfig?.targets[0].pointIndices[1] === idx); if (existing) { setShapes(ps => ps.map(m => m.id === existing.id ? (recalculateMarker({ ...m, markerConfig: { ...m.markerConfig!, type: m.markerConfig!.type === 'angle_arc' ? 'perpendicular' : 'angle_arc' } }, ps) || m) : m)); } else { saveHistory(); const nm = recalculateMarker({ id: generateId(), type: ShapeType.MARKER, points: [corners[idx]], fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0, markerConfig: { type: 'angle_arc', targets: [{ shapeId: s.id, pointIndices: [prevIdx, idx, nextIdx] }] } }, shapes); if (nm) setShapes(ps => [...ps, nm]); } }} onAngleChange={() => {}} onAngleDoubleClick={(idx, e) => { e.stopPropagation(); const c = getShapeCenter(s.points), p = s.points[idx], dx = c.x - p.x, dy = c.y - p.y, len = Math.sqrt(dx*dx + dy*dy) || 1, tx = p.x + (dx/len) * 25, ty = p.y + (dy/len) * 25; setAngleEditing({ id: s.id, index: idx, x: tx, y: ty, value: getPolygonAngles(s.points)[idx]?.toString() || "0" }); }} />)}
+                    
+                    {/* Render Group Selection Overlay for multi-selection */}
+                    {selectedIds.size > 1 && groupBounds && (
+                        <SelectionOverlay
+                            shape={{
+                                id: 'selection-group',
+                                type: ShapeType.RECTANGLE,
+                                points: [{x: groupBounds.minX, y: groupBounds.minY}, {x: groupBounds.maxX, y: groupBounds.maxY}],
+                                fill: 'none', stroke: 'transparent', strokeWidth: 0, rotation: 0
+                            }}
+                            isSelected={true}
+                            pivotIndex={pivotIndex}
+                            isAltPressed={isAltPressed}
+                            isDragging={isDragging}
+                            onResizeStart={(idx, e) => { e.stopPropagation(); saveHistory(); setDragHandleIndex(idx); setIsDragging(true); }}
+                            onRotateStart={(e) => { 
+                                e.stopPropagation(); saveHistory(); setIsRotating(true);
+                                const center = { x: groupBounds.minX + groupBounds.width / 2, y: groupBounds.minY + groupBounds.height / 2 };
+                                setRotationCenter(center);
+                                lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI);
+                            }}
+                            onSetPivot={() => {}}
+                            onMarkAngle={() => {}}
+                            onAngleChange={() => {}}
+                        />
+                    )}
+
                     {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
                     {selectionBox && <rect x={Math.min(selectionBox.start.x, selectionBox.current.x)} y={Math.min(selectionBox.start.y, selectionBox.current.y)} width={Math.abs(selectionBox.current.x - selectionBox.start.x)} height={Math.abs(selectionBox.current.y - selectionBox.start.y)} fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={1} />}
                 </svg>
