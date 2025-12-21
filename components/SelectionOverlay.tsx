@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
@@ -10,9 +11,9 @@ interface SelectionOverlayProps {
   isAltPressed: boolean;
   isMarkingAngles?: boolean;
   isDragging?: boolean; // New Prop
-  onResizeStart: (index: number, e: React.MouseEvent) => void;
+  onResizeStart: (index: number, e: React.PointerEvent) => void;
   onAngleChange: (index: number, newVal: string) => void;
-  onRotateStart: (e: React.MouseEvent) => void;
+  onRotateStart: (e: React.PointerEvent) => void;
   onSetPivot: (index: number | 'center') => void;
   onMarkAngle?: (index: number) => void;
   onAngleDoubleClick?: (index: number, e: React.MouseEvent) => void; 
@@ -123,7 +124,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             x={h.x - offset}
             y={h.y - offset}
             {...handleStyle}
-            onMouseDown={(e) => onResizeStart(h.id, e)}
+            onPointerDown={(e) => onResizeStart(h.id, e)}
             style={{ cursor: (h.id === 0 || h.id === 2) ? 'nwse-resize' : 'nesw-resize' }}
           />
       ));
@@ -142,7 +143,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             x={p.x - offset}
             y={p.y - offset}
             {...handleStyle}
-            onMouseDown={(e) => onResizeStart(i, e)}
+            onPointerDown={(e) => onResizeStart(i, e)}
             style={{ cursor: 'move' }} 
           />
       ));
@@ -215,7 +216,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
                 strokeWidth={1} 
                 strokeDasharray="2,2"
                 style={{ cursor: 'pointer', pointerEvents: 'all' }}
-                onMouseDown={(e) => { e.stopPropagation(); onMarkAngle && onMarkAngle(i); }}
+                onPointerDown={(e) => { e.stopPropagation(); onMarkAngle && onMarkAngle(i); }}
               />
           ));
       }
@@ -279,7 +280,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
 
       pivotTargets = candidates.map((p, i) => (
           <g key={`pt-${i}`} transform={`translate(${p.x}, ${p.y})`} 
-             onMouseDown={(e) => { e.stopPropagation(); onSetPivot(indices[i]); }}
+             onPointerDown={(e) => { e.stopPropagation(); onSetPivot(indices[i]); }}
              style={{ cursor: 'crosshair' }}
           >
               <circle r={6} fill="rgba(255, 255, 255, 0.8)" stroke="#ef4444" strokeWidth={1} />
@@ -288,7 +289,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
       ));
   }
 
-  // Increased opacity to 0.5 (was 0.3) for darker/more visible effect
   return (
     <g transform={transform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s' }}>
         {/* Bounding Box */}
@@ -306,7 +306,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             cx={rotHandlePos.x} cy={rotHandlePos.y} r={5} 
             fill="#ffffff" stroke={activeStroke} strokeWidth={2} 
             style={{ cursor: 'grab' }}
-            onMouseDown={onRotateStart}
+            onPointerDown={onRotateStart}
         />
 
         {pivotEl}

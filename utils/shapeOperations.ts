@@ -97,9 +97,6 @@ export const calculateResizedShape = (
 
     if (shape.type === ShapeType.TEXT) { 
         // Simple scale heuristic for text
-        // Note: Actual text rendering size logic is in ShapeRenderer, here we just adjust fontSize
-        // We need the center to estimate distance
-        // Since we don't have getShapeCenter imported easily with all dependencies, we approximate
         const center = shape.points[0]; 
         const dist = distance(center, cursorPos);
         return { ...shape, fontSize: Math.max(8, Math.round(dist / 2)) }; 
@@ -107,10 +104,12 @@ export const calculateResizedShape = (
 
     const isBoxShape = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.RULER].includes(shape.type);
     
+    // Explicitly handle 2-point box shapes (Rectangle, Image, Square, Circle, Ellipse)
     if (isBoxShape && shape.points.length === 2) {
          const p0 = shape.points[0], p1 = shape.points[1];
          const minX = Math.min(p0.x, p1.x), maxX = Math.max(p0.x, p1.x);
          const minY = Math.min(p0.y, p1.y), maxY = Math.max(p0.y, p1.y);
+         // Corners correspond to SelectionOverlay handles: 0:TL, 1:TR, 2:BR, 3:BL
          const corners = [ { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY } ];
          
          if (handleIndex >= 0 && handleIndex < 4) {
@@ -123,12 +122,14 @@ export const calculateResizedShape = (
                  return { ...shape, points: [fixedPoint, { x: targetPos.x, y: fixedPoint.y + sign * currentHeight }] };
              }
              
-             if (isShiftPressed || shape.type === ShapeType.SQUARE || shape.type === ShapeType.CIRCLE) { 
+             // Ensure IMAGE is included in proportional scaling check
+             if (isShiftPressed || shape.type === ShapeType.SQUARE || shape.type === ShapeType.CIRCLE || shape.type === ShapeType.IMAGE) { 
                  const w = maxX - minX, h = maxY - minY; 
                  if (w > 0 && h > 0) { 
                      const ratio = w / h;
                      const dx = targetPos.x - fixedPoint.x;
                      const dy = targetPos.y - fixedPoint.y; 
+                     // Adjust targetPos to maintain aspect ratio
                      if (Math.abs(dx) / Math.abs(dy) > ratio) { 
                          targetPos.y = fixedPoint.y + (dy > 0 ? Math.abs(dx) / ratio : -Math.abs(dx) / ratio); 
                      } else { 
@@ -178,15 +179,11 @@ export const calculateMovedShape = (
                 params.k = (params.k || 0) + dmy; 
             } else { 
                 // Standard form translation: y' = a(x-dx)^2 + b(x-dx) + c + dy
-                // This is complex for standard form coefficients, simplifying to direct coefficient adjustment if possible
-                // or just shifting the visual representation logic.
-                // Current logic maps standard form:
+                // New b' = b - 2*a*dmx
+                // New c' = c + a*dmx^2 - b*dmx + dmy
                 const a = params.a ?? 1; 
                 const b = params.b || 0; 
                 const c = params.c || 0; 
-                // Derived math for shifting ax^2+bx+c by (dmx, dmy):
-                // New b' = b - 2*a*dmx
-                // New c' = c + a*dmx^2 - b*dmx + dmy
                 params.b = b - 2 * a * dmx; 
                 params.c = c + a * Math.pow(dmx, 2) - b * dmx + dmy; 
             } 
