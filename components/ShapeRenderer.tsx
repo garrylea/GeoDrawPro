@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
-import { getShapeCenter, getSmoothSvgPath, distance } from '../utils/mathUtils';
+import { getShapeCenter, getSmoothSvgPath, getVariableWidthPath } from '../utils/mathUtils';
 
 interface ShapeRendererProps {
   shape: Shape;
@@ -9,9 +9,8 @@ interface ShapeRendererProps {
 }
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
-  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl } = shape;
+  const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl, usePressure } = shape;
   
-  // MARKER SPECIAL HANDLING
   if (type === ShapeType.MARKER) {
       if (!pathData) return null;
       return (
@@ -26,7 +25,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       );
   }
 
-  // Determine Dash Array based on strokeType
   let dashArray = 'none';
   if (strokeType === 'dashed') {
       dashArray = `${strokeWidth * 4},${strokeWidth * 2}`; 
@@ -45,7 +43,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
     strokeLinecap: 'round' as const,
   };
 
-  // --- Function Graph Renderer ---
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
       return (
@@ -68,7 +65,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   const width = Math.abs(p1.x - p0.x);
   const height = Math.abs(p1.y - p0.y);
 
-  // --- Smart Labeling Logic ---
   let labelElements: React.ReactNode[] = [];
   if (labels && labels.length > 0) {
       const renderLabel = (vertex: Point, label: string, index: number, center: Point) => {
@@ -150,7 +146,12 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       break;
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
-        element = <path d={getSmoothSvgPath(points)} {...commonProps} fill="none" />;
+        if (usePressure && points.some(p => p.p !== undefined)) {
+            const pressurePath = getVariableWidthPath(points, strokeWidth);
+            element = <path d={pressurePath} fill={isSelected ? '#3b82f6' : stroke} stroke="none" opacity={0.9} />;
+        } else {
+            element = <path d={getSmoothSvgPath(points)} {...commonProps} fill="none" />;
+        }
         break;
     case ShapeType.PATH:
         if (!pathData) return null;
@@ -203,10 +204,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
         break;
 
     case ShapeType.RULER:
-        // --- High-Precision Ruler Logic ---
         const bodyColor = isSelected ? '#dbeafe' : '#f8fafc';
         const borderColor = isSelected ? '#3b82f6' : '#cbd5e1';
-        
         const rulerBody = (
             <rect 
                 x={x} y={y} 
@@ -218,70 +217,35 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
                 rx={4} 
             />
         );
-        
         const rulerTicks = [];
         const rulerLabels = [];
-        // New Specs: 2px (Minor), 10px (Mid), 20px (Major)
         const tickSpacing = 2; 
         const numTicks = Math.floor(width / tickSpacing);
-
         for(let i=0; i<=numTicks; i++) {
             const tx = x + i * tickSpacing;
-            
             let tickLen = 4;
             let tickWeight = 0.4;
             let opacity = 0.4;
-            
             if (i % 10 === 0) {
-                tickLen = 14; // Major (every 20px since i=10 and spacing=2)
+                tickLen = 14; 
                 tickWeight = 1.2;
                 opacity = 1.0;
             } else if (i % 5 === 0) {
-                tickLen = 8; // Mid (every 10px since i=5 and spacing=2)
+                tickLen = 8; 
                 tickWeight = 0.8;
                 opacity = 0.7;
             }
-            
-            rulerTicks.push(
-                <line 
-                    key={`rt-${i}`}
-                    x1={tx} y1={y}
-                    x2={tx} y2={y + tickLen}
-                    stroke="#64748b"
-                    strokeWidth={tickWeight}
-                    strokeOpacity={opacity}
-                    strokeLinecap="square"
-                />
-            );
-
-            // Label at every 10 ticks (20px intervals)
+            rulerTicks.push(<line key={`rt-${i}`} x1={tx} y1={y} x2={tx} y2={y + tickLen} stroke="#64748b" strokeWidth={tickWeight} strokeOpacity={opacity} strokeLinecap="square" />);
             if (i % 10 === 0) {
-                rulerLabels.push(
-                    <text
-                        key={`rl-${i}`}
-                        x={tx}
-                        y={y + 28}
-                        fontSize={9}
-                        fill="#475569"
-                        fontFamily="monospace"
-                        fontWeight="bold"
-                        textAnchor="middle"
-                        style={{ userSelect: 'none', pointerEvents: 'none' }}
-                    >
-                        {i / 10}
-                    </text>
-                );
+                rulerLabels.push(<text key={`rl-${i}`} x={tx} y={y + 28} fontSize={9} fill="#475569" fontFamily="monospace" fontWeight="bold" textAnchor="middle" style={{ userSelect: 'none', pointerEvents: 'none' }}>{i / 10}</text>);
             }
         }
-
         element = (
             <g>
                 {rulerBody}
                 {rulerTicks}
                 {rulerLabels}
-                {/* Subtle Shine/Highlight on Top Edge */}
                 <rect x={x + 1} y={y + 1} width={width - 2} height={2} fill="white" fillOpacity={0.4} rx={1} />
-                {/* Visual indicator for the 0 mark */}
                 <circle cx={x} cy={y} r={1.5} fill="#ef4444" />
             </g>
         );

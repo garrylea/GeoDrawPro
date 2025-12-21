@@ -1,10 +1,12 @@
+
 import React from 'react';
 import { Shape, ShapeType, AxisConfig } from '../types';
 import { COLORS } from '../constants';
 import { recalculateMarker, generateQuadraticPath } from '../utils/mathUtils';
 import { 
   Radius, FunctionSquare, Grid3X3, Sparkles, CaseUpper, 
-  Wand2, FoldHorizontal, Maximize, Minus, Plus, TrendingUp 
+  Wand2, FoldHorizontal, Maximize, Minus, Plus, TrendingUp,
+  Fingerprint
 } from 'lucide-react';
 
 interface PropertiesPanelProps {
@@ -18,6 +20,8 @@ interface PropertiesPanelProps {
   setAutoLabelMode: (v: boolean) => void;
   smartSketchMode: boolean;
   setSmartSketchMode: (v: boolean) => void;
+  pressureEnabled: boolean;
+  setPressureEnabled: (v: boolean) => void;
   markingAnglesMode: boolean;
   setMarkingAnglesMode: (v: boolean) => void;
   pickingMirrorMode: boolean;
@@ -59,6 +63,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   setAutoLabelMode,
   smartSketchMode,
   setSmartSketchMode,
+  pressureEnabled,
+  setPressureEnabled,
   markingAnglesMode,
   setMarkingAnglesMode,
   pickingMirrorMode,
@@ -166,7 +172,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       {selectedShape?.type === ShapeType.FUNCTION_GRAPH && selectedShape.formulaParams && (
         <div className="p-5 border-b border-slate-100">
           <div className="flex items-center gap-2 mb-3 text-slate-900 font-bold text-sm uppercase tracking-wide">
-             {/* Use fallback 'quadratic' for legacy shapes */}
              {(selectedShape.functionType || 'quadratic') === 'linear' ? <TrendingUp size={16} /> : <FunctionSquare size={16} />}
              {(selectedShape.functionType || 'quadratic') === 'linear' ? 'Linear Function' : 'Quadratic Function'}
           </div>
@@ -188,7 +193,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     </button>
                 </div>
                 <div className="space-y-3">
-                    {/* UPDATED: Vertex form now includes 'a' parameter */}
                     {(selectedShape.functionForm === 'standard' ? ['a', 'b', 'c'] : ['a', 'h', 'k']).map(p => (
                     <div key={p} className="flex items-center gap-2" title={PARAM_DESCRIPTIONS[p]}>
                         <span className="w-6 font-bold text-slate-500 cursor-help border-b border-dotted border-slate-300">{p}</span>
@@ -206,7 +210,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </div>
               </>
           ) : (
-              // LINEAR FUNCTION UI
               <div className="space-y-3">
                    <div className="flex items-center gap-2" title="Slope (k)">
                         <span className="w-6 font-bold text-slate-500 italic border-b border-dotted border-slate-300 cursor-help">k</span>
@@ -271,6 +274,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </button>
           <button onClick={() => setSmartSketchMode(!smartSketchMode)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${smartSketchMode ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
             <Wand2 size={16} /> Sketch Fix
+          </button>
+          <button onClick={() => setPressureEnabled(!pressureEnabled)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${pressureEnabled ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+            <Fingerprint size={16} /> Pressure
           </button>
           <button onClick={() => setMarkingAnglesMode(!markingAnglesMode)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${markingAnglesMode ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
             <Radius size={16} /> Angles

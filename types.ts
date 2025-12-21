@@ -42,6 +42,7 @@ export enum ShapeType {
 export interface Point {
   x: number;
   y: number;
+  p?: number; // Pressure sensitivity (0.0 to 1.0)
 }
 
 export type MarkerType = 'perpendicular' | 'parallel_arrow' | 'equal_tick' | 'angle_arc';
@@ -77,24 +78,15 @@ export interface Shape {
   constraint?: Constraint;
   isTracing?: boolean; 
   
+  // Pressure sensitivity metadata
+  usePressure?: boolean;
+
   // Specific for Functions
-  // functionType defaults to 'quadratic' if undefined
   functionType?: 'quadratic' | 'linear'; 
   functionForm?: 'standard' | 'vertex';
-  // Quadratic: a, b, c, h, k
-  // Linear: k (slope), b (intercept) -> reusing k and b, or explicit mapping
-  // We will map Linear Slope -> k, Linear Intercept -> b (using the same keys for simplicity in storage, interpreted differently based on functionType)
-  // Actually, to avoid confusion with Vertex 'k', let's stick to using 'k' key for slope in linear, 
-  // but we must be careful in the UI to read the right field.
-  // Ideally: Linear uses m (slope) and b (intercept).
-  // Let's allow generic keys in formulaParams.
   formulaParams?: { 
-      a?: number; b?: number; c?: number; // Quadratic Standard
-      h?: number; k?: number;             // Quadratic Vertex OR Linear Slope (k) + Intercept (b)??
-      // To avoid ambiguity, let's explicit:
-      // Linear: uses 'k' (slope) and 'b' (intercept). 
-      // Note: 'b' is also in quadratic standard. 'k' is also in quadratic vertex.
-      // This is fine as long as we check functionType.
+      a?: number; b?: number; c?: number; 
+      h?: number; k?: number;             
   };
   
   isConstruction?: boolean;

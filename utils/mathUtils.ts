@@ -1,3 +1,4 @@
+
 import { Point, Shape, ShapeType, MarkerType } from '../types';
 
 export interface RecognizedShape {
@@ -30,10 +31,10 @@ export const getLineIntersection = (p1: Point, v1: Point, p2: Point, v2: Point):
 
 // --- Coordinate System Utilities ---
 export const getPixelsPerUnit = (width: number, height: number, ticks: number) => {
-    if (width <= 0 || height <= 0) return 40; // Default fallback if dimensions are invalid
+    if (width <= 0 || height <= 0) return 40; 
     const maxDimension = Math.max(width, height) / 2;
     const result = (maxDimension * 0.9) / (ticks || 5);
-    return result > 0 ? result : 40; // Prevent returning 0
+    return result > 0 ? result : 40; 
 };
 
 export const screenToMath = (p: Point, width: number, height: number, ppu: number): Point => {
@@ -61,19 +62,15 @@ export const evaluateQuadratic = (
     form: 'standard' | 'vertex' = 'standard',
     type: 'quadratic' | 'linear' = 'quadratic'
 ): number => {
-    // Safety check for parameters
     if (!params) return 0;
-
     if (type === 'linear') {
-        // Linear: y = kx + b
         const slope = params.k ?? 1;
         const intercept = params.b ?? 0;
         return slope * x + intercept;
     }
-
     if (form === 'vertex') {
         const h = params.h || 0;
-        const k = params.k || 0; // This 'k' is vertex Y, different from slope 'k'
+        const k = params.k || 0; 
         const a = params.a ?? 1;
         return a * Math.pow(x - h, 2) + k;
     } else {
@@ -92,35 +89,22 @@ export const generateQuadraticPath = (
     ppu: number,
     type: 'quadratic' | 'linear' = 'quadratic'
 ): string => {
-    // Critical safety check: if ppu is invalid, return empty path to prevent NaN
     if (!ppu || ppu <= 0) return "";
-    
-    // Ensure params exists
     if (!params) params = { a: 1, b: 0, c: 0, k: 1 };
 
     if (type === 'linear') {
-        // Optimization for straight lines: just calculate start and end points
-        // Visible range in Math coordinates
         const minScreenX = -50;
         const maxScreenX = width + 50;
-        
-        // Calculate Y at minScreenX
         const mx1 = (minScreenX - (width / 2)) / ppu;
         const my1 = evaluateQuadratic(mx1, params, form, 'linear');
         const sy1 = (height / 2) - my1 * ppu;
-
-        // Calculate Y at maxScreenX
         const mx2 = (maxScreenX - (width / 2)) / ppu;
         const my2 = evaluateQuadratic(mx2, params, form, 'linear');
         const sy2 = (height / 2) - my2 * ppu;
-
-        // Final Safety Check for NaN/Infinity
         if (!isFinite(sy1) || !isFinite(sy2)) return "";
-
         return `M ${minScreenX} ${sy1} L ${maxScreenX} ${sy2}`;
     }
 
-    // Existing Quadratic Logic
     const minScreenX = -50;
     const maxScreenX = width + 50;
     const pixelStep = 4; 
@@ -131,13 +115,10 @@ export const generateQuadraticPath = (
         const mx = (sx - (width / 2)) / ppu;
         const my = evaluateQuadratic(mx, params, form, 'quadratic');
         const sy = (height / 2) - my * ppu;
-        
-        // Optimization: Don't draw way off screen or invalid values
         if (!isFinite(sy) || sy < -height * 2 || sy > height * 2) {
             first = true;
             continue;
         }
-
         if (first) {
             d += `M ${sx.toFixed(1)} ${sy.toFixed(1)}`;
             first = false;
@@ -283,7 +264,7 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
 };
 
 export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, canvasHeight?: number, ppu?: number): boolean => {
-    const threshold = 18; // Increased from 10 to 18 for better hit testing on desktop
+    const threshold = 18; 
     if (shape.type === ShapeType.MARKER) {
         if (!shape.points || shape.points.length === 0) return false;
         const v = shape.points[0];
@@ -293,14 +274,11 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     if (shape.type === ShapeType.FUNCTION_GRAPH) {
         if (!shape.formulaParams || !canvasWidth || !canvasHeight || !ppu) return false;
         if (ppu <= 0) return false;
-        
         const mPos = screenToMath(p, canvasWidth, canvasHeight, ppu);
         const fType = shape.functionType || 'quadratic';
         const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm, fType);
         const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu);
-        
         if (!isFinite(expectedSP.y)) return false;
-        
         return Math.abs(expectedSP.y - p.y) < threshold;
     }
     if (shape.type === ShapeType.POINT) {
@@ -310,7 +288,7 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
         const corners = getRotatedCorners(shape);
         return isPointInPolygon(p, corners);
     }
-    if (shape.type === ShapeType.PATH) {
+    if (shape.type === ShapeType.PATH || shape.type === ShapeType.FREEHAND) {
         if (shape.points && shape.points.length > 1) {
             const closest = getClosestPointOnShape(p, shape);
             return distance(p, closest) < threshold;
@@ -452,14 +430,55 @@ export const getSmoothSvgPath = (points: Point[]): string => {
     return d;
 };
 
-// --- Ramer-Douglas-Peucker simplification for better recognition ---
+/**
+ * Generates an SVG path representing the outline of a variable-width stroke based on point pressure.
+ */
+export const getVariableWidthPath = (points: Point[], baseWidth: number): string => {
+    if (points.length < 2) return "";
+    
+    const leftPoints: Point[] = [];
+    const rightPoints: Point[] = [];
+
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const pressure = p.p ?? 0.5;
+        const width = baseWidth * pressure;
+        
+        let dx, dy;
+        if (i < points.length - 1) {
+            dx = points[i + 1].x - points[i].x;
+            dy = points[i + 1].y - points[i].y;
+        } else {
+            dx = points[i].x - points[i - 1].x;
+            dy = points[i].y - points[i - 1].y;
+        }
+        
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        
+        leftPoints.push({ x: p.x + nx * width, y: p.y + ny * width });
+        rightPoints.push({ x: p.x - nx * width, y: p.y - ny * width });
+    }
+
+    // Connect into one polygon path
+    let d = `M ${leftPoints[0].x} ${leftPoints[0].y}`;
+    for (let i = 1; i < leftPoints.length; i++) {
+        d += ` L ${leftPoints[i].x} ${leftPoints[i].y}`;
+    }
+    for (let i = rightPoints.length - 1; i >= 0; i--) {
+        d += ` L ${rightPoints[i].x} ${rightPoints[i].y}`;
+    }
+    d += " Z";
+    return d;
+};
+
+// --- Ramer-Douglas-Peucker simplification ---
 const simplifyPath = (points: Point[], tolerance: number): Point[] => {
     if (points.length <= 2) return points;
-    
     let dmax = 0;
     let index = 0;
     const end = points.length - 1;
-    
     for (let i = 1; i < end; i++) {
         const d = distanceToLine(points[i], points[0], points[end]);
         if (d > dmax) {
@@ -467,7 +486,6 @@ const simplifyPath = (points: Point[], tolerance: number): Point[] => {
             dmax = d;
         }
     }
-    
     if (dmax > tolerance) {
         const res1 = simplifyPath(points.slice(0, index + 1), tolerance);
         const res2 = simplifyPath(points.slice(index), tolerance);
@@ -487,15 +505,11 @@ const distanceToLine = (p: Point, a: Point, b: Point): number => {
 
 export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null => {
     if (points.length < 5) return null;
-
-    // 1. Line Recognition (is it just a straight stroke?)
     const totalPathLen = points.reduce((acc, p, i) => i === 0 ? 0 : acc + distance(points[i-1], p), 0);
     const startEndDist = distance(points[0], points[points.length - 1]);
     if (totalPathLen / startEndDist < 1.15 && totalPathLen > 30) {
         return { type: ShapeType.LINE, points: [points[0], points[points.length - 1]] };
     }
-
-    // 2. Closed Shape Pre-processing
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
         minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
@@ -503,42 +517,24 @@ export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null 
     });
     const w = maxX - minX, h = maxY - minY;
     const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-    
-    // 3. Circle/Ellipse Recognition (Radius variance check)
     const radii = points.map(p => distance(p, center));
     const avgRadius = radii.reduce((a, b) => a + b) / radii.length;
     const variance = radii.reduce((a, b) => a + Math.pow(b - avgRadius, 2), 0) / radii.length;
     const stdDev = Math.sqrt(variance);
-
-    // If std deviation is low relative to radius, it's round
     if (stdDev / avgRadius < 0.15) {
         const ratio = w / h;
         const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
-        if (Math.abs(1 - ratio) < 0.2) {
-            return { type: ShapeType.CIRCLE, points: pts };
-        } else {
-            return { type: ShapeType.ELLIPSE, points: pts };
-        }
+        if (Math.abs(1 - ratio) < 0.2) return { type: ShapeType.CIRCLE, points: pts };
+        else return { type: ShapeType.ELLIPSE, points: pts };
     }
-
-    // 4. Polygon Recognition (Triangle vs Rectangle)
-    // Simplify the path significantly to find corners
     const corners = simplifyPath(points, Math.max(w, h) * 0.15);
-    
-    // Douglas-Peucker might leave a "close" point at the end, clean it
     const distinctCorners = corners.filter((p, i) => i === 0 || distance(p, corners[i-1]) > 20);
-    
-    // Check if it's effectively a triangle
     if (distinctCorners.length === 3 || (distinctCorners.length === 4 && distance(distinctCorners[0], distinctCorners[3]) < 50)) {
         return { type: ShapeType.TRIANGLE, points: distinctCorners.slice(0, 3) };
     }
-
-    // 5. Fallback: Rectangle / Square
     const ratio = w / h;
     const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
-    if (Math.abs(1 - ratio) < 0.15) {
-        return { type: ShapeType.SQUARE, points: pts };
-    }
+    if (Math.abs(1 - ratio) < 0.15) return { type: ShapeType.SQUARE, points: pts };
     return { type: ShapeType.RECTANGLE, points: pts };
 };
 
@@ -565,62 +561,24 @@ export const recalculateMarker = (marker: Shape, allShapes: Shape[]): Shape | nu
     return { ...marker, points: [pCurr], pathData };
 };
 
-/**
- * Fits a collection of shapes into the specified viewport.
- * Scales all points proportionally and centers the resulting bounding box.
- */
 export const fitShapesToViewport = (shapes: Shape[], canvasW: number, canvasH: number): Shape[] => {
     if (shapes.length === 0 || canvasW <= 0 || canvasH <= 0) return shapes;
-
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    shapes.forEach(s => {
-        s.points.forEach(p => {
-            minX = Math.min(minX, p.x);
-            minY = Math.min(minY, p.y);
-            maxX = Math.max(maxX, p.x);
-            maxY = Math.max(maxY, p.y);
-        });
-    });
-
+    shapes.forEach(s => { s.points.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }); });
     if (minX === Infinity) return shapes;
-
     const contentW = maxX - minX;
     const contentH = maxY - minY;
     if (contentW <= 0 || contentH <= 0) return shapes;
-
-    // Proportional scale factor
     const padding = 0.8; 
     const scale = Math.min((canvasW * padding) / contentW, (canvasH * padding) / contentH);
-    
-    // We limit max up-scaling to avoid pixelated icons/text if the user opens a tiny diagram on a 4K screen.
     const finalScale = Math.min(scale, 1.5);
-    
-    // Center logic
     const contentCenterX = (minX + maxX) / 2;
     const contentCenterY = (minY + maxY) / 2;
     const canvasCenterX = canvasW / 2;
     const canvasCenterY = canvasH / 2;
-
     const newShapes = shapes.map(s => {
-        const newPoints = s.points.map(p => ({
-            x: canvasCenterX + (p.x - contentCenterX) * finalScale,
-            y: canvasCenterY + (p.y - contentCenterY) * finalScale
-        }));
-
-        return {
-            ...s,
-            points: newPoints,
-            strokeWidth: Math.max(1, s.strokeWidth * finalScale),
-            fontSize: s.fontSize ? Math.max(8, s.fontSize * finalScale) : s.fontSize
-        };
+        const newPoints = s.points.map(p => ({ x: canvasCenterX + (p.x - contentCenterX) * finalScale, y: canvasCenterY + (p.y - contentCenterY) * finalScale }));
+        return { ...s, points: newPoints, strokeWidth: Math.max(1, s.strokeWidth * finalScale), fontSize: s.fontSize ? Math.max(8, s.fontSize * finalScale) : s.fontSize };
     });
-
-    // Final pass to fix markers which rely on absolute vertex positions
-    return newShapes.map(s => {
-        if (s.type === ShapeType.MARKER) {
-            return recalculateMarker(s, newShapes) || s;
-        }
-        return s;
-    });
+    return newShapes.map(s => { if (s.type === ShapeType.MARKER) return recalculateMarker(s, newShapes) || s; return s; });
 };
