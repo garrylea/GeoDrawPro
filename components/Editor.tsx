@@ -516,7 +516,26 @@ export function Editor() {
     }
     
     // --- MOVING LOGIC ---
-    if (activeShapeId && tool !== ToolType.LINE) { setShapes(prev => prev.map(s => { if (s.id !== activeShapeId) return s; let newPoints = [...s.points]; newPoints[newPoints.length - 1] = pos; if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)), sx = pos.x > s.points[0].x ? 1 : -1, sy = pos.y > s.points[0].x ? 1 : -1; newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; } else if (s.type === ShapeType.TRIANGLE) { newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; } else if (s.type === ShapeType.FREEHAND) { newPoints = [...s.points, pos]; } return { ...s, points: newPoints }; })); } 
+    if (activeShapeId && tool !== ToolType.LINE) { 
+        setShapes(prev => prev.map(s => { 
+            if (s.id !== activeShapeId) return s; 
+            let newPoints = [...s.points]; 
+            newPoints[newPoints.length - 1] = pos; 
+            
+            if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { 
+                const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y));
+                const sx = pos.x > s.points[0].x ? 1 : -1;
+                const sy = pos.y > s.points[0].y ? 1 : -1; // FIXED: Changed s.points[0].x to s.points[0].y
+                newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; 
+            } else if (s.type === ShapeType.TRIANGLE) { 
+                newPoints[1] = { x: s.points[0].x, y: pos.y }; 
+                newPoints[2] = pos; 
+            } else if (s.type === ShapeType.FREEHAND) { 
+                newPoints = [...s.points, pos]; 
+            } 
+            return { ...s, points: newPoints }; 
+        })); 
+    } 
     else if (selectedIds.size > 0 && dragStartPos && isDragging) {
         const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; 
         
