@@ -178,7 +178,12 @@ export const calculateResizedShape = (
          }
          
          // Vertical
-         if (handleIndex === 0 || handleIndex === 1) { // Top Handles
+         if (!groupBounds && shape.type === ShapeType.RULER) {
+             // For ruler, dragging any handle should only change length, not height.
+             // We lock Top/Bottom to original values.
+             newTop = minY;
+             newBottom = maxY;
+         } else if (handleIndex === 0 || handleIndex === 1) { // Top Handles
              newTop = targetPos.y;
              newBottom = maxY; 
          } else { // Bottom Handles

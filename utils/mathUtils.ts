@@ -423,16 +423,35 @@ export const getPolygonAngles = (points: Point[]): (number | undefined)[] => {
 
 export const getSmoothSvgPath = (points: Point[]): string => {
     if (points.length < 2) return "";
+    
     let d = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-        d += ` L ${points[i].x} ${points[i].y}`;
+    
+    // For just 2 points, it's a line
+    if (points.length === 2) {
+        return d + ` L ${points[1].x} ${points[1].y}`;
     }
+
+    // Use Quadratic Bezier curves for smoothing (Midpoint Smoothing)
+    // Connects p1 to p2 using midpoints as anchors to ensure continuity
+    for (let i = 1; i < points.length - 1; i++) {
+        const p1 = points[i];
+        const p2 = points[i+1];
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        // Draw quad curve from current pen pos to mid point, using p1 as control
+        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
+    }
+    
+    // Connect to the last point
+    const last = points[points.length - 1];
+    d += ` L ${last.x} ${last.y}`;
+    
     return d;
 };
 
 /**
  * Generates an SVG path representing the outline of a variable-width stroke based on point pressure.
- * FIX 5: Use a more generous formula so lines are visible even with low pressure.
+ * Uses Quadratic Bezier curves for smooth outline rendering.
  */
 export const getVariableWidthPath = (points: Point[], baseWidth: number): string => {
     if (points.length < 2) return "";
@@ -445,17 +464,19 @@ export const getVariableWidthPath = (points: Point[], baseWidth: number): string
         const pressure = p.p ?? 0.5;
         
         // FIX: Ensure minimum thickness and boost curve
-        // Old: baseWidth * pressure
-        // New: baseWidth * (0.3 + pressure * 0.9) to make it visible but still sensitive
         const width = baseWidth * (0.3 + Math.max(0.1, pressure) * 0.9);
         
         let dx, dy;
-        if (i < points.length - 1) {
-            dx = points[i + 1].x - points[i].x;
-            dy = points[i + 1].y - points[i].y;
-        } else {
+        if (i === 0) {
+            dx = points[1].x - points[0].x;
+            dy = points[1].y - points[0].y;
+        } else if (i === points.length - 1) {
             dx = points[i].x - points[i - 1].x;
             dy = points[i].y - points[i - 1].y;
+        } else {
+            // Average tangent for smoother joints using finite difference of neighbors
+            dx = points[i + 1].x - points[i - 1].x;
+            dy = points[i + 1].y - points[i - 1].y;
         }
         
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -466,14 +487,32 @@ export const getVariableWidthPath = (points: Point[], baseWidth: number): string
         rightPoints.push({ x: p.x - nx * width, y: p.y - ny * width });
     }
 
-    // Connect into one polygon path
+    // Connect into one polygon path using smoothing
     let d = `M ${leftPoints[0].x} ${leftPoints[0].y}`;
-    for (let i = 1; i < leftPoints.length; i++) {
-        d += ` L ${leftPoints[i].x} ${leftPoints[i].y}`;
+
+    // Smooth Left Side
+    for (let i = 1; i < leftPoints.length - 1; i++) {
+        const p1 = leftPoints[i];
+        const p2 = leftPoints[i+1];
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
     }
-    for (let i = rightPoints.length - 1; i >= 0; i--) {
-        d += ` L ${rightPoints[i].x} ${rightPoints[i].y}`;
+    d += ` L ${leftPoints[leftPoints.length - 1].x} ${leftPoints[leftPoints.length - 1].y}`;
+    
+    // Connect to Right Side (Cap)
+    d += ` L ${rightPoints[rightPoints.length - 1].x} ${rightPoints[rightPoints.length - 1].y}`;
+
+    // Smooth Right Side (Reverse order)
+    for (let i = rightPoints.length - 2; i > 0; i--) {
+        const p1 = rightPoints[i];
+        const p2 = rightPoints[i-1];
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
     }
+    d += ` L ${rightPoints[0].x} ${rightPoints[0].y}`;
+
     d += " Z";
     return d;
 };
