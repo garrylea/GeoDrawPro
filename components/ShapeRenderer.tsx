@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getShapeCenter, getSmoothSvgPath, getVariableWidthPath } from '../utils/mathUtils';
@@ -8,7 +7,7 @@ interface ShapeRendererProps {
   isSelected: boolean;
 }
 
-export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected }) => {
+export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererProps) => {
   const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl, usePressure } = shape;
   
   if (type === ShapeType.MARKER) {
@@ -21,6 +20,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
               strokeWidth={2} 
               strokeLinecap="round" 
               strokeLinejoin="round"
+              data-shape-id={shape.id}
           />
       );
   }
@@ -46,7 +46,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
       return (
-          <g className="shape-group" style={{ cursor: isSelected ? 'pointer' : 'pointer' }}>
+          <g className="shape-group" style={{ cursor: isSelected ? 'pointer' : 'pointer' }} data-shape-id={shape.id}>
               <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} />
               {isSelected && <path d={pathData} fill="none" stroke="#60a5fa" strokeWidth={strokeWidth + 4} opacity={0.3} />}
               <path d={pathData} {...commonProps} fill="none" />
@@ -146,7 +146,8 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       break;
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
-        if (usePressure && points.some(p => p.p !== undefined)) {
+        const hasPressureData = points.some(p => p.p !== undefined && p.p !== 0.5);
+        if ((usePressure || hasPressureData) && hasPressureData) {
             const pressurePath = getVariableWidthPath(points, strokeWidth);
             element = <path d={pressurePath} fill={isSelected ? '#3b82f6' : stroke} stroke="none" opacity={0.9} />;
         } else {
@@ -259,7 +260,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
   const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
 
   return (
-    <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }}>
+    <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }} data-shape-id={shape.id}>
       {isSelected && type !== ShapeType.IMAGE && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
              {React.cloneElement(element as React.ReactElement<any>, { 
@@ -274,4 +275,6 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = ({ shape, isSelected 
       {labelElements}
     </g>
   );
-};
+}, (prev, next) => {
+    return prev.isSelected === next.isSelected && prev.shape === next.shape;
+});

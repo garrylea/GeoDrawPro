@@ -49,6 +49,9 @@ function createWindow() {
     },
   });
 
+  // Custom property to track forced closing state
+  mainWindow.forceClose = false;
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -62,6 +65,16 @@ function createWindow() {
       app.focus({ steal: true });
     }
     mainWindow.focus();
+  });
+
+  // Intercept the close event
+  mainWindow.on('close', (e) => {
+    // If forceClose is true, it means we've already checked unsaved changes or saved them.
+    if (mainWindow.forceClose) return;
+    
+    e.preventDefault();
+    // Ask the renderer process if there are unsaved changes
+    mainWindow.webContents.send('CHECK_UNSAVED');
   });
 
   mainWindow.on('closed', () => {
@@ -333,6 +346,43 @@ ipcMain.on('CLOSE_SNIPPET', () => {
 });
 
 ipcMain.on('OPEN_SOLVER', () => { createSolverWindow(); });
+
+// New Handlers for Unsaved Changes Check
+ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+
+    if (!isDirty) {
+        win.forceClose = true;
+        win.close();
+        return;
+    }
+
+    const choice = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        title: 'Unsaved Changes',
+        message: 'Do you want to save changes before closing?',
+        defaultId: 0,
+        cancelId: 2
+    });
+
+    if (choice.response === 0) { // Save
+        win.webContents.send('ACTION_SAVE');
+    } else if (choice.response === 1) { // Don't Save
+        win.forceClose = true;
+        win.close();
+    }
+    // Cancel: Do nothing, window stays open
+});
+
+ipcMain.on('SAVE_COMPLETE', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        win.forceClose = true;
+        win.close();
+    }
+});
 
 ipcMain.handle('save-dialog', async (event, data) => {
   if (!mainWindow) return { success: false };

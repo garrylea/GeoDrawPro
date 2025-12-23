@@ -1,4 +1,3 @@
-
 import { Shape, ShapeType, Point } from '../types';
 import { 
     isPointInShape, distance, getClosestPointOnShape, getRotatedCorners, 
@@ -15,9 +14,11 @@ export const getHitShape = (
     shapesList: Shape[], 
     canvasWidth: number, 
     canvasHeight: number, 
-    pixelsPerUnit: number
+    pixelsPerUnit: number,
+    originY?: number,
+    hitTolerance?: number
 ): Shape | null => {
-    const hits = shapesList.filter(s => isPointInShape(pos, s, canvasWidth, canvasHeight, pixelsPerUnit));
+    const hits = shapesList.filter(s => isPointInShape(pos, s, canvasWidth, canvasHeight, pixelsPerUnit, originY, hitTolerance));
     if (hits.length === 0) return null;
 
     return hits.sort((a, b) => {
@@ -101,12 +102,10 @@ export const calculateResizedShape = (
         ShapeType.IMAGE, 
         ShapeType.CIRCLE, 
         ShapeType.ELLIPSE, 
-        ShapeType.RULER,
-        ShapeType.PATH,
+        ShapeType.RULER, 
+        ShapeType.PATH, 
         ShapeType.FREEHAND
     ].includes(shape.type);
-
-    console.log(`[Resize] Shape: ${shape.type}, Handle: ${handleIndex}, IsBoxScale: ${isBoxScale}, Group: ${!!groupBounds}`);
 
     // Special Case: Single Text Element Resize (updates font size directly)
     if (!groupBounds && shape.type === ShapeType.TEXT) { 
@@ -258,8 +257,10 @@ export const calculateMovedShape = (
             } 
         }
         
-        const path = generateQuadraticPath(params, shape.functionForm || 'standard', canvasWidth, canvasHeight, pixelsPerUnit, fType);
-        return { ...shape, formulaParams: params, pathData: path };
+        // Note: For move calculation, we don't strictly need to regenerate path here as Editor does it,
+        // but if we do, we need the origin. Assuming Editor regenerates paths on state update.
+        // Returning params is enough for Editor to regenerate path.
+        return { ...shape, formulaParams: params };
     }
 
     // 2. Handle Driving Points (Linked Geometry)

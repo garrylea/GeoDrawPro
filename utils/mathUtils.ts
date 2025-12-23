@@ -1,5 +1,5 @@
 
-import { Point, Shape, ShapeType, MarkerType } from '../types';
+import { Point, Shape, ShapeType, MarkerType, Constraint } from '../types';
 
 export interface RecognizedShape {
     type: ShapeType;
@@ -29,27 +29,33 @@ export const getLineIntersection = (p1: Point, v1: Point, p2: Point, v2: Point):
     };
 };
 
+export const getAngleDegrees = (p1: Point, p2: Point): number => {
+    return Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
+};
+
 // --- Coordinate System Utilities ---
 export const getPixelsPerUnit = (width: number, height: number, ticks: number) => {
     if (width <= 0 || height <= 0) return 40; 
-    const maxDimension = Math.max(width, height) / 2;
-    const result = (maxDimension * 0.9) / (ticks || 5);
-    return result > 0 ? result : 40; 
+    const minDimension = Math.min(width, height);
+    const targetPPU = (minDimension / 2) / (ticks || 5);
+    const minPPU = 20;
+    const maxPPU = minDimension / 2; 
+    return Math.min(Math.max(targetPPU, minPPU), Math.max(minPPU, maxPPU));
 };
 
-export const screenToMath = (p: Point, width: number, height: number, ppu: number): Point => {
+export const screenToMath = (p: Point, width: number, height: number, ppu: number, originY?: number): Point => {
     if (ppu <= 0) return { x: 0, y: 0 };
     const centerX = width / 2;
-    const centerY = height / 2;
+    const centerY = originY ?? (height / 2);
     return {
         x: (p.x - centerX) / ppu,
         y: -(p.y - centerY) / ppu 
     };
 };
 
-export const mathToScreen = (p: Point, width: number, height: number, ppu: number): Point => {
+export const mathToScreen = (p: Point, width: number, height: number, ppu: number, originY?: number): Point => {
     const centerX = width / 2;
-    const centerY = height / 2;
+    const centerY = originY ?? (height / 2);
     return {
         x: centerX + p.x * ppu,
         y: centerY - p.y * ppu
@@ -87,20 +93,23 @@ export const generateQuadraticPath = (
     width: number, 
     height: number, 
     ppu: number,
-    type: 'quadratic' | 'linear' = 'quadratic'
+    type: 'quadratic' | 'linear' = 'quadratic',
+    originY?: number
 ): string => {
     if (!ppu || ppu <= 0) return "";
     if (!params) params = { a: 1, b: 0, c: 0, k: 1 };
+
+    const centerY = originY ?? (height / 2);
 
     if (type === 'linear') {
         const minScreenX = -50;
         const maxScreenX = width + 50;
         const mx1 = (minScreenX - (width / 2)) / ppu;
         const my1 = evaluateQuadratic(mx1, params, form, 'linear');
-        const sy1 = (height / 2) - my1 * ppu;
+        const sy1 = centerY - my1 * ppu;
         const mx2 = (maxScreenX - (width / 2)) / ppu;
         const my2 = evaluateQuadratic(mx2, params, form, 'linear');
-        const sy2 = (height / 2) - my2 * ppu;
+        const sy2 = centerY - my2 * ppu;
         if (!isFinite(sy1) || !isFinite(sy2)) return "";
         return `M ${minScreenX} ${sy1} L ${maxScreenX} ${sy2}`;
     }
@@ -114,8 +123,8 @@ export const generateQuadraticPath = (
     for (let sx = minScreenX; sx <= maxScreenX; sx += pixelStep) {
         const mx = (sx - (width / 2)) / ppu;
         const my = evaluateQuadratic(mx, params, form, 'quadratic');
-        const sy = (height / 2) - my * ppu;
-        if (!isFinite(sy) || sy < -height * 2 || sy > height * 2) {
+        const sy = centerY - my * ppu;
+        if (!isFinite(sy) || sy < -height * 5 || sy > height * 5) {
             first = true;
             continue;
         }
@@ -241,8 +250,9 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
         if (type === ShapeType.TEXT) {
              x = points[0].x; y = points[0].y;
              const fs = fontSize || 16;
-             w = (text || '').length * fs * 0.6;
-             h = fs;
+             w = Math.max(20, (text || '').length * fs * 0.8);
+             h = fs * 1.2; 
+             y = y - fs * 0.1; 
         } else {
              const p0 = points[0];
              const p1 = points[1] || points[0];
@@ -263,8 +273,20 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
     return corners;
 };
 
-export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, canvasHeight?: number, ppu?: number): boolean => {
-    const threshold = 18; 
+export const isPointInShape = (
+    p: Point, 
+    shape: Shape, 
+    canvasWidth?: number, 
+    canvasHeight?: number, 
+    ppu?: number, 
+    originY?: number,
+    hitTolerance?: number
+): boolean => {
+    let threshold = hitTolerance !== undefined ? hitTolerance : 18;
+    if (hitTolerance === undefined && shape.type === ShapeType.LINE) {
+        threshold = 6;
+    }
+
     if (shape.type === ShapeType.MARKER) {
         if (!shape.points || shape.points.length === 0) return false;
         const v = shape.points[0];
@@ -274,31 +296,35 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     if (shape.type === ShapeType.FUNCTION_GRAPH) {
         if (!shape.formulaParams || !canvasWidth || !canvasHeight || !ppu) return false;
         if (ppu <= 0) return false;
-        const mPos = screenToMath(p, canvasWidth, canvasHeight, ppu);
+        const mPos = screenToMath(p, canvasWidth, canvasHeight, ppu, originY);
         const fType = shape.functionType || 'quadratic';
         const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm, fType);
-        const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu);
+        const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu, originY);
         if (!isFinite(expectedSP.y)) return false;
         return Math.abs(expectedSP.y - p.y) < threshold;
     }
     if (shape.type === ShapeType.POINT) {
-         return distance(p, shape.points[0]) < Math.max(10, shape.strokeWidth + 5);
+         return distance(p, shape.points[0]) < Math.max(10, shape.strokeWidth + 5 + (hitTolerance || 0));
     }
+    
     if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.TEXT].includes(shape.type)) {
         const corners = getRotatedCorners(shape);
-        return isPointInPolygon(p, corners);
-    }
-    if (shape.type === ShapeType.PATH || shape.type === ShapeType.FREEHAND) {
-        if (shape.points && shape.points.length > 1) {
-            const closest = getClosestPointOnShape(p, shape);
+        if (isPointInPolygon(p, corners)) return true;
+        
+        if (hitTolerance && hitTolerance > 0) {
+            const tempShape = { ...shape, points: corners, type: ShapeType.POLYGON };
+            const closest = getClosestPointOnShape(p, tempShape);
             return distance(p, closest) < threshold;
         }
         return false;
     }
+
     if (shape.type === ShapeType.CIRCLE) {
          const center = getShapeCenter(shape.points);
          const radius = distance(shape.points[0], shape.points[1]) / 2;
-         return distance(p, center) <= radius;
+         const d = distance(p, center);
+         if (d <= radius) return true;
+         return Math.abs(d - radius) < threshold;
     }
     if (shape.type === ShapeType.ELLIPSE) {
         const center = getShapeCenter(shape.points);
@@ -310,12 +336,39 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
             const val = Math.pow(localP.x - center.x, 2) / (rx * rx) + Math.pow(localP.y - center.y, 2) / (ry * ry);
             if (val <= 1) return true;
         }
+        if (hitTolerance && hitTolerance > 0) {
+            const d = distance(p, center);
+            const maxR = Math.max(rx, ry);
+            return d < maxR + threshold;
+        }
         return false;
     }
+
     if ((shape.type === ShapeType.POLYGON || shape.type === ShapeType.TRIANGLE) && shape.points.length >= 3) {
         const corners = getRotatedCorners(shape);
         if (isPointInPolygon(p, corners)) return true;
     }
+    
+    if (shape.type === ShapeType.PATH || shape.type === ShapeType.FREEHAND) {
+        if (shape.points && shape.points.length > 1) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (let i = 0; i < shape.points.length; i++) {
+                const pt = shape.points[i];
+                if (pt.x < minX) minX = pt.x;
+                if (pt.x > maxX) maxX = pt.x;
+                if (pt.y < minY) minY = pt.y;
+                if (pt.y > maxY) maxY = pt.y;
+            }
+            if (p.x < minX - threshold || p.x > maxX + threshold || 
+                p.y < minY - threshold || p.y > maxY + threshold) {
+                return false;
+            }
+            const closest = getClosestPointOnShape(p, shape);
+            return distance(p, closest) < threshold;
+        }
+        return false;
+    }
+
     let pointsToCheck = shape.points;
     if (shape.rotation) {
          const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
@@ -326,303 +379,404 @@ export const isPointInShape = (p: Point, shape: Shape, canvasWidth?: number, can
     return distance(p, closest) < threshold;
 };
 
-export const isShapeInRect = (shape: Shape, rect: { start: Point, end: Point }): boolean => {
-    const xMin = Math.min(rect.start.x, rect.end.x);
-    const xMax = Math.max(rect.start.x, rect.end.x);
-    const yMin = Math.min(rect.start.y, rect.end.y);
-    const yMax = Math.max(rect.start.y, rect.end.y);
-    const corners = getRotatedCorners(shape);
-    if (corners.length > 0) {
-        return corners.every(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
-    }
-    if (shape.points && shape.points.length > 0) {
-        return shape.points.every(p => p.x >= xMin && p.x <= xMax && p.y >= yMin && p.y <= yMax);
-    }
-    return false;
-};
+// --- New Exported Helper Functions ---
 
-export const getSnapPoint = (
-    cursor: Point, 
-    shapes: Shape[], 
-    excludeIds: string[] = [],
-    gridConfig?: { width: number; height: number; ppu: number }
-): { point: Point; snapped: boolean; constraint?: any } => {
-    const snapDist = 5; 
-    let closestPt = cursor;
-    let minD = snapDist;
-    let snapped = false;
-    let constraint = null;
-    for (const s of shapes) {
-        if (excludeIds.includes(s.id)) continue;
-        if (s.type === ShapeType.FUNCTION_GRAPH) continue; 
-        if (s.type === ShapeType.MARKER) continue; 
-        const pointsToCheck = s.points.length > 50 ? [s.points[0], s.points[s.points.length-1]] : s.points;
-        for (const p of pointsToCheck) {
-            const d = distance(cursor, p);
-            if (d < minD) {
-                minD = d; closestPt = p; snapped = true;
-                constraint = { type: 'intersection', parents: [s.id] }; 
-            }
+export const getSmoothSvgPath = (points: Point[], closed: boolean = false): string => {
+    if (points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y} Z`;
+    
+    let d = `M ${points[0].x} ${points[0].y}`;
+    
+    for (let i = 1; i < points.length; i++) {
+        const p0 = points[i - 1];
+        const p1 = points[i];
+        const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        if (i === 1) {
+            d += ` L ${mid.x} ${mid.y}`;
+        } else {
+            d += ` Q ${p0.x} ${p0.y} ${mid.x} ${mid.y}`;
         }
     }
-    if (gridConfig) {
-        const { width, height, ppu } = gridConfig;
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const gridX = centerX + Math.round((cursor.x - centerX) / ppu) * ppu;
-        const gridY = centerY + Math.round((cursor.y - centerY) / ppu) * ppu;
-        const gridPt = { x: gridX, y: gridY };
-        const d = distance(cursor, gridPt);
-        if (d < minD) {
-            minD = d; closestPt = gridPt; snapped = true;
-            constraint = { type: 'grid' };
+    const last = points[points.length - 1];
+    d += ` L ${last.x} ${last.y}`;
+    if (closed) d += ' Z';
+    return d;
+};
+
+export const getVariableWidthPath = (points: Point[], baseWidth: number): string => {
+    if (points.length < 2) return '';
+    const leftPts: Point[] = [];
+    const rightPts: Point[] = [];
+
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const width = Math.max(1, baseWidth * (p.p !== undefined ? p.p : 0.5) * 2);
+        let tx, ty;
+        if (i === 0) {
+            tx = points[1].x - p.x;
+            ty = points[1].y - p.y;
+        } else if (i === points.length - 1) {
+            tx = p.x - points[i - 1].x;
+            ty = p.y - points[i - 1].y;
+        } else {
+            tx = points[i + 1].x - points[i - 1].x;
+            ty = points[i + 1].y - points[i - 1].y;
         }
+        const len = Math.sqrt(tx * tx + ty * ty);
+        if (len === 0) { leftPts.push(p); rightPts.push(p); continue; }
+        const nx = -ty / len;
+        const ny = tx / len;
+        leftPts.push({ x: p.x + nx * width, y: p.y + ny * width });
+        rightPts.push({ x: p.x - nx * width, y: p.y - ny * width });
     }
-    return { point: closestPt, snapped, constraint };
+    
+    let d = `M ${leftPts[0].x} ${leftPts[0].y}`;
+    for (let i = 1; i < leftPts.length; i++) {
+        const p0 = leftPts[i - 1];
+        const p1 = leftPts[i];
+        const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        d += ` Q ${p0.x} ${p0.y} ${mid.x} ${mid.y}`;
+    }
+    d += ` L ${leftPts[leftPts.length - 1].x} ${leftPts[leftPts.length - 1].y}`;
+    d += ` L ${rightPts[rightPts.length - 1].x} ${rightPts[rightPts.length - 1].y}`;
+    for (let i = rightPts.length - 2; i >= 0; i--) {
+        const p0 = rightPts[i + 1];
+        const p1 = rightPts[i];
+        const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        d += ` Q ${p0.x} ${p0.y} ${mid.x} ${mid.y}`;
+    }
+    d += ' Z';
+    return d;
 };
 
-export const reflectPointAcrossLine = (p: Point, l1: Point, l2: Point): Point => {
-    const dx = l2.x - l1.x;
-    const dy = l2.y - l1.y;
-    const a = (dx * dx - dy * dy) / (dx * dx + dy * dy);
-    const b = 2 * dx * dy / (dx * dx + dy * dy);
-    const x2 = a * (p.x - l1.x) + b * (p.y - l1.y) + l1.x;
-    const y2 = b * (p.x - l1.x) - a * (p.y - l1.y) + l1.y;
-    return { x: x2, y: y2 };
-};
-
-export const getAngleDegrees = (center: Point, p: Point): number => {
-    return Math.atan2(p.y - center.y, p.x - center.x) * (180 / Math.PI);
-};
-
-export const getAngleArcPath = (center: Point, start: Point, end: Point, radius: number): string => {
-    const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
-    let endAngle = Math.atan2(end.y - center.y, end.x - center.x);
-    let diff = endAngle - startAngle;
-    while (diff > Math.PI) diff -= 2 * Math.PI;
-    while (diff < -Math.PI) diff += 2 * Math.PI;
-    const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
-    const sweepFlag = diff > 0 ? 1 : 0;
-    return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${end.x} ${end.y}`;
-};
-
-export const getPolygonAngles = (points: Point[]): (number | undefined)[] => {
-    const angles: (number | undefined)[] = [];
+export const getPolygonAngles = (points: Point[]): number[] => {
+    if (points.length < 3) return [];
+    const angles = [];
     const n = points.length;
-    for(let i=0; i<n; i++) {
-        const pP = points[(i - 1 + n) % n], pC = points[i], pN = points[(i + 1) % n];
-        const v1 = { x: pP.x - pC.x, y: pP.y - pC.y }, v2 = { x: pN.x - pC.x, y: pN.y - pC.y };
-        const m1 = Math.sqrt(v1.x*v1.x + v1.y*v1.y), m2 = Math.sqrt(v2.x*v2.x + v2.y*v2.y);
-        if (m1 === 0 || m2 === 0) { angles.push(0); continue; }
+    for (let i = 0; i < n; i++) {
+        const pPrev = points[(i - 1 + n) % n];
+        const pCurr = points[i];
+        const pNext = points[(i + 1) % n];
+        const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
+        const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
         const dot = v1.x * v2.x + v1.y * v2.y;
-        const angle = Math.acos(Math.max(-1, Math.min(1, dot / (m1 * m2)))) * (180 / Math.PI);
+        const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+        const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+        if (mag1 === 0 || mag2 === 0) { angles.push(0); continue; }
+        let angle = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2)))) * (180 / Math.PI);
         angles.push(Math.round(angle));
     }
     return angles;
 };
 
-export const getSmoothSvgPath = (points: Point[]): string => {
-    if (points.length < 2) return "";
-    
-    let d = `M ${points[0].x} ${points[0].y}`;
-    
-    // For just 2 points, it's a line
-    if (points.length === 2) {
-        return d + ` L ${points[1].x} ${points[1].y}`;
-    }
-
-    // Use Quadratic Bezier curves for smoothing (Midpoint Smoothing)
-    // Connects p1 to p2 using midpoints as anchors to ensure continuity
-    for (let i = 1; i < points.length - 1; i++) {
-        const p1 = points[i];
-        const p2 = points[i+1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        // Draw quad curve from current pen pos to mid point, using p1 as control
-        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
-    }
-    
-    // Connect to the last point
-    const last = points[points.length - 1];
-    d += ` L ${last.x} ${last.y}`;
-    
-    return d;
+export const reflectPointAcrossLine = (p: Point, l1: Point, l2: Point): Point => {
+    const dx = l2.x - l1.x;
+    const dy = l2.y - l1.y;
+    const den = dx * dx + dy * dy;
+    if (den === 0) return p;
+    const a = (dx * dx - dy * dy) / den;
+    const b = 2 * dx * dy / den;
+    const x = a * (p.x - l1.x) + b * (p.y - l1.y) + l1.x;
+    const y = b * (p.x - l1.x) - a * (p.y - l1.y) + l1.y;
+    return { x, y };
 };
 
-/**
- * Generates an SVG path representing the outline of a variable-width stroke based on point pressure.
- * Uses Quadratic Bezier curves for smooth outline rendering.
- */
-export const getVariableWidthPath = (points: Point[], baseWidth: number): string => {
-    if (points.length < 2) return "";
+export const getAngleArcPath = (center: Point, p1: Point | null, p2: Point | null, radius: number, startAngle?: number, endAngle?: number): string => {
+    let sAngle = startAngle;
+    let eAngle = endAngle;
+
+    if (p1 && p2 && sAngle === undefined) {
+        sAngle = getAngleDegrees(center, p1);
+        eAngle = getAngleDegrees(center, p2);
+    }
+    if (sAngle === undefined || eAngle === undefined) return '';
+
+    const startRad = sAngle * Math.PI / 180;
+    const endRad = eAngle * Math.PI / 180;
+    const x1 = center.x + radius * Math.cos(startRad);
+    const y1 = center.y + radius * Math.sin(startRad);
+    const x2 = center.x + radius * Math.cos(endRad);
+    const y2 = center.y + radius * Math.sin(endRad);
     
-    const leftPoints: Point[] = [];
-    const rightPoints: Point[] = [];
-
-    for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        const pressure = p.p ?? 0.5;
-        
-        // FIX: Ensure minimum thickness and boost curve
-        const width = baseWidth * (0.3 + Math.max(0.1, pressure) * 0.9);
-        
-        let dx, dy;
-        if (i === 0) {
-            dx = points[1].x - points[0].x;
-            dy = points[1].y - points[0].y;
-        } else if (i === points.length - 1) {
-            dx = points[i].x - points[i - 1].x;
-            dy = points[i].y - points[i - 1].y;
-        } else {
-            // Average tangent for smoother joints using finite difference of neighbors
-            dx = points[i + 1].x - points[i - 1].x;
-            dy = points[i + 1].y - points[i - 1].y;
-        }
-        
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / len;
-        const ny = dx / len;
-        
-        leftPoints.push({ x: p.x + nx * width, y: p.y + ny * width });
-        rightPoints.push({ x: p.x - nx * width, y: p.y - ny * width });
-    }
-
-    // Connect into one polygon path using smoothing
-    let d = `M ${leftPoints[0].x} ${leftPoints[0].y}`;
-
-    // Smooth Left Side
-    for (let i = 1; i < leftPoints.length - 1; i++) {
-        const p1 = leftPoints[i];
-        const p2 = leftPoints[i+1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
-    }
-    d += ` L ${leftPoints[leftPoints.length - 1].x} ${leftPoints[leftPoints.length - 1].y}`;
+    let diff = eAngle - sAngle;
+    while (diff < 0) diff += 360;
+    while (diff >= 360) diff -= 360;
+    const largeArc = diff > 180 ? 1 : 0;
     
-    // Connect to Right Side (Cap)
-    d += ` L ${rightPoints[rightPoints.length - 1].x} ${rightPoints[rightPoints.length - 1].y}`;
-
-    // Smooth Right Side (Reverse order)
-    for (let i = rightPoints.length - 2; i > 0; i--) {
-        const p1 = rightPoints[i];
-        const p2 = rightPoints[i-1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
-    }
-    d += ` L ${rightPoints[0].x} ${rightPoints[0].y}`;
-
-    d += " Z";
-    return d;
+    return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`;
 };
 
-// --- Ramer-Douglas-Peucker simplification ---
-const simplifyPath = (points: Point[], tolerance: number): Point[] => {
-    if (points.length <= 2) return points;
-    let dmax = 0;
+// Internal Helper for Douglas-Peucker: Distance from point to line segment squared
+const getSqSegDist = (p: Point, p1: Point, p2: Point) => {
+    let x = p1.x, y = p1.y, dx = p2.x - x, dy = p2.y - y;
+    if (dx !== 0 || dy !== 0) {
+        const t = ((p.x - x) * dx + (p.y - y) * dy) / (dx * dx + dy * dy);
+        if (t > 1) { x = p2.x; y = p2.y; }
+        else if (t > 0) { x += dx * t; y += dy * t; }
+    }
+    dx = p.x - x; dy = p.y - y;
+    return dx * dx + dy * dy;
+};
+
+// Internal Helper: Ramer-Douglas-Peucker Simplification
+const simplifyDP = (points: Point[], sqTolerance: number): Point[] => {
+    const len = points.length;
+    if (len <= 2) return points;
+    let maxSqDist = 0;
     let index = 0;
-    const end = points.length - 1;
-    for (let i = 1; i < end; i++) {
-        const d = distanceToLine(points[i], points[0], points[end]);
-        if (d > dmax) {
-            index = i;
-            dmax = d;
-        }
+    for (let i = 1; i < len - 1; i++) {
+        const sqDist = getSqSegDist(points[i], points[0], points[len - 1]);
+        if (sqDist > maxSqDist) { maxSqDist = sqDist; index = i; }
     }
-    if (dmax > tolerance) {
-        const res1 = simplifyPath(points.slice(0, index + 1), tolerance);
-        const res2 = simplifyPath(points.slice(index), tolerance);
-        return [...res1.slice(0, -1), ...res2];
-    } else {
-        return [points[0], points[end]];
+    if (maxSqDist > sqTolerance) {
+        const res1 = simplifyDP(points.slice(0, index + 1), sqTolerance);
+        const res2 = simplifyDP(points.slice(index), sqTolerance);
+        return res1.slice(0, res1.length - 1).concat(res2);
     }
+    return [points[0], points[len - 1]];
 };
 
-const distanceToLine = (p: Point, a: Point, b: Point): number => {
-    const l2 = Math.pow(distance(a, b), 2);
-    if (l2 === 0) return distance(p, a);
-    const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-    const projection = lerp(a, b, Math.max(0, Math.min(1, t)));
-    return distance(p, projection);
-};
-
-export const recognizeFreehandShape = (points: Point[]): RecognizedShape | null => {
+export const recognizeFreehandShape = (points: Point[]): { type: ShapeType, points: Point[] } | null => {
     if (points.length < 5) return null;
-    const totalPathLen = points.reduce((acc, p, i) => i === 0 ? 0 : acc + distance(points[i-1], p), 0);
-    const startEndDist = distance(points[0], points[points.length - 1]);
-    if (totalPathLen / startEndDist < 1.15 && totalPathLen > 30) {
-        return { type: ShapeType.LINE, points: [points[0], points[points.length - 1]] };
-    }
+
+    // 1. Calculate Bounds
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
         minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     });
-    const w = maxX - minX, h = maxY - minY;
-    const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-    const radii = points.map(p => distance(p, center));
-    const avgRadius = radii.reduce((a, b) => a + b) / radii.length;
-    const variance = radii.reduce((a, b) => a + Math.pow(b - avgRadius, 2), 0) / radii.length;
-    const stdDev = Math.sqrt(variance);
-    if (stdDev / avgRadius < 0.15) {
-        const ratio = w / h;
-        const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
-        if (Math.abs(1 - ratio) < 0.2) return { type: ShapeType.CIRCLE, points: pts };
-        else return { type: ShapeType.ELLIPSE, points: pts };
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const maxDim = Math.max(width, height);
+    if (maxDim < 5) return null;
+
+    const p0 = points[0];
+    const pLast = points[points.length - 1];
+    const distEnd = Math.sqrt(Math.pow(p0.x - pLast.x, 2) + Math.pow(p0.y - pLast.y, 2));
+
+    // 2. Line Check: If not closed
+    if (distEnd > maxDim * 0.35) {
+        return { type: ShapeType.LINE, points: [p0, pLast] };
     }
-    const corners = simplifyPath(points, Math.max(w, h) * 0.15);
-    const distinctCorners = corners.filter((p, i) => i === 0 || distance(p, corners[i-1]) > 20);
-    if (distinctCorners.length === 3 || (distinctCorners.length === 4 && distance(distinctCorners[0], distinctCorners[3]) < 50)) {
-        return { type: ShapeType.TRIANGLE, points: distinctCorners.slice(0, 3) };
+
+    // 3. Circularity Analysis
+    // Calculate Centroid
+    let cx = 0, cy = 0;
+    points.forEach(p => { cx += p.x; cy += p.y; });
+    cx /= points.length;
+    cy /= points.length;
+
+    // Calculate radii statistics
+    let sumR = 0;
+    let sumSqR = 0;
+    points.forEach(p => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const r = Math.sqrt(dx*dx + dy*dy);
+        sumR += r;
+        sumSqR += r*r;
+    });
+    const avgR = sumR / points.length;
+    const variance = (sumSqR / points.length) - (avgR * avgR);
+    const stdDev = Math.sqrt(Math.max(0, variance));
+    // Coefficient of variation: < 0.16 usually implies a circle drawn by hand
+    const circleScore = avgR > 0 ? stdDev / avgR : 1;
+
+    // 4. Area Analysis (Fill Ratio)
+    let signedArea = 0;
+    for (let i = 0; i < points.length; i++) {
+        const p1 = points[i];
+        const p2 = points[(i + 1) % points.length];
+        signedArea += (p1.x * p2.y - p2.x * p1.y);
     }
-    const ratio = w / h;
-    const pts = [{ x: minX, y: minY }, { x: maxX, y: maxY }];
-    if (Math.abs(1 - ratio) < 0.15) return { type: ShapeType.SQUARE, points: pts };
-    return { type: ShapeType.RECTANGLE, points: pts };
+    const polygonArea = Math.abs(signedArea) / 2;
+    const boxArea = width * height;
+    const fillRatio = boxArea > 0 ? polygonArea / boxArea : 0;
+
+    // 5. RDP Simplification (Geometry count)
+    const tolerance = Math.max(10, maxDim * 0.06); 
+    const simplified = simplifyDP(points, tolerance * tolerance);
+    let vertices = [...simplified];
+    // Remove duplicate end if closed
+    if (vertices.length > 2 && distance(vertices[0], vertices[vertices.length - 1]) < tolerance) {
+        vertices.pop();
+    }
+    const vCount = vertices.length;
+
+    // --- DECISION TREE ---
+
+    // A. CIRCLE DETECTOR
+    // Requirement: Square-ish bounding box + low radius variance
+    const aspectRatio = width / height;
+    if (aspectRatio > 0.8 && aspectRatio < 1.25 && circleScore < 0.16) {
+        return { type: ShapeType.CIRCLE, points: [{x: minX, y: minY}, {x: maxX, y: maxY}] };
+    }
+
+    // B. TRIANGLE DETECTOR
+    // Low fill ratio (triangle is 0.5) OR explicitly 3 points
+    if (fillRatio < 0.62 || vCount === 3) {
+        // If we have way too many vertices but low ratio, force simplified triangle
+        if (vertices.length !== 3) {
+             const aggrSimple = simplifyDP(points, (maxDim * 0.15) ** 2);
+             if (aggrSimple.length >= 3) {
+                 vertices = aggrSimple.slice(0, 3);
+             } else {
+                 return { type: ShapeType.POLYGON, points: vertices }; 
+             }
+        }
+        return { type: ShapeType.TRIANGLE, points: vertices };
+    }
+
+    // C. RECTANGLE DETECTOR
+    // High fill ratio (rect is 1.0) OR explicitly 4 points
+    if (fillRatio > 0.88 || vCount === 4) {
+        return { type: ShapeType.RECTANGLE, points: [{x: minX, y: minY}, {x: maxX, y: maxY}] };
+    }
+
+    // D. ELLIPSE (Default for blobs that are not Circles)
+    // The range 0.62 - 0.88 is typical for Ellipses/Circles.
+    return { type: ShapeType.ELLIPSE, points: [{x: minX, y: minY}, {x: maxX, y: maxY}] };
 };
 
 export const recalculateMarker = (marker: Shape, allShapes: Shape[]): Shape | null => {
-    if (!marker.markerConfig) return null;
-    const target = marker.markerConfig.targets[0];
-    const parent = allShapes.find(s => s.id === target.shapeId);
-    if (!parent) return null;
-    const corners = getRotatedCorners(parent);
-    const i = target.pointIndices[1];
-    if (!corners[i]) return null;
-    const pPrev = corners[target.pointIndices[0]], pCurr = corners[i], pNext = corners[target.pointIndices[2]];
-    const v1 = normalize({ x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y }), v2 = normalize({ x: pNext.x - pCurr.x, y: pNext.y - pCurr.y });
-    let pathData = "";
-    if (marker.markerConfig.type === 'perpendicular') {
-        const size = 15;
-        const p1 = { x: pCurr.x + v1.x * size, y: pCurr.y + v1.y * size };
-        const p3 = { x: pCurr.x + v2.x * size, y: pCurr.y + v2.y * size };
-        const p2 = { x: p1.x + v2.x * size, y: p1.y + v2.y * size };
-        pathData = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y}`;
+    if (!marker.markerConfig) return marker;
+    const config = marker.markerConfig;
+    const target = allShapes.find(s => s.id === config.targets[0].shapeId);
+    if (!target) return null;
+    const indices = config.targets[0].pointIndices;
+    if (!indices || indices.length < 3) return marker;
+    const p1 = target.points[indices[0]];
+    const p2 = target.points[indices[1]]; 
+    const p3 = target.points[indices[2]];
+    if (!p1 || !p2 || !p3) return null;
+    const len = 20; 
+    const v1 = normalize(sub(p1, p2));
+    const v2 = normalize(sub(p3, p2));
+    const start = { x: p2.x + v1.x * len, y: p2.y + v1.y * len };
+    const end = { x: p2.x + v2.x * len, y: p2.y + v2.y * len };
+    
+    if (config.type === 'perpendicular') {
+        const mid = { x: start.x + v2.x * len, y: start.y + v2.y * len };
+        const path = `M ${start.x} ${start.y} L ${mid.x} ${mid.y} L ${end.x} ${end.y}`;
+        return { ...marker, points: [start], pathData: path };
     } else {
-        pathData = getAngleArcPath(pCurr, { x: pCurr.x + v1.x * 25, y: pCurr.y + v1.y * 25 }, { x: pCurr.x + v2.x * 25, y: pCurr.y + v2.y * 25 }, 25);
+        const a1 = getAngleDegrees(p2, p1);
+        const a2 = getAngleDegrees(p2, p3);
+        const path = getAngleArcPath(p2, p1, p3, len, a1, a2);
+        return { ...marker, points: [start], pathData: path };
     }
-    return { ...marker, points: [pCurr], pathData };
 };
 
-export const fitShapesToViewport = (shapes: Shape[], canvasW: number, canvasH: number): Shape[] => {
-    if (shapes.length === 0 || canvasW <= 0 || canvasH <= 0) return shapes;
+export const getSnapPoint = (
+    pos: Point, 
+    shapes: Shape[], 
+    excludeIds: string[] = [], 
+    gridConfig?: { width: number, height: number, ppu: number, originY?: number }
+): { point: Point, snapped: boolean, constraint?: Constraint } => {
+    let closestDist = 10; 
+    let snapPt = pos;
+    let snapped = false;
+    let constraint: Constraint | undefined = undefined;
+
+    if (gridConfig) {
+        const { ppu } = gridConfig;
+        const gx = Math.round(pos.x / ppu) * ppu;
+        const gy = Math.round(pos.y / ppu) * ppu;
+        if (Math.abs(gx - pos.x) < 5 && Math.abs(gy - pos.y) < 5) {
+             snapPt = { x: gx, y: gy };
+             closestDist = 5; 
+             snapped = true;
+        }
+    }
+
+    for (const shape of shapes) {
+        if (excludeIds.includes(shape.id)) continue;
+        if (shape.type === ShapeType.FUNCTION_GRAPH) {
+             if (shape.formulaParams && gridConfig) {
+                 const originY = gridConfig.originY ?? (gridConfig.height / 2);
+                 const mp = screenToMath(pos, gridConfig.width, gridConfig.height, gridConfig.ppu, originY);
+                 const fType = shape.functionType || 'quadratic';
+                 const my = evaluateQuadratic(mp.x, shape.formulaParams, shape.functionForm, fType);
+                 const sp = mathToScreen({ x: mp.x, y: my }, gridConfig.width, gridConfig.height, gridConfig.ppu, originY);
+                 if (distance(pos, sp) < closestDist) {
+                     snapPt = sp;
+                     closestDist = distance(pos, sp);
+                     snapped = true;
+                     constraint = { type: 'on_path', parentId: shape.id, paramX: mp.x };
+                 }
+             }
+             continue;
+        }
+        
+        if (shape.points) {
+            for (const p of shape.points) {
+                const d = distance(pos, p);
+                if (d < closestDist) {
+                    snapPt = p;
+                    closestDist = d;
+                    snapped = true;
+                    constraint = undefined; 
+                }
+            }
+            if (shape.points.length >= 2) {
+                for(let i=0; i<shape.points.length - 1; i++) {
+                    const p1 = shape.points[i];
+                    const p2 = shape.points[i+1];
+                    const mid = { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 };
+                    const d = distance(pos, mid);
+                    if (d < closestDist) {
+                        snapPt = mid;
+                        closestDist = d;
+                        snapped = true;
+                        constraint = { type: 'on_path', parentId: shape.id }; 
+                    }
+                }
+            }
+        }
+    }
+    return { point: snapPt, snapped, constraint };
+};
+
+export const fitShapesToViewport = (shapes: Shape[], width: number, height: number): Shape[] => {
+    if (shapes.length === 0) return shapes;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    shapes.forEach(s => { s.points.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }); });
-    if (minX === Infinity) return shapes;
+    shapes.forEach(s => {
+        s.points.forEach(p => {
+            minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        });
+    });
     const contentW = maxX - minX;
     const contentH = maxY - minY;
     if (contentW <= 0 || contentH <= 0) return shapes;
-    const padding = 0.8; 
-    const scale = Math.min((canvasW * padding) / contentW, (canvasH * padding) / contentH);
-    const finalScale = Math.min(scale, 1.5);
-    const contentCenterX = (minX + maxX) / 2;
-    const contentCenterY = (minY + maxY) / 2;
-    const canvasCenterX = canvasW / 2;
-    const canvasCenterY = canvasH / 2;
-    const newShapes = shapes.map(s => {
-        const newPoints = s.points.map(p => ({ x: canvasCenterX + (p.x - contentCenterX) * finalScale, y: canvasCenterY + (p.y - contentCenterY) * finalScale }));
-        return { ...s, points: newPoints, strokeWidth: Math.max(1, s.strokeWidth * finalScale), fontSize: s.fontSize ? Math.max(8, s.fontSize * finalScale) : s.fontSize };
-    });
-    return newShapes.map(s => { if (s.type === ShapeType.MARKER) return recalculateMarker(s, newShapes) || s; return s; });
+    const padding = 50;
+    const scaleX = (width - padding * 2) / contentW;
+    const scaleY = (height - padding * 2) / contentH;
+    const scale = Math.min(scaleX, scaleY);
+    const contentCenterX = minX + contentW / 2;
+    const contentCenterY = minY + contentH / 2;
+    const viewportCenterX = width / 2;
+    const viewportCenterY = height / 2;
+    return shapes.map(s => ({
+        ...s,
+        points: s.points.map(p => ({
+            x: viewportCenterX + (p.x - contentCenterX) * scale,
+            y: viewportCenterY + (p.y - contentCenterY) * scale,
+            p: p.p
+        })),
+        fontSize: s.fontSize ? s.fontSize * scale : undefined,
+        strokeWidth: s.strokeWidth * scale
+    }));
+};
+
+export const sanitizeLoadedShapes = (shapes: any[]): Shape[] => {
+    return shapes.map(s => ({
+        ...s,
+        fill: s.fill || 'transparent',
+        stroke: s.stroke || '#000000',
+        strokeWidth: s.strokeWidth || 1,
+        strokeType: s.strokeType || 'solid',
+        rotation: s.rotation || 0,
+        points: s.points.map((p: any) => ({ x: Number(p.x), y: Number(p.y), p: p.p }))
+    }));
 };

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
 import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
@@ -47,7 +46,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
     stroke: activeStroke,
     strokeWidth: 2,
     rx: 2, 
-    cursor: 'pointer'
+    cursor: 'pointer',
+    pointerEvents: 'auto' as const
   };
 
   // Determine if we should show a bounding box or individual vertex handles
@@ -75,10 +75,11 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   if (type === ShapeType.TEXT) {
       // For text, we can't just take min/max of 1 point. We need rough dims.
       const fs = shape.fontSize || 16;
-      const w = (shape.text || '').length * fs * 0.6;
-      const h = fs;
+      // MATCHES mathUtils UPDATE: 0.8 factor
+      const w = Math.max(20, (shape.text || '').length * fs * 0.8);
+      const h = fs * 1.2;
       minX = points[0].x;
-      minY = points[0].y;
+      minY = points[0].y - fs * 0.1;
       maxX = minX + w;
       maxY = minY + h;
       width = w;
@@ -125,7 +126,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             y={h.y - offset}
             {...handleStyle}
             onPointerDown={(e) => onResizeStart(h.id, e)}
-            style={{ cursor: (h.id === 0 || h.id === 2) ? 'nwse-resize' : 'nesw-resize' }}
+            style={{ cursor: (h.id === 0 || h.id === 2) ? 'nwse-resize' : 'nesw-resize', pointerEvents: 'auto' }}
           />
       ));
   } else {
@@ -144,7 +145,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             y={p.y - offset}
             {...handleStyle}
             onPointerDown={(e) => onResizeStart(i, e)}
-            style={{ cursor: 'move' }} 
+            style={{ cursor: 'move', pointerEvents: 'auto' }} 
           />
       ));
   }
@@ -281,7 +282,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
       pivotTargets = candidates.map((p, i) => (
           <g key={`pt-${i}`} transform={`translate(${p.x}, ${p.y})`} 
              onPointerDown={(e) => { e.stopPropagation(); onSetPivot(indices[i]); }}
-             style={{ cursor: 'crosshair' }}
+             style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
           >
               <circle r={6} fill="rgba(255, 255, 255, 0.8)" stroke="#ef4444" strokeWidth={1} />
               <Plus size={8} color="#ef4444" transform="translate(-4, -4)" />
@@ -290,7 +291,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   }
 
   return (
-    <g transform={transform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+    // Set pointer-events to none on the container so it doesn't block double-clicks on the text below
+    <g transform={transform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: 'none' }}>
         {/* Bounding Box */}
         {showBoundingBox && (
             <rect 
@@ -305,7 +307,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
         <circle 
             cx={rotHandlePos.x} cy={rotHandlePos.y} r={5} 
             fill="#ffffff" stroke={activeStroke} strokeWidth={2} 
-            style={{ cursor: 'grab' }}
+            style={{ cursor: 'grab', pointerEvents: 'auto' }}
             onPointerDown={onRotateStart}
         />
 

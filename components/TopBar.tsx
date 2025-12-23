@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Spline, Box, ChevronDown, Apple, Monitor, Terminal, 
@@ -6,7 +5,7 @@ import {
   Eraser, Download 
 } from 'lucide-react';
 import { Shape } from '../types';
-import { exportCanvas, exportAppIcon, saveProject, isElectron } from '../utils/exportUtils';
+import { exportCanvas, exportAppIcon, isElectron } from '../utils/exportUtils';
 
 interface TopBarProps {
   shapes: Shape[];
@@ -17,6 +16,7 @@ interface TopBarProps {
   deleteSelected: () => void;
   clearAll: () => void;
   selectedIds: Set<string>;
+  onSave: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -28,6 +28,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   deleteSelected,
   clearAll,
   selectedIds,
+  onSave,
 }) => {
   const [showIconDropdown, setShowIconDropdown] = useState(false);
 
@@ -92,7 +93,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </button>
 
         <button 
-          onClick={() => saveProject(shapes, 'project')} 
+          onClick={onSave} 
           className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" 
           title="Save"
         >

@@ -1,4 +1,3 @@
-
 import { Shape } from '../types';
 
 // Helper to detect if running in Electron renderer
@@ -288,19 +287,22 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
     }
 };
 
-export const saveProject = async (shapes: Shape[], filename: string) => {
+export const saveProject = async (shapes: Shape[], filename: string): Promise<boolean> => {
     const data = JSON.stringify(shapes, null, 2);
 
     if (isElectron()) {
         try {
             const { ipcRenderer } = (window as any).require('electron');
             const result = await ipcRenderer.invoke('save-dialog', data);
-            if (!result.success && result.error) {
-                alert('Failed to save project: ' + result.error);
+            if (!result.success) {
+                if (result.error) alert('Failed to save project: ' + result.error);
+                return false;
             }
+            return true;
         } catch (e) {
             console.error('Electron Save Error:', e);
             alert('An error occurred while saving.');
+            return false;
         }
     } else {
         const blob = new Blob([data], { type: 'application/json' });
@@ -312,6 +314,7 @@ export const saveProject = async (shapes: Shape[], filename: string) => {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        return true;
     }
 };
 
