@@ -9,7 +9,7 @@ interface SelectionOverlayProps {
   pivotIndex: number | 'center';
   isAltPressed: boolean;
   isMarkingAngles?: boolean;
-  isDragging?: boolean; // New Prop
+  isDragging?: boolean;
   onResizeStart: (index: number, e: React.PointerEvent) => void;
   onAngleChange: (index: number, newVal: string) => void;
   onRotateStart: (e: React.PointerEvent) => void;
@@ -24,7 +24,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   pivotIndex, 
   isAltPressed, 
   isMarkingAngles, 
-  isDragging, // Destructure
+  isDragging,
   onResizeStart, 
   onAngleChange, 
   onRotateStart, 
@@ -59,8 +59,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
     ShapeType.PROTRACTOR, 
     ShapeType.RULER,
     ShapeType.FREEHAND,
-    ShapeType.TEXT,
-    ShapeType.PATH,
+    ShapeType.TEXT, 
+    ShapeType.PATH, 
     ShapeType.IMAGE // Added
   ].includes(type);
 
@@ -104,9 +104,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   }
 
   const center = getShapeCenter(points, type, shape.fontSize, shape.text);
-  
-  // Apply rotation to the whole group
-  const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
+  const rotationTransform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : '';
 
   let renderHandles = null;
 
@@ -291,8 +289,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   }
 
   return (
-    // Set pointer-events to none on the container so it doesn't block double-clicks on the text below
-    <g transform={transform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: 'none' }}>
+    // ID added here for Direct DOM manipulation targeting
+    <g id="selection-overlay-group" transform={rotationTransform} style={{ opacity: isDragging ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: 'none' }}>
         {/* Bounding Box */}
         {showBoundingBox && (
             <rect 

@@ -1,13 +1,12 @@
+
 import { Shape, ShapeType, Point } from '../types';
 import { 
     isPointInShape, distance, getClosestPointOnShape, getRotatedCorners, 
-    generateQuadraticPath, evaluateQuadratic, screenToMath, mathToScreen, 
-    recalculateMarker 
+    rotatePoint, getShapeCenter
 } from './mathUtils';
 
 /**
  * Determines which shape interacts with the cursor at a given position.
- * Handles priority sorting (Points > Lines > Areas) and size comparisons.
  */
 export const getHitShape = (
     pos: Point, 
@@ -18,7 +17,26 @@ export const getHitShape = (
     originY?: number,
     hitTolerance?: number
 ): Shape | null => {
-    const hits = shapesList.filter(s => isPointInShape(pos, s, canvasWidth, canvasHeight, pixelsPerUnit, originY, hitTolerance));
+    const preFiltered = shapesList.filter(s => {
+        if ([ShapeType.POINT, ShapeType.MARKER, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.FUNCTION_GRAPH].includes(s.type)) return true;
+        
+        if (s.points && s.points.length > 0) {
+             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+             s.points.forEach(p => {
+                 if (p.x < minX) minX = p.x;
+                 if (p.x > maxX) maxX = p.x;
+                 if (p.y < minY) minY = p.y;
+                 if (p.y > maxY) maxY = p.y;
+             });
+             const tol = (hitTolerance || 18) + (s.strokeWidth || 2) + 10;
+             if (pos.x < minX - tol || pos.x > maxX + tol || pos.y < minY - tol || pos.y > maxY + tol) {
+                 return false;
+             }
+        }
+        return true;
+    });
+
+    const hits = preFiltered.filter(s => isPointInShape(pos, s, canvasWidth, canvasHeight, pixelsPerUnit, originY, hitTolerance));
     if (hits.length === 0) return null;
 
     return hits.sort((a, b) => {
@@ -36,7 +54,6 @@ export const getHitShape = (
         const pb = getPriority(b);
         if (pa !== pb) return pa - pb;
 
-        // Tie-breaker: Smaller object wins
         const getSize = (s: Shape) => {
              const corners = getRotatedCorners(s);
              if (corners.length === 0) return 0;
@@ -50,7 +67,6 @@ export const getHitShape = (
              return w * h;
         };
         
-        // Special case for lines: prefer closer distance if priorities match
         if (pa === 2) { 
              const da = distance(pos, getClosestPointOnShape(pos, a));
              const db = distance(pos, getClosestPointOnShape(pos, b));
@@ -84,143 +100,192 @@ export const getSelectionBounds = (shapes: Shape[], selectedIds: Set<string>) =>
 };
 
 /**
- * Calculates the new geometry of a shape when a specific handle is dragged (Resizing).
- * Supports both individual shape resizing and group resizing (via groupBounds).
+ * Calculates the new geometry of a shape when a specific handle is dragged.
+ * Implements specific stabilization strategies for different shape types to avoid center-shift jitter.
  */
 export const calculateResizedShape = (
     shape: Shape,
     cursorPos: Point,
-    handleIndex: number,
+    handleIndex: number, 
     isShiftPressed: boolean,
     groupBounds?: { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }
 ): Shape => {
-    // Determine if we are doing a box scale.
-    // Group bounds presence forces box scaling logic for all included shapes.
-    const isBoxScale = groupBounds !== undefined || [
-        ShapeType.RECTANGLE, 
-        ShapeType.SQUARE, 
-        ShapeType.IMAGE, 
-        ShapeType.CIRCLE, 
-        ShapeType.ELLIPSE, 
-        ShapeType.RULER, 
-        ShapeType.PATH, 
-        ShapeType.FREEHAND
-    ].includes(shape.type);
+    
+    // --- STRATEGY A: Vertex Deformations (Bake Rotation) ---
+    // Used for Triangle, Polygon, Line, Path, Freehand, AND POINT.
+    // When dragging a single vertex of a polygon, the shape's centroid changes.
+    // If we maintain a separate 'rotation' property, the changing centroid moves the 
+    // rotation pivot, causing the shape to visually shift or "flip" (local coordinate instability).
+    // The robust solution is to bake the rotation into the vertex coordinates (World Space)
+    // and reset rotation to 0.
+    const isVertexShape = !groupBounds && (
+        shape.type === ShapeType.TRIANGLE || 
+        [ShapeType.POLYGON, ShapeType.LINE, ShapeType.PATH, ShapeType.FREEHAND, ShapeType.POINT].includes(shape.type)
+    );
 
-    // Special Case: Single Text Element Resize (updates font size directly)
-    if (!groupBounds && shape.type === ShapeType.TEXT) { 
-        const center = shape.points[0]; 
-        const dist = distance(center, cursorPos);
-        return { ...shape, fontSize: Math.max(8, Math.round(dist / 2)) }; 
+    if (isVertexShape) {
+        // Handle degenerate cases or invalid indices
+        if (shape.points.length <= handleIndex) return shape;
+
+        const rotation = shape.rotation || 0;
+        const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
+
+        // 1. Calculate World/Screen coordinates for ALL points
+        // This effectively "applies" the rotation permanently to the points.
+        const screenPoints = shape.points.map(p => rotatePoint(p, center, rotation));
+        
+        // 2. Update the dragged point to the exact cursor position (World Space)
+        // Accessing property 'p' safely in case element is undefined (though length check above handles most cases)
+        const currentP = screenPoints[handleIndex];
+        if (currentP) {
+            screenPoints[handleIndex] = { ...cursorPos, p: currentP.p };
+        } else {
+            // Fallback if index is somehow out of bounds despite length check
+            return shape;
+        }
+
+        // 3. Return the shape with updated points and 0 rotation.
+        // This eliminates any center-pivot ambiguity and visual jitter.
+        return { ...shape, points: screenPoints, rotation: 0, lockedAngles: [] };
     }
 
-    if (isBoxScale && handleIndex >= 0 && handleIndex < 4) {
-         // Determine Bounds: either the Group's bounds or the Shape's own bounds
-         let minX, maxX, minY, maxY, w, h;
-         
-         if (groupBounds) {
-             ({ minX, maxX, minY, maxY, width: w, height: h } = groupBounds);
-         } else {
-             // Calculate Shape Bounds locally
-             minX = Infinity; maxX = -Infinity; minY = Infinity; maxY = -Infinity;
-             shape.points.forEach(p => {
-                 minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-                 minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-             });
-             w = maxX - minX;
-             h = maxY - minY;
-         }
-         
-         if (w === 0 || h === 0) return shape;
+    // --- STRATEGY B: Anchor-Based Scaling (The "Pin" Method) ---
+    // Used for individual box shapes: Rectangle, Image, Text, Square, Circle, Ellipse
+    if (!groupBounds) {
+        const rotationRad = (shape.rotation * Math.PI) / 180;
+        const cos = Math.cos(rotationRad);
+        const sin = Math.sin(rotationRad);
 
-         // Fixed Corner Map: 0(TL)->BR(2), 1(TR)->BL(3), 2(BR)->TL(0), 3(BL)->TR(1)
-         // Note: handleIndex 0-3 comes from the SelectionOverlay (TL, TR, BR, BL)
-         
-         // Edges of the BOUNDING BOX
-         const currentCorners = [
-            {x: minX, y: minY}, // 0 TL
-            {x: maxX, y: minY}, // 1 TR
-            {x: maxX, y: maxY}, // 2 BR
-            {x: minX, y: maxY}  // 3 BL
-         ];
-         
-         const fixedIdx = (handleIndex + 2) % 4;
-         const fixedPoint = currentCorners[fixedIdx];
-         let targetPos = { ...cursorPos };
+        // handleIndex indices: 0:TL, 1:TR, 2:BR, 3:BL
+        const corners = getRotatedCorners(shape);
+        // Safety check for corners
+        if (corners.length < 4) return shape;
 
-         // Aspect Ratio / Shift Lock Logic
-         // If group bounds, we use group aspect ratio.
-         if (isShiftPressed || (!groupBounds && [ShapeType.SQUARE, ShapeType.CIRCLE].includes(shape.type))) {
-             const ratio = w / h;
-             const dx = targetPos.x - fixedPoint.x;
-             const dy = targetPos.y - fixedPoint.y; 
-             
-             if (Math.abs(dx) / Math.abs(dy) > ratio) { 
-                 // Constrain Width based on Height
-                 targetPos.y = fixedPoint.y + (dy > 0 ? Math.abs(dx) / ratio : -Math.abs(dx) / ratio); 
-             } else { 
-                 // Constrain Height based on Width
-                 targetPos.x = fixedPoint.x + (dx > 0 ? Math.abs(dy) * ratio : -Math.abs(dy) * ratio); 
-             }
-         }
-         
-         // Calculate New Edges for the BOUNDING BOX
-         let newLeft = minX, newRight = maxX, newTop = minY, newBottom = maxY;
-         
-         // Horizontal
-         if (handleIndex === 0 || handleIndex === 3) { // Left Handles
-             newLeft = targetPos.x;
-             newRight = maxX; 
-         } else { // Right Handles
-             newLeft = minX; 
-             newRight = targetPos.x;
-         }
-         
-         // Vertical
-         if (!groupBounds && shape.type === ShapeType.RULER) {
-             // For ruler, dragging any handle should only change length, not height.
-             // We lock Top/Bottom to original values.
-             newTop = minY;
-             newBottom = maxY;
-         } else if (handleIndex === 0 || handleIndex === 1) { // Top Handles
-             newTop = targetPos.y;
-             newBottom = maxY; 
-         } else { // Bottom Handles
-             newTop = minY; 
-             newBottom = targetPos.y;
-         }
+        const anchorIdx = (handleIndex + 2) % 4; // Diagonal opposite is the pin
+        const fixedAnchorScreen = corners[anchorIdx];
 
-         // Perform Interpolation for all points in the shape
-         // x' = newLeft + ((x - minX) / w) * (newRight - newLeft)
-         const newPoints = shape.points.map(p => ({
-             x: newLeft + ((p.x - minX) / w) * (newRight - newLeft),
-             y: newTop + ((p.y - minY) / h) * (newBottom - newTop),
-             p: p.p
-         }));
-         
-         const updatedShape = { ...shape, points: newPoints };
+        // 1. Map mouse position to local coordinate system relative to anchor
+        const dx = cursorPos.x - fixedAnchorScreen.x;
+        const dy = cursorPos.y - fixedAnchorScreen.y;
 
-         // If resizing Text in a group, scale font size approximately by vertical scale
-         if (groupBounds && shape.type === ShapeType.TEXT && shape.fontSize) {
-             const scaleY = Math.abs(newBottom - newTop) / h;
-             updatedShape.fontSize = shape.fontSize * scaleY;
-         }
+        // Vector pointing from anchor to mouse in unrotated local space
+        let vectorLocal = {
+            x: dx * cos + dy * sin,
+            y: -dx * sin + dy * cos
+        };
 
-         return updatedShape;
+        // 2. Determine initial width/height for aspect ratio constraints
+        let oldW, oldH;
+
+        if (shape.type === ShapeType.TEXT) {
+            const fs = shape.fontSize || 16;
+            oldW = Math.max(20, (shape.text || '').length * fs * 0.8);
+            oldH = fs * 1.2;
+        } else {
+            let minXRaw = Infinity, maxXRaw = -Infinity, minYRaw = Infinity, maxYRaw = -Infinity;
+            shape.points.forEach(p => {
+                minXRaw = Math.min(minXRaw, p.x); maxXRaw = Math.max(maxXRaw, p.x);
+                minYRaw = Math.min(minYRaw, p.y); maxYRaw = Math.max(maxYRaw, p.y);
+            });
+            oldW = Math.max(1, maxXRaw - minXRaw);
+            oldH = Math.max(1, maxYRaw - minYRaw);
+        }
+
+        // 3. Apply aspect ratio constraints (Shift key or fixed-aspect shapes)
+        if (isShiftPressed || [ShapeType.SQUARE, ShapeType.CIRCLE].includes(shape.type)) {
+            const ratio = oldW / oldH;
+            if (Math.abs(vectorLocal.x / vectorLocal.y) > ratio) {
+                const signY = vectorLocal.y >= 0 ? 1 : -1;
+                vectorLocal.y = signY * Math.abs(vectorLocal.x) / ratio;
+            } else {
+                const signX = vectorLocal.x >= 0 ? 1 : -1;
+                vectorLocal.x = signX * Math.abs(vectorLocal.y) * ratio;
+            }
+        }
+
+        // 4. Derive the new center point based on the constrained local vector
+        const centerOffsetLocal = {
+            x: vectorLocal.x / 2,
+            y: vectorLocal.y / 2
+        };
+
+        const centerOffsetScreen = {
+            x: centerOffsetLocal.x * cos - centerOffsetLocal.y * sin,
+            y: centerOffsetLocal.x * sin + centerOffsetLocal.y * cos
+        };
+
+        const newCenterScreen = {
+            x: fixedAnchorScreen.x + centerOffsetScreen.x,
+            y: fixedAnchorScreen.y + centerOffsetScreen.y
+        };
+
+        const newW = Math.abs(vectorLocal.x);
+        const newH = Math.abs(vectorLocal.y);
+
+        // 5. Build final shape points in screen-space unrotated coords
+        const p1 = { x: newCenterScreen.x - newW / 2, y: newCenterScreen.y - newH / 2 };
+        const p2 = { x: newCenterScreen.x + newW / 2, y: newCenterScreen.y + newH / 2 };
+
+        let updatedShape = { ...shape };
+
+        if (shape.type === ShapeType.TEXT && shape.fontSize) {
+            const scaleY = newH / oldH;
+            const newFs = Math.max(4, shape.fontSize * scaleY);
+            const newAnchorY = p1.y + newFs * 0.1;
+            updatedShape.fontSize = newFs;
+            updatedShape.points = [{ x: p1.x, y: newAnchorY }];
+        } else {
+            updatedShape.points = [p1, p2];
+        }
+
+        return updatedShape;
+    } 
+
+    // --- STRATEGY C: Group Scaling (AABB based) ---
+    else {
+        let { minX, maxX, minY, maxY, width: w, height: h } = groupBounds;
+        const fixedIdx = (handleIndex + 2) % 4;
+        const currentCorners = [{x: minX, y: minY}, {x: maxX, y: minY}, {x: maxX, y: maxY}, {x: minX, y: maxY}];
+        const fixedPoint = currentCorners[fixedIdx];
+        let targetPos = { ...cursorPos };
+
+        if (isShiftPressed) {
+            const ratio = w / h;
+            const dx = targetPos.x - fixedPoint.x;
+            const dy = targetPos.y - fixedPoint.y; 
+            if (Math.abs(dx) / (Math.abs(dy) || 0.001) > ratio) { 
+                targetPos.y = fixedPoint.y + (dy > 0 ? 1 : -1) * Math.abs(dx) / ratio; 
+            } else { 
+                targetPos.x = fixedPoint.x + (dx > 0 ? 1 : -1) * Math.abs(dy) * ratio; 
+            }
+        }
+        
+        let newLeft = minX, newRight = maxX, newTop = minY, newBottom = maxY;
+        if (handleIndex === 0 || handleIndex === 3) { newLeft = targetPos.x; newRight = maxX; } 
+        else { newLeft = minX; newRight = targetPos.x; }
+        if (handleIndex === 0 || handleIndex === 1) { newTop = targetPos.y; newBottom = maxY; } 
+        else { newTop = minY; newBottom = targetPos.y; }
+
+        const nw = Math.max(0.1, Math.abs(newRight - newLeft));
+        const nh = Math.max(0.1, Math.abs(newBottom - newTop));
+
+        const newPoints = shape.points.map(p => ({
+            x: newLeft + ((p.x - minX) / w) * nw,
+            y: newTop + ((p.y - minY) / h) * nh,
+            p: p.p
+        }));
+        
+        const updatedShape = { ...shape, points: newPoints };
+        if (shape.type === ShapeType.TEXT && shape.fontSize) {
+            const scaleY = nh / h;
+            updatedShape.fontSize = Math.max(4, shape.fontSize * scaleY);
+        }
+        return updatedShape;
     }
-
-    // Default Vertex Dragging (Single Polygon/Line/Triangle)
-    const newPoints = [...shape.points]; 
-    if (handleIndex < newPoints.length) {
-        newPoints[handleIndex] = cursorPos;
-    }
-    return { ...shape, points: newPoints };
 };
 
 /**
  * Calculates the new geometry of a shape when it is moved (translated).
- * Handles regular shapes and Function Graphs (updating algebraic parameters).
- * Optionally handles dragging dependent points (constraints).
  */
 export const calculateMovedShape = (
     shape: Shape,
@@ -231,57 +296,64 @@ export const calculateMovedShape = (
     canvasHeight: number,
     drivingPoints: Point[] = []
 ): Shape => {
-    // 1. Handle Function Graphs (Algebraic update)
     if (shape.type === ShapeType.FUNCTION_GRAPH && shape.formulaParams) {
         const dmx = dx / pixelsPerUnit;
         const dmy = -dy / pixelsPerUnit;
-        
         const params = { ...shape.formulaParams };
-        const fType = shape.functionType || 'quadratic';
-        
-        if (fType === 'linear') { 
+        if (shape.functionType === 'linear') { 
             params.b = (params.b || 0) + dmy - (params.k || 1) * dmx; 
         } else { 
             if (shape.functionForm === 'vertex') { 
                 params.h = (params.h || 0) + dmx; 
                 params.k = (params.k || 0) + dmy; 
             } else { 
-                // Standard form translation: y' = a(x-dx)^2 + b(x-dx) + c + dy
-                // New b' = b - 2*a*dmx
-                // New c' = c + a*dmx^2 - b*dmx + dmy
                 const a = params.a ?? 1; 
                 const b = params.b || 0; 
-                const c = params.c || 0; 
                 params.b = b - 2 * a * dmx; 
-                params.c = c + a * Math.pow(dmx, 2) - b * dmx + dmy; 
+                params.c = (params.c || 0) + a * Math.pow(dmx, 2) - b * dmx + dmy; 
             } 
         }
-        
-        // Note: For move calculation, we don't strictly need to regenerate path here as Editor does it,
-        // but if we do, we need the origin. Assuming Editor regenerates paths on state update.
-        // Returning params is enough for Editor to regenerate path.
         return { ...shape, formulaParams: params };
     }
 
-    // 2. Handle Driving Points (Linked Geometry)
-    // If this shape is NOT the one being explicitly dragged, but one of its points matches a "driving point"
     if (drivingPoints.length > 0 && !shape.constraint) { 
         const linkedPoints = shape.points.map(p => 
             drivingPoints.some(dp => Math.abs(dp.x - p.x) < 5.0 && Math.abs(dp.y - p.y) < 5.0) 
             ? { x: p.x + dx, y: p.y + dy, p: p.p } 
             : p
         ); 
-        
-        // If any point changed, return new shape
         if (linkedPoints.some((lp, i) => lp.x !== shape.points[i].x || lp.y !== shape.points[i].y)) {
             return { ...shape, points: linkedPoints }; 
         }
-        return shape; // No points matched, return original
+        return shape;
     }
 
-    // 3. Standard Translation
     return { 
         ...shape, 
         points: shape.points.map(p => ({ x: p.x + dx, y: p.y + dy, p: p.p })) 
+    };
+};
+
+/**
+ * Calculates the new geometry of a shape when it is rotated.
+ */
+export const calculateRotatedShape = (
+    shape: Shape,
+    delta: number,
+    rotationCenter: Point,
+    isShiftPressed: boolean
+): Shape => {
+    let newRotation = (shape.rotation || 0) + delta;
+    if (isShiftPressed) newRotation = Math.round(newRotation / 15) * 15;
+    
+    const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
+    const newCenter = rotatePoint(center, rotationCenter, delta);
+    const dRx = newCenter.x - center.x;
+    const dRy = newCenter.y - center.y;
+    
+    return { 
+        ...shape, 
+        points: shape.points.map(p => ({ x: p.x + dRx, y: p.y + dRy, p: p.p })), 
+        rotation: newRotation 
     };
 };

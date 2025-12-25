@@ -6,10 +6,20 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-let mainWindow;
-let snippetWindow;
-let solverWindow; 
+// Global references
+let mainWindow = null;
+let snippetWindow = null;
+let solverWindow = null; 
 let currentScreenshotBuffer = null;
+
+// Logging helper to print to Terminal AND Renderer Console
+function log(msg) {
+    const text = `[MainProcess] ${msg}`;
+    console.log(text); // Terminal
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('MAIN_PROCESS_LOG', text); // Renderer DevTools
+    }
+}
 
 app.whenReady().then(() => {
     protocol.handle('app-screenshot', (request) => {
@@ -49,8 +59,9 @@ function createWindow() {
     },
   });
 
-  // Custom property to track forced closing state
+  // State flags
   mainWindow.forceClose = false;
+  mainWindow.isCloseCheckPending = false;
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -67,17 +78,34 @@ function createWindow() {
     mainWindow.focus();
   });
 
-  // Intercept the close event
+  // --- CLOSE EVENT INTERCEPTION ---
   mainWindow.on('close', (e) => {
-    // If forceClose is true, it means we've already checked unsaved changes or saved them.
-    if (mainWindow.forceClose) return;
+    log(`'close' event triggered. forceClose=${mainWindow.forceClose}, checkPending=${mainWindow.isCloseCheckPending}`);
     
+    // 1. If we are forced to close (e.g. after Save), allow it.
+    if (mainWindow.forceClose) {
+        log('forceClose is TRUE. Allowing close.');
+        return; 
+    }
+    
+    // 2. Prevent default close to check for unsaved changes
     e.preventDefault();
-    // Ask the renderer process if there are unsaved changes
+    log('Default close prevented. Checking unsaved changes...');
+
+    // 3. Avoid duplicate checks
+    if (mainWindow.isCloseCheckPending) {
+        log('Check is already pending. Ignoring.');
+        return;
+    }
+
+    // 4. Send check to Renderer
+    mainWindow.isCloseCheckPending = true;
+    log('Sending CHECK_UNSAVED to renderer...');
     mainWindow.webContents.send('CHECK_UNSAVED');
   });
 
   mainWindow.on('closed', () => {
+    log('Window closed.');
     mainWindow = null;
     app.quit();
   });
@@ -334,7 +362,7 @@ ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
 });
 
 ipcMain.on('RENDERER_LOG', (event, message) => {
-    console.log(`[SNIPPET_RENDERER] ${message}`);
+    console.log(`[RENDERER] ${message}`);
 });
 
 ipcMain.on('CLOSE_SNIPPET', () => {
@@ -347,18 +375,25 @@ ipcMain.on('CLOSE_SNIPPET', () => {
 
 ipcMain.on('OPEN_SOLVER', () => { createSolverWindow(); });
 
-// New Handlers for Unsaved Changes Check
-ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
+// --- UNSAVED CHANGES LOGIC ---
 
+ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
+    if (!mainWindow) return;
+
+    log(`UNSAVED_CHECK_RESULT received. isDirty=${isDirty}`);
+
+    // If no changes, standard close
     if (!isDirty) {
-        win.forceClose = true;
-        win.close();
+        log('No changes. Force closing.');
+        mainWindow.forceClose = true;
+        mainWindow.isCloseCheckPending = false; 
+        mainWindow.close();
         return;
     }
 
-    const choice = await dialog.showMessageBox(win, {
+    // Show Dialog
+    log('Showing Dialog...');
+    const choice = await dialog.showMessageBox(mainWindow, {
         type: 'question',
         buttons: ['Save', "Don't Save", 'Cancel'],
         title: 'Unsaved Changes',
@@ -366,22 +401,36 @@ ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
         defaultId: 0,
         cancelId: 2
     });
+    
+    log(`Dialog User Choice: ${choice.response} (0=Save, 1=Don't, 2=Cancel)`);
 
-    if (choice.response === 0) { // Save
-        win.webContents.send('ACTION_SAVE');
-    } else if (choice.response === 1) { // Don't Save
-        win.forceClose = true;
-        win.close();
+    // Reset pending flag
+    mainWindow.isCloseCheckPending = false;
+
+    if (choice.response === 0) { 
+        // === SAVE ===
+        log('User chose SAVE. Sending ACTION_SAVE.');
+        mainWindow.webContents.send('ACTION_SAVE');
+        // We wait for SAVE_COMPLETE
+    } 
+    else if (choice.response === 1) { 
+        // === DON'T SAVE ===
+        log('User chose DON\'T SAVE. DESTROYING WINDOW.');
+        // Using destroy() bypasses the close event loop completely
+        mainWindow.destroy();
+    } 
+    else { 
+        // === CANCEL ===
+        log('User chose CANCEL. Staying in app.');
+        // Do nothing. Window stays open.
     }
-    // Cancel: Do nothing, window stays open
 });
 
 ipcMain.on('SAVE_COMPLETE', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
-        win.forceClose = true;
-        win.close();
-    }
+    if (!mainWindow) return;
+    log('SAVE_COMPLETE received. Destroying window.');
+    // Using destroy() ensures we exit without triggering any more checks
+    mainWindow.destroy();
 });
 
 ipcMain.handle('save-dialog', async (event, data) => {

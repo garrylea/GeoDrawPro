@@ -43,10 +43,13 @@ export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererPro
     strokeLinecap: 'round' as const,
   };
 
+  const center = getShapeCenter(points, type);
+  const rotationTransform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : '';
+
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
       return (
-          <g className="shape-group" style={{ cursor: isSelected ? 'pointer' : 'pointer' }} data-shape-id={shape.id}>
+          <g className="shape-group" transform={rotationTransform} style={{ cursor: isSelected ? 'pointer' : 'pointer' }} data-shape-id={shape.id}>
               <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} />
               {isSelected && <path d={pathData} fill="none" stroke="#60a5fa" strokeWidth={strokeWidth + 4} opacity={0.3} />}
               <path d={pathData} {...commonProps} fill="none" />
@@ -256,11 +259,8 @@ export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererPro
       return null;
   }
 
-  const center = getShapeCenter(points, type);
-  const transform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
-
   return (
-    <g className="shape-group" transform={transform} style={{ cursor: isSelected ? 'move' : 'pointer' }} data-shape-id={shape.id}>
+    <g className="shape-group" transform={rotationTransform} style={{ cursor: isSelected ? 'move' : 'pointer' }} data-shape-id={shape.id}>
       {isSelected && type !== ShapeType.IMAGE && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
              {React.cloneElement(element as React.ReactElement<any>, { 

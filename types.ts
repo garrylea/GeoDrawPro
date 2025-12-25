@@ -45,6 +45,15 @@ export interface Point {
   p?: number; // Pressure sensitivity (0.0 to 1.0)
 }
 
+export interface TransientState {
+  dx?: number;
+  dy?: number;
+  rotation?: number;
+  rotationCenter?: Point;
+  scale?: { x: number; y: number }; // Added for resize optimization
+  scaleCenter?: Point;
+}
+
 export type MarkerType = 'perpendicular' | 'parallel_arrow' | 'equal_tick' | 'angle_arc';
 
 export interface MarkerConfig {
@@ -80,6 +89,10 @@ export interface Shape {
   
   // Pressure sensitivity metadata
   usePressure?: boolean;
+
+  // Geometric Constraints
+  lockedAngles?: number[]; // Indices of angles that are fixed/locked by user input
+  lastModifiedAngleIndex?: number; // Tracks the last angle index modified by the user
 
   // Specific for Functions
   functionType?: 'quadratic' | 'linear'; 
