@@ -11,6 +11,42 @@ let mainWindow = null;
 let snippetWindow = null;
 let solverWindow = null; 
 let currentScreenshotBuffer = null;
+let fileToOpen = null;
+
+// Handle File Association (macOS)
+app.on('will-finish-launching', () => {
+    app.on('open-file', (event, path) => {
+        event.preventDefault();
+        fileToOpen = path;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+             mainWindow.webContents.send('OPEN_FILE_FROM_OS', path);
+             if (mainWindow.isMinimized()) mainWindow.restore();
+             mainWindow.focus();
+        }
+    });
+});
+
+// Single Instance Lock
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, we should focus our window.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+            
+            // Windows: File path is usually the last argument
+            const filePath = commandLine.find(arg => arg.endsWith('.geo') || arg.endsWith('.json'));
+            if (filePath) {
+                 mainWindow.webContents.send('OPEN_FILE_FROM_OS', filePath);
+            }
+        }
+    });
+}
+
 
 // Logging helper to print to Terminal AND Renderer Console
 function log(msg) {
@@ -76,6 +112,19 @@ function createWindow() {
       app.focus({ steal: true });
     }
     mainWindow.focus();
+
+    // Handle initial file open (macOS)
+    if (fileToOpen) {
+        mainWindow.webContents.send('OPEN_FILE_FROM_OS', fileToOpen);
+        fileToOpen = null;
+    } 
+    // Handle initial file open (Windows/Linux)
+    else if (process.platform !== 'darwin' && process.argv.length >= 2) {
+        const filePath = process.argv.find(arg => arg.endsWith('.geo') || arg.endsWith('.json'));
+        if (filePath) {
+            mainWindow.webContents.send('OPEN_FILE_FROM_OS', filePath);
+        }
+    }
   });
 
   // --- CLOSE EVENT INTERCEPTION ---

@@ -1,5 +1,5 @@
 
-import { Point, Shape, ShapeType, MarkerType, Constraint } from '../types';
+import { Point, Shape, ShapeType, Constraint } from '../types';
 
 export interface RecognizedShape {
     type: ShapeType;
@@ -556,11 +556,16 @@ export const getAngleArcPath = (center: Point, p1: Point | null, p2: Point | nul
     const y2 = center.y + radius * Math.sin(endRad);
     
     let diff = eAngle - sAngle;
-    while (diff < 0) diff += 360;
-    while (diff >= 360) diff -= 360;
-    const largeArc = diff > 180 ? 1 : 0;
     
-    return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`;
+    // Handle full circle
+    if (Math.abs(diff) >= 360) {
+         return `M ${x1} ${y1} A ${radius} ${radius} 0 1 1 ${center.x - (x1 - center.x)} ${center.y - (y1 - center.y)} A ${radius} ${radius} 0 1 1 ${x1} ${y1}`;
+    }
+
+    const largeArc = Math.abs(diff) > 180 ? 1 : 0;
+    const sweepFlag = diff > 0 ? 1 : 0;
+    
+    return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} ${sweepFlag} ${x2} ${y2}`;
 };
 
 // Internal Helper for Douglas-Peucker: Distance from point to line segment squared

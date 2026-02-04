@@ -20,13 +20,27 @@
       "electron/**/*",
       "public/icon.png"
     ],
+    "fileAssociations": [
+      {
+        "ext": "geo",
+        "name": "GeoDraw Project",
+        "description": "GeoDraw Pro Project File",
+        "role": "Editor"
+      },
+      {
+        "ext": "json",
+        "name": "JSON File",
+        "role": "Editor"
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "public"
     },
     "mac": {
       "target": "dmg",
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "identity": null
     },
     "win": {
       "target": "nsis",

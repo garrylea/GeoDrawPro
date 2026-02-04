@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { Editor } from './components/Editor';
 import { SnippetOverlay } from './components/SnippetOverlay';
 import { SolverWindow } from './components/SolverWindow';

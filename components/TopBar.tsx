@@ -1,34 +1,35 @@
 import React, { useState } from 'react';
 import { 
   Spline, Box, ChevronDown, Apple, Monitor, Terminal, 
-  Image as ImageIcon, FolderOpen, Save, Undo, Trash2, 
-  Eraser, Download 
+  FolderOpen, Save, Undo, Trash2, 
+  Eraser, Download, Minus, Plus
 } from 'lucide-react';
 import { Shape } from '../types';
-import { exportCanvas, exportAppIcon, isElectron } from '../utils/exportUtils';
+import { exportCanvas, exportAppIcon } from '../utils/exportUtils';
 
 interface TopBarProps {
   shapes: Shape[];
   svgRef: React.RefObject<SVGSVGElement | null>;
-  imageInputRef: React.RefObject<HTMLInputElement | null>;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   undo: () => void;
   deleteSelected: () => void;
   clearAll: () => void;
   selectedIds: Set<string>;
   onSave: () => void;
+  zoom: number;
+  setZoom: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
-  shapes,
   svgRef,
-  imageInputRef,
   fileInputRef,
   undo,
   deleteSelected,
   clearAll,
   selectedIds,
   onSave,
+  zoom,
+  setZoom,
 }) => {
   const [showIconDropdown, setShowIconDropdown] = useState(false);
 
@@ -77,14 +78,6 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         <button 
-          onClick={() => imageInputRef.current?.click()} 
-          className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" 
-          title="Import Image"
-        >
-          <ImageIcon size={18}/> Image
-        </button>
-
-        <button 
           onClick={() => fileInputRef.current?.click()} 
           className="p-2 text-slate-600 hover:bg-slate-100 rounded flex items-center gap-1 text-sm font-medium" 
           title="Open"
@@ -99,6 +92,28 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <Save size={18}/> Save
         </button>
+
+        <div className="w-px h-5 bg-slate-200 mx-1"></div>
+
+        <div className="flex items-center bg-slate-100 rounded-lg p-1">
+            <button 
+                onClick={() => setZoom(z => Math.max(0.1, z - 0.1))} 
+                className="p-1 hover:bg-white rounded-md transition-colors text-slate-600"
+                title="Zoom Out"
+            >
+                <Minus size={14} />
+            </button>
+            <span className="text-xs font-medium w-12 text-center select-none text-slate-600">
+                {Math.round(zoom * 100)}%
+            </span>
+            <button 
+                onClick={() => setZoom(z => Math.min(5, z + 0.1))} 
+                className="p-1 hover:bg-white rounded-md transition-colors text-slate-600"
+                title="Zoom In"
+            >
+                <Plus size={14} />
+            </button>
+        </div>
 
         <div className="w-px h-5 bg-slate-200 mx-1"></div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Shape, ShapeType, AxisConfig } from '../types';
 import { COLORS } from '../constants';
 import { recalculateMarker, generateQuadraticPath } from '../utils/mathUtils';
@@ -80,7 +80,6 @@ const Section = ({ title, icon: Icon, children, isOpen, onToggle }: SectionProps
 
 export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
   selectedShape,
-  shapes,
   setShapes,
   selectedIds,
   axisConfig,
@@ -101,7 +100,6 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
   pixelsPerUnit,
   onFitToViewport,
   saveHistory,
-  isDragging,
 }) => {
   
   // LOG: Check if Sidebar is re-rendering too often

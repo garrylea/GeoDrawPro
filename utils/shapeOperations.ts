@@ -316,8 +316,6 @@ export const calculateMovedShape = (
     dx: number,
     dy: number,
     pixelsPerUnit: number,
-    canvasWidth: number,
-    canvasHeight: number,
     drivingPoints: Point[] = []
 ): Shape => {
     if (shape.type === ShapeType.FUNCTION_GRAPH && shape.formulaParams) {

@@ -224,7 +224,7 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
         } else {
             svgText = new XMLSerializer().serializeToString(svgSource);
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Failed to fetch/serialize SVG source:", err);
         alert(`Failed to load icon source. If you are in Electron, please check if the path is relative. Error: ${err.message}`);
         return;

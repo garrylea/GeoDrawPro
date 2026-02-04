@@ -37,7 +37,7 @@ export const SnippetOverlay = () => {
         if ((window as any).require) {
             const { ipcRenderer } = (window as any).require('electron');
             
-            const handleCapture = (_: any, data: any) => {
+            const handleCapture = (_: any, _data: any) => {
                 log('EVENT RECEIVED: CAPTURE_SCREEN');
                 // Force reload image by adding timestamp to url to bypass cache
                 const url = `app-screenshot://current?t=${Date.now()}`;

@@ -20,13 +20,11 @@ interface SelectionOverlayProps {
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ 
   shape, 
-  isSelected, 
   pivotIndex, 
   isAltPressed, 
   isMarkingAngles, 
   isDragging,
   onResizeStart, 
-  onAngleChange, 
   onRotateStart, 
   onSetPivot, 
   onMarkAngle,
@@ -189,7 +187,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   if (showAngleUI) {
       // Use visual points for mapping
       // For Triangle with extra points, slice first.
-      const ptsToMark = (type === ShapeType.TRIANGLE && visualPoints.length > 3) ? visualPoints.slice(0,3) : visualPoints;
       
       let localPoints: Point[] = [];
       if (showBoundingBox) {

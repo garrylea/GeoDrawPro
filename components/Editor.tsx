@@ -16,11 +16,11 @@ import {
   recalculateMarker, getClosestPointOnShape, getPixelsPerUnit, 
   evaluateQuadratic, mathToScreen, screenToMath, 
   generateQuadraticPath, getPolygonAngles, 
-  getLineIntersection, fitShapesToViewport, sanitizeLoadedShapes,
-  solveTriangleASA, rotateVector
+  fitShapesToViewport, sanitizeLoadedShapes,
+  solveTriangleASA
 } from '../utils/mathUtils';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape } from '../utils/shapeOperations';
-import { Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 // Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 // @ts-ignore
@@ -102,7 +102,6 @@ export function Editor() {
   const inputRef = useRef<HTMLInputElement>(null);
   const angleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   
   const lastRotationMouseAngle = useRef<number>(0);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -111,7 +110,9 @@ export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const PAGE_HEIGHT = 1080; 
   const [pageCount, setPageCount] = useState(1);
+  const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [zoom, setZoom] = useState(1);
 
   const originY = PAGE_HEIGHT / 2;
   const svgHeight = Math.max(canvasSize.height, pageCount * PAGE_HEIGHT);
@@ -151,7 +152,7 @@ export function Editor() {
           const { ipcRenderer } = (window as any).require('electron');
           const handleCheckUnsaved = () => { ipcRenderer.send('UNSAVED_CHECK_RESULT', isDirtyRef.current); };
           const handleActionSave = async () => { const success = await saveProject(shapesRef.current, 'project'); if (success) { setIsDirty(false); ipcRenderer.send('SAVE_COMPLETE'); } };
-          const handleMainLog = (e: any, msg: string) => { console.log(msg); };
+          const handleMainLog = (_: any, msg: string) => { console.log(msg); };
 
           ipcRenderer.on('CHECK_UNSAVED', handleCheckUnsaved);
           ipcRenderer.on('ACTION_SAVE', handleActionSave);
@@ -212,6 +213,7 @@ export function Editor() {
 
   const processPdfFile = useCallback(async (file: File) => {
       try {
+          setLoadingState({ active: true, message: 'Loading PDF...' });
           const arrayBuffer = await file.arrayBuffer();
           // Use the explicitly imported pdfjsLib
           const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
@@ -220,6 +222,10 @@ export function Editor() {
           const newShapes: Shape[] = [];
           
           for (let i = 1; i <= numPages; i++) {
+              setLoadingState({ active: true, message: `Processing page ${i} of ${numPages}...` });
+              // Yield to main thread to allow UI update
+              await new Promise(resolve => setTimeout(resolve, 0));
+
               const page = await pdf.getPage(i);
               // Use a higher scale for better resolution, can be adjusted
               const scale = 2.0; 
@@ -277,6 +283,8 @@ export function Editor() {
       } catch (err) {
           console.error("Error processing PDF:", err);
           alert("Failed to load PDF file.");
+      } finally {
+          setLoadingState({ active: false, message: '' });
       }
   }, [canvasSize.width, saveHistory]);
 
@@ -429,7 +437,11 @@ export function Editor() {
     const rect = svgRef.current.getBoundingClientRect();
     let pressure = (e as PointerEvent).pressure;
     if (pressure === undefined || (e as any).pointerType === 'mouse') pressure = 0.5;
-    const raw = { x: (e as any).clientX - rect.left, y: (e as any).clientY - rect.top, p: pressure };
+    const raw = { 
+        x: ((e as any).clientX - rect.left) / zoom, 
+        y: ((e as any).clientY - rect.top) / zoom, 
+        p: pressure 
+    };
     if (tool === ToolType.FREEHAND) { setSnapIndicator(null); return raw; }
     if (snap && !isShiftPressed && !isAltPressed) { 
         // FIX: Exclude selected shapes from snapping when dragging handles to prevent jitter
@@ -456,7 +468,6 @@ export function Editor() {
   };
 
   const handleToolChange = (newTool: ToolType) => {
-    if (newTool === ToolType.IMAGE) { imageInputRef.current?.click(); return; }
     setTool(newTool); setSelectedIds(new Set()); setSnapIndicator(null); setCursorPos(null);
     if (selectionRectRef.current) { selectionRectRef.current.style.display = 'none'; selectionRectRef.current.setAttribute('width', '0'); selectionRectRef.current.setAttribute('height', '0'); }
     selectionStartRef.current = null;
@@ -547,7 +558,7 @@ export function Editor() {
     if (tool === ToolType.ERASER) { 
         saveHistory(); setIsDragging(true); 
         const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 20); 
-        if (hit) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; 
+        if (hit && hit.type !== ShapeType.IMAGE) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; 
     }
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { const startAngle = getAngleDegrees(compassState.center, pos); setCompassState({ ...compassState, radiusPoint: pos, startAngle: startAngle, lastMouseAngle: startAngle, accumulatedRotation: 0 }); } return; }
     if (tool === ToolType.RULER) { const existingRuler = shapes.find(s => s.type === ShapeType.RULER); if (existingRuler) { setSelectedIds(new Set([existingRuler.id])); setDragStartPos(rawPos); setIsDragging(true); return; } saveHistory(); const id = generateId(); const width = 400, height = 40; const center = pos; const newShape: Shape = { id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT); return; }
@@ -585,7 +596,7 @@ export function Editor() {
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
     if (activeShapeId && tool === ToolType.LINE) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); }
     if (tool === ToolType.COMPASS && compassState.radiusPoint) { const center = compassState.center!; const radius = distance(center, compassState.radiusPoint); const currentMouseAngle = getAngleDegrees(center, rawPos); let delta = currentMouseAngle - compassState.lastMouseAngle; if (delta > 180) delta -= 360; if (delta < -180) delta += 360; const newAccumulated = compassState.accumulatedRotation + delta; setCompassState(prev => ({ ...prev, lastMouseAngle: currentMouseAngle, accumulatedRotation: newAccumulated })); const startAngle = compassState.startAngle!; const endAngle = startAngle + newAccumulated; setCompassPreviewPath(getAngleArcPath(center, null, null, radius, startAngle, endAngle)); return; }
-    if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 20); if (hit) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
+    if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 20); if (hit && hit.type !== ShapeType.IMAGE) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
     if (tool === ToolType.SELECT && selectionStartRef.current && isDragging && selectionRectRef.current) { const start = selectionStartRef.current; const current = rawPos; const x = Math.min(start.x, current.x); const y = Math.min(start.y, current.y); const w = Math.abs(current.x - start.x); const h = Math.abs(current.y - start.y); selectionRectRef.current.setAttribute('x', x.toString()); selectionRectRef.current.setAttribute('y', y.toString()); selectionRectRef.current.setAttribute('width', w.toString()); selectionRectRef.current.setAttribute('height', h.toString()); return; }
 
     if (isRotating && rotationCenter && activeShapeId === null) { 
@@ -667,7 +678,7 @@ export function Editor() {
                  setShapes((prev: Shape[]) => {
                      const drivingShape = prev.find(s => s.id === singleSelId); if (!drivingShape) return prev;
                      const drivingPoints = [drivingShape.points[0]];
-                     return prev.map(s => { if (s.id === singleSelId) return calculateMovedShape(s, dx, dy, pixelsPerUnit, canvasSize.width, svgHeight); return calculateMovedShape(s, dx, dy, pixelsPerUnit, canvasSize.width, svgHeight, drivingPoints); });
+                     return prev.map(s => { if (s.id === singleSelId) return calculateMovedShape(s, dx, dy, pixelsPerUnit); return calculateMovedShape(s, dx, dy, pixelsPerUnit, drivingPoints); });
                  });
              }
              return; 
@@ -751,8 +762,8 @@ export function Editor() {
                   const drivingPoints: Point[] = [];
                   prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
                   updatedShapes = prev.map((s: Shape) => {
-                      if (selectedIds.has(s.id)) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, canvasSize.width, svgHeight); }
-                      if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, canvasSize.width, svgHeight, drivingPoints); }
+                      if (selectedIds.has(s.id)) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit); }
+                      if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, drivingPoints); }
                       return s;
                   });
               }
@@ -770,7 +781,7 @@ export function Editor() {
           domCacheRef.current.clear();
       }
 
-      if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!; const radius = distance(center, compassState.radiusPoint!); const startAngle = compassState.startAngle!; const endAngle = startAngle + compassState.accumulatedRotation; const arcPoints = []; const stepCount = 40; const step = (endAngle - startAngle) / stepCount; for(let i=0; i<=stepCount; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: arcPoints, pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null); } return; }
+      if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!; const radius = distance(center, compassState.radiusPoint!); const startAngle = compassState.startAngle!; const endAngle = startAngle + compassState.accumulatedRotation; const arcPoints: Point[] = []; const stepCount = 40; const step = (endAngle - startAngle) / stepCount; for(let i=0; i<=stepCount; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: arcPoints, pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null); } return; }
       if (activeShapeId && tool === ToolType.LINE) { if (dragStartPos && distance(dragStartPos, rawPos) > 5) { setActiveShapeId(null); } setDragStartPos(null); return; }
       setDragStartPos(null);
       
@@ -789,24 +800,62 @@ export function Editor() {
   };
 
   const handleFitToViewport = useCallback(() => { setShapes((prev: Shape[]) => fitShapesToViewport(prev, canvasSize.width, canvasSize.height)); }, [canvasSize.width, canvasSize.height]);
-  const handleFileLoad = (content: string) => { try { const loadedShapes = JSON.parse(content); if (Array.isArray(loadedShapes)) { saveHistory(); const shapesArray = loadedShapes as any[]; const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray); let maxY = 0; sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } }); const requiredPages = Math.ceil(maxY / PAGE_HEIGHT); setPageCount(Math.max(1, requiredPages)); setShapes(sanitized); setSelectedIds(new Set()); setIsDirty(false); } } catch(e) { console.error("Load Failed", e); } };
+  
+  const handleFileLoad = useCallback((content: string) => { 
+      try { 
+          const loadedShapes = JSON.parse(content); 
+          if (Array.isArray(loadedShapes)) { 
+              saveHistory(); 
+              const shapesArray = loadedShapes as any[]; 
+              const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray); 
+              let maxY = 0; 
+              sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } }); 
+              const requiredPages = Math.ceil(maxY / PAGE_HEIGHT); 
+              setPageCount(Math.max(1, requiredPages)); 
+              setShapes(sanitized); 
+              setSelectedIds(new Set()); 
+              setIsDirty(false); 
+          } 
+      } catch(e) { console.error("Load Failed", e); } 
+  }, [saveHistory, PAGE_HEIGHT]);
+
+  useEffect(() => {
+    if (isElectron()) {
+        const { ipcRenderer } = (window as any).require('electron');
+        const handleOpenFileFromOS = (_: any, filePath: string) => {
+            try {
+                const fs = (window as any).require('fs');
+                // Check if file exists
+                if (fs.existsSync(filePath)) {
+                    const data = fs.readFileSync(filePath, 'utf-8');
+                    handleFileLoad(data);
+                }
+            } catch (e) {
+                console.error("Failed to load file from OS:", e);
+            }
+        };
+
+        ipcRenderer.on('OPEN_FILE_FROM_OS', handleOpenFileFromOS);
+        return () => { ipcRenderer.removeListener('OPEN_FILE_FROM_OS', handleOpenFileFromOS); };
+    }
+  }, [handleFileLoad]);
+
   const groupBounds = selectedIds.size > 1 ? getSelectionBounds(shapes, selectedIds) : null;
   const selectedShape = selectedIds.size === 1 ? shapes.find(s => selectedIds.has(s.id)) || null : null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden text-slate-900 font-sans bg-slate-50 relative">
-        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} imageInputRef={imageInputRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} />
-        <div className="flex-1 flex overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden select-none">
+        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} zoom={zoom} setZoom={setZoom} />
+        <div className="flex flex-1 overflow-hidden relative">
             <Sidebar activeTool={tool} onToolChange={handleToolChange} />
             <div className="flex-1 relative flex flex-col min-w-0 bg-slate-50">
                 <div className={`flex-1 bg-white relative overflow-x-hidden overflow-y-auto custom-scrollbar ${tool === ToolType.ERASER ? 'cursor-eraser' : (tool === ToolType.SELECT ? 'cursor-default' : 'cursor-crosshair')}`} ref={containerRef} onDragOver={(e) => {e.preventDefault(); e.dataTransfer.dropEffect = 'copy';}} onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.type === 'application/pdf') { processPdfFile(file); } else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); } else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); } }}>
-                    <svg ref={svgRef} className="w-full touch-none block shadow-sm" style={{ height: svgHeight }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
+                    <svg ref={svgRef} className="w-full touch-none block shadow-sm" style={{ height: svgHeight, transform: `scale(${zoom})`, transformOrigin: 'top left' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
                         <AxisLayer config={axisConfig} width={canvasSize.width} height={svgHeight} pixelsPerUnit={pixelsPerUnit} overrideOrigin={{ x: canvasSize.width / 2, y: originY }} pageCount={pageCount} pageHeight={PAGE_HEIGHT} />
                         {pageCount > 1 && Array.from({ length: pageCount - 1 }).map((_, i) => ( <g key={`page-break-${i}`} opacity="0.4"> <line x1={0} y1={(i + 1) * PAGE_HEIGHT} x2={canvasSize.width} y2={(i + 1) * PAGE_HEIGHT} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8,8" /> <text x={10} y={(i + 1) * PAGE_HEIGHT - 5} fontSize={10} fill="#94a3b8" fontFamily="sans-serif">Page {i + 1} End</text> </g> ))}
-                        {shapes.filter(s => !isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} /> ))}
-                        {shapes.filter(s => isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} /> ))}
-                        {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
-                        {tool === ToolType.RULER && selectedIds.size === 0 && ( <g style={{ opacity: 0.35, pointerEvents: 'none' }}> <ShapeRenderer shape={{ id: 'ghost-ruler', type: ShapeType.RULER, points: [{ x: (cursorPos?.x || 0) - 200, y: (cursorPos?.y || 0) - 20 }, { x: (cursorPos?.x || 0) + 200, y: (cursorPos?.y || 0) + 20 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }} isSelected={false} /> </g> )}
+                                  {shapes.filter(s => !isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} tool={tool} /> ))}
+                                  {shapes.filter(s => isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} tool={tool} /> ))}                        {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
+                        {tool === ToolType.RULER && selectedIds.size === 0 && ( <g style={{ opacity: 0.35, pointerEvents: 'none' }}> <ShapeRenderer shape={{ id: 'ghost-ruler', type: ShapeType.RULER, points: [{ x: (cursorPos?.x || 0) - 200, y: (cursorPos?.y || 0) - 20 }, { x: (cursorPos?.x || 0) + 200, y: (cursorPos?.y || 0) + 20 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }} isSelected={false} tool={tool} /> </g> )}
                         {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
                         {selectedIds.size === 1 && shapes.filter(s => selectedIds.has(s.id)).map(s => (!textEditing || textEditing.id !== s.id) && (
                             <SelectionOverlay 
@@ -846,8 +895,32 @@ export function Editor() {
                 </div>
             </div>
         </div>
-        <input type="file" ref={fileInputRef} onChange={async (e) => { if (e.target.files?.[0]) { const file = e.target.files[0]; if (file.type === 'application/pdf') { await processPdfFile(file); } else { const loaded = await loadProject(file); handleFileLoad(JSON.stringify(loaded)); } e.target.value = ''; } }} accept=".geo,.json,.pdf" className="hidden" />
-        <input type="file" ref={imageInputRef} onChange={(e) => { if (e.target.files?.[0]) processImageFile(e.target.files[0]); e.target.value = ''; }} accept="image/*" className="hidden" />
+        <input type="file" ref={fileInputRef} onChange={async (e) => { 
+            if (e.target.files?.[0]) { 
+                const file = e.target.files[0]; 
+                if (file.type === 'application/pdf') { 
+                    await processPdfFile(file); 
+                } else if (file.type.startsWith('image/')) {
+                    processImageFile(file);
+                } else { 
+                    const loaded = await loadProject(file); 
+                    handleFileLoad(JSON.stringify(loaded)); 
+                } 
+                e.target.value = ''; 
+            } 
+        }} accept=".geo,.json,.pdf,image/*" className="hidden" />
+        
+        {loadingState.active && (
+            <div className="absolute inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm">
+                <div className="bg-white p-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 min-w-[300px]">
+                    <Loader2 size={40} className="text-blue-600 animate-spin" />
+                    <div className="flex flex-col items-center gap-1">
+                        <h3 className="font-bold text-lg text-slate-800">Importing PDF</h3>
+                        <p className="text-slate-500 text-sm">{loadingState.message}</p>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 }

@@ -1,13 +1,14 @@
 import React from 'react';
-import { Shape, ShapeType, Point } from '../types';
+import { Shape, ShapeType, Point, ToolType } from '../types';
 import { getShapeCenter, getSmoothSvgPath, getVariableWidthPath } from '../utils/mathUtils';
 
 interface ShapeRendererProps {
   shape: Shape;
   isSelected: boolean;
+  tool?: ToolType;
 }
 
-export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererProps) => {
+export const ShapeRenderer = React.memo(({ shape, isSelected, tool }: ShapeRendererProps) => {
   const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl, usePressure } = shape;
   
   if (type === ShapeType.MARKER) {
@@ -49,7 +50,7 @@ export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererPro
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
       return (
-          <g className="shape-group" transform={rotationTransform} style={{ cursor: isSelected ? 'pointer' : 'pointer' }} data-shape-id={shape.id}>
+          <g className="shape-group" transform={rotationTransform} style={{ cursor: tool === ToolType.ERASER ? 'inherit' : (isSelected ? 'pointer' : 'pointer') }} data-shape-id={shape.id}>
               <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} />
               {isSelected && <path d={pathData} fill="none" stroke="#60a5fa" strokeWidth={strokeWidth + 4} opacity={0.3} />}
               <path d={pathData} {...commonProps} fill="none" />
@@ -260,7 +261,7 @@ export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererPro
   }
 
   return (
-    <g className="shape-group" transform={rotationTransform} style={{ cursor: isSelected ? 'move' : 'pointer' }} data-shape-id={shape.id}>
+    <g className="shape-group" transform={rotationTransform} style={{ cursor: tool === ToolType.ERASER ? 'inherit' : (isSelected ? 'move' : 'pointer') }} data-shape-id={shape.id}>
       {isSelected && type !== ShapeType.IMAGE && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
              {React.cloneElement(element as React.ReactElement<any>, { 
@@ -276,5 +277,5 @@ export const ShapeRenderer = React.memo(({ shape, isSelected }: ShapeRendererPro
     </g>
   );
 }, (prev, next) => {
-    return prev.isSelected === next.isSelected && prev.shape === next.shape;
+    return prev.isSelected === next.isSelected && prev.shape === next.shape && prev.tool === next.tool;
 });
