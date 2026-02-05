@@ -17,7 +17,7 @@ interface TopBarProps {
   selectedIds: Set<string>;
   onSave: () => void;
   zoom: number;
-  setZoom: React.Dispatch<React.SetStateAction<number>>;
+  onZoomChange: (newZoom: number) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -29,7 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   selectedIds,
   onSave,
   zoom,
-  setZoom,
+  onZoomChange,
 }) => {
   const [showIconDropdown, setShowIconDropdown] = useState(false);
 
@@ -97,7 +97,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <div className="flex items-center bg-slate-100 rounded-lg p-1">
             <button 
-                onClick={() => setZoom(z => Math.max(0.1, z - 0.1))} 
+                onClick={() => onZoomChange(Math.max(0.1, zoom - 0.1))} 
                 className="p-1 hover:bg-white rounded-md transition-colors text-slate-600"
                 title="Zoom Out"
             >
@@ -107,7 +107,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 {Math.round(zoom * 100)}%
             </span>
             <button 
-                onClick={() => setZoom(z => Math.min(5, z + 0.1))} 
+                onClick={() => onZoomChange(Math.min(5, zoom + 0.1))} 
                 className="p-1 hover:bg-white rounded-md transition-colors text-slate-600"
                 title="Zoom In"
             >

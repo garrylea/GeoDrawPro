@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint, TransientState } from '../types';
 import { DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from '../constants';
 import { AxisLayer } from './AxisLayer';
@@ -67,6 +67,7 @@ export function Editor() {
 
   const isScrollingRef = useRef(false);
   const lastScrollPos = useRef<{x: number, y: number} | null>(null);
+  const zoomFocusPointRef = useRef<{x: number, y: number} | null>(null);
   
   const selectionRectRef = useRef<SVGRectElement>(null);
   const selectionStartRef = useRef<Point | null>(null);
@@ -127,6 +128,31 @@ export function Editor() {
         console.error("Failed to initialize PDF worker:", e);
     }
   }, []);
+
+  useLayoutEffect(() => {
+    if (zoomFocusPointRef.current && containerRef.current) {
+        const { x, y } = zoomFocusPointRef.current;
+        const { clientWidth, clientHeight } = containerRef.current;
+        const newScrollLeft = x * zoom - clientWidth / 2;
+        const newScrollTop = y * zoom - clientHeight / 2;
+        containerRef.current.scrollLeft = newScrollLeft;
+        containerRef.current.scrollTop = newScrollTop;
+        zoomFocusPointRef.current = null;
+    }
+  }, [zoom]);
+
+  const handleZoomChange = (newZoom: number) => {
+      if (Math.abs(newZoom - zoom) < 0.001) return;
+      const container = containerRef.current;
+      if (container) {
+          const { scrollLeft, scrollTop, clientWidth, clientHeight } = container;
+          // Calculate center relative to unscaled content
+          const centerX = (scrollLeft + clientWidth / 2) / zoom;
+          const centerY = (scrollTop + clientHeight / 2) / zoom;
+          zoomFocusPointRef.current = { x: centerX, y: centerY };
+      }
+      setZoom(newZoom);
+  };
   
   const saveHistory = useCallback(() => {
       setHistory(prev => [...prev, shapes]);
@@ -557,7 +583,7 @@ export function Editor() {
     }
     if (tool === ToolType.ERASER) { 
         saveHistory(); setIsDragging(true); 
-        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 20); 
+        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 12); 
         if (hit && hit.type !== ShapeType.IMAGE) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; 
     }
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { const startAngle = getAngleDegrees(compassState.center, pos); setCompassState({ ...compassState, radiusPoint: pos, startAngle: startAngle, lastMouseAngle: startAngle, accumulatedRotation: 0 }); } return; }
@@ -596,7 +622,7 @@ export function Editor() {
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
     if (activeShapeId && tool === ToolType.LINE) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); }
     if (tool === ToolType.COMPASS && compassState.radiusPoint) { const center = compassState.center!; const radius = distance(center, compassState.radiusPoint); const currentMouseAngle = getAngleDegrees(center, rawPos); let delta = currentMouseAngle - compassState.lastMouseAngle; if (delta > 180) delta -= 360; if (delta < -180) delta += 360; const newAccumulated = compassState.accumulatedRotation + delta; setCompassState(prev => ({ ...prev, lastMouseAngle: currentMouseAngle, accumulatedRotation: newAccumulated })); const startAngle = compassState.startAngle!; const endAngle = startAngle + newAccumulated; setCompassPreviewPath(getAngleArcPath(center, null, null, radius, startAngle, endAngle)); return; }
-    if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 20); if (hit && hit.type !== ShapeType.IMAGE) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
+    if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 12); if (hit && hit.type !== ShapeType.IMAGE) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
     if (tool === ToolType.SELECT && selectionStartRef.current && isDragging && selectionRectRef.current) { const start = selectionStartRef.current; const current = rawPos; const x = Math.min(start.x, current.x); const y = Math.min(start.y, current.y); const w = Math.abs(current.x - start.x); const h = Math.abs(current.y - start.y); selectionRectRef.current.setAttribute('x', x.toString()); selectionRectRef.current.setAttribute('y', y.toString()); selectionRectRef.current.setAttribute('width', w.toString()); selectionRectRef.current.setAttribute('height', h.toString()); return; }
 
     if (isRotating && rotationCenter && activeShapeId === null) { 
@@ -845,7 +871,7 @@ export function Editor() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden select-none">
-        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} zoom={zoom} setZoom={setZoom} />
+        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} zoom={zoom} onZoomChange={handleZoomChange} />
         <div className="flex flex-1 overflow-hidden relative">
             <Sidebar activeTool={tool} onToolChange={handleToolChange} />
             <div className="flex-1 relative flex flex-col min-w-0 bg-slate-50">

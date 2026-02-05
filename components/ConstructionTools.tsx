@@ -12,21 +12,9 @@ interface CompassOverlayProps {
 
 export const CompassOverlay: React.FC<CompassOverlayProps> = ({ center, cursor, radiusPoint, isDrawing }) => {
     // 1. INITIAL STATE: "Just a point"
-    // The user hasn't clicked anywhere yet. Show a tiny collapsed compass tip at the cursor.
+    // The user hasn't clicked anywhere yet. Rely on the crosshair cursor.
     if (!center) {
-        return (
-            <g transform={`translate(${cursor.x}, ${cursor.y})`} style={{ pointerEvents: 'none' }}>
-                {/* A tiny collapsed compass, looks like a pen tip or needle */}
-                <g transform="rotate(-45) scale(0.2)">
-                    {/* Collapsed legs */}
-                    <path d="M -2 -20 L 0 0 L 2 -20 Z" fill="#475569" />
-                    <circle cx={0} cy={0} r={3} fill="#ef4444" />
-                    {/* Small knob on top */}
-                    <circle cx={0} cy={-22} r={5} fill="#334155" />
-                </g>
-                <text x={10} y={0} fontSize={10} fill="#64748b" opacity={0.7}>Set Needle</text>
-            </g>
-        );
+        return null;
     }
 
     // 2. ACTIVE STATE
