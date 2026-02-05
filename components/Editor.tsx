@@ -17,7 +17,7 @@ import {
   evaluateQuadratic, mathToScreen, screenToMath, 
   generateQuadraticPath, getPolygonAngles, 
   fitShapesToViewport, sanitizeLoadedShapes,
-  solveTriangleASA
+  solveTriangleASA, snapToRuler
 } from '../utils/mathUtils';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape } from '../utils/shapeOperations';
 import { Plus, Loader2 } from 'lucide-react';
@@ -87,7 +87,13 @@ export function Editor() {
   const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
   const [autoLabelMode, setAutoLabelMode] = useState(true); 
   const [smartSketchMode, setSmartSketchMode] = useState(true);
-  const [pressureEnabled, setPressureEnabled] = useState(false); 
+  const [pressureEnabled, _setPressureEnabled] = useState(true); 
+  const setPressureEnabled = (val: boolean) => {
+      _setPressureEnabled(val);
+      if (selectedIds.size > 0) {
+          setShapes(prev => prev.map(s => (selectedIds.has(s.id) && s.type === ShapeType.FREEHAND) ? { ...s, usePressure: val } : s));
+      }
+  };
 
   const [compassState, setCompassState] = useState<{
       center: Point | null; 
@@ -676,22 +682,36 @@ export function Editor() {
     }
     
     if (activeShapeId && tool !== ToolType.LINE) { 
+        // RULER SNAPPING FOR FREEHAND
+        let effectivePos = pos;
+        let wasSnapped = false;
+        if (tool === ToolType.FREEHAND && isDragging && activeShapeId) {
+            const ruler = shapes.find(s => s.type === ShapeType.RULER);
+            if (ruler) {
+                const { point, snapped } = snapToRuler(pos, ruler, 25);
+                if (snapped) {
+                    effectivePos = point;
+                    wasSnapped = true;
+                }
+            }
+        }
+
         setShapes((prev: Shape[]) => prev.map((s: Shape) => { 
             if (s.id !== activeShapeId) return s; 
             let newPoints = [...s.points]; 
-            newPoints[newPoints.length - 1] = pos; 
+            newPoints[newPoints.length - 1] = effectivePos; 
             if (s.type === ShapeType.SQUARE || s.type === ShapeType.CIRCLE) { 
-                const d = Math.max(Math.abs(pos.x - s.points[0].x), Math.abs(pos.y - s.points[0].y)); 
-                const sx = pos.x > s.points[0].x ? 1 : -1; 
+                const d = Math.max(Math.abs(effectivePos.x - s.points[0].x), Math.abs(effectivePos.y - s.points[0].y)); 
+                const sx = effectivePos.x > s.points[0].x ? 1 : -1; 
                 // CRITICAL FIX: Use s.points[0].y for Y comparison, not .x
-                const sy = pos.y > s.points[0].y ? 1 : -1; 
+                const sy = effectivePos.y > s.points[0].y ? 1 : -1; 
                 newPoints[1] = { x: s.points[0].x + d * sx, y: s.points[0].y + d * sy }; 
             } else if (s.type === ShapeType.TRIANGLE) { 
-                newPoints[1] = { x: s.points[0].x, y: pos.y }; newPoints[2] = pos; 
+                newPoints[1] = { x: s.points[0].x, y: effectivePos.y }; newPoints[2] = effectivePos; 
             } else if (s.type === ShapeType.FREEHAND) { 
-                newPoints = [...s.points, pos]; 
+                newPoints = [...s.points, effectivePos]; 
             } 
-            return { ...s, points: newPoints }; 
+            return { ...s, points: newPoints, usePressure: wasSnapped ? false : s.usePressure }; 
         })); 
     } 
     else if (selectedIds.size > 0 && dragStartPos && isDragging && !selectionStartRef.current) { 

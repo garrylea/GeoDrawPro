@@ -266,6 +266,13 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
                     </div>
                     ))}
                 </div>
+                <div className="text-xs text-slate-400 mt-3 bg-slate-50 p-2 rounded">
+                    {selectedShape.functionForm === 'standard' ? (
+                        <span>Format: y = ax² + bx + c</span>
+                    ) : (
+                        <span>Format: y = a(x - h)² + k</span>
+                    )}
+                </div>
               </>
           ) : (
               <div className="space-y-3">

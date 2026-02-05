@@ -467,7 +467,12 @@ export const getVariableWidthPath = (points: Point[], baseWidth: number): string
 
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        const width = Math.max(1, baseWidth * (p.p !== undefined ? p.p : 0.5) * 2);
+        // Apply a tapering effect at the ends (first and last 5 points)
+        let taper = 1.0;
+        if (i < 5) taper = 0.2 + (i / 5) * 0.8;
+        else if (i > points.length - 6) taper = 0.2 + ((points.length - 1 - i) / 5) * 0.8;
+        
+        const width = Math.max(0.5, baseWidth * (p.p !== undefined ? p.p : 0.5) * 2 * taper);
         let tx, ty;
         if (i === 0) {
             tx = points[1].x - p.x;
@@ -536,6 +541,70 @@ export const reflectPointAcrossLine = (p: Point, l1: Point, l2: Point): Point =>
     const x = a * (p.x - l1.x) + b * (p.y - l1.y) + l1.x;
     const y = b * (p.x - l1.x) - a * (p.y - l1.y) + l1.y;
     return { x, y };
+};
+
+export const snapToRuler = (
+    p: Point, 
+    ruler: Shape, 
+    tolerance: number = 25
+): { point: Point, snapped: boolean } => {
+    if (ruler.type !== ShapeType.RULER || !ruler.points || ruler.points.length < 2) {
+        return { point: p, snapped: false };
+    }
+
+    const center = getShapeCenter(ruler.points, ShapeType.RULER);
+    const rotationRad = (ruler.rotation || 0) * Math.PI / 180;
+    
+    // Transform point to local ruler space
+    const dx = p.x - center.x;
+    const dy = p.y - center.y;
+    
+    // Rotate by -rotation (World to Local)
+    const cos = Math.cos(-rotationRad);
+    const sin = Math.sin(-rotationRad);
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+    
+    // Ruler Dimensions
+    // Points are TL and BR
+    const p0 = ruler.points[0];
+    const p1 = ruler.points[1];
+    const width = Math.abs(p1.x - p0.x);
+    const height = Math.abs(p1.y - p0.y);
+    const halfH = height / 2;
+    const halfW = width / 2;
+    
+    // Check horizontal bounds (allow some overflow for easier drawing at ends)
+    if (localX < -halfW - tolerance || localX > halfW + tolerance) {
+        return { point: p, snapped: false };
+    }
+    
+    // Check vertical distance to edges
+    const distTop = Math.abs(localY - (-halfH));
+    const distBottom = Math.abs(localY - halfH);
+    
+    let snappedLocalY = localY;
+    let snapped = false;
+    
+    if (distTop < tolerance) {
+        snappedLocalY = -halfH - 2; // Snap slightly outside the visual edge so line shows clearly
+        snapped = true;
+    } else if (distBottom < tolerance) {
+        snappedLocalY = halfH + 2;
+        snapped = true;
+    }
+    
+    if (!snapped) {
+        return { point: p, snapped: false };
+    }
+    
+    // Transform back to world space
+    const cosR = Math.cos(rotationRad);
+    const sinR = Math.sin(rotationRad);
+    const worldX = localX * cosR - snappedLocalY * sinR + center.x;
+    const worldY = localX * sinR + snappedLocalY * cosR + center.y;
+    
+    return { point: { x: worldX, y: worldY, p: p.p }, snapped: true };
 };
 
 export const getAngleArcPath = (center: Point, p1: Point | null, p2: Point | null, radius: number, startAngle?: number, endAngle?: number): string => {
