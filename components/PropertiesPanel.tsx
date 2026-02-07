@@ -39,6 +39,7 @@ interface PropertiesPanelProps {
   }>>;
   canvasSize: { width: number; height: number };
   pixelsPerUnit: number;
+  originY: number;
   onFitToViewport: () => void;
   saveHistory: () => void;
   isDragging: boolean;
@@ -142,6 +143,7 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
   setCurrentStyle,
   canvasSize,
   pixelsPerUnit,
+  originY,
   onFitToViewport,
   saveHistory,
 }) => {
@@ -151,9 +153,6 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
 
   // Manage accordion state - Set default to 'tools'
   const [activeSection, setActiveSection] = useState<string | null>('tools');
-  
-  const PAGE_HEIGHT = 1080;
-  const originY = PAGE_HEIGHT / 2;
 
   const effectiveFill = selectedShape ? selectedShape.fill : currentStyle.fill;
   const effectiveStroke = selectedShape ? selectedShape.stroke : currentStyle.stroke;
