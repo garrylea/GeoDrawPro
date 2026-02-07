@@ -2,7 +2,8 @@
 import { Shape, ShapeType, Point } from '../types';
 import { 
     isPointInShape, distance, getClosestPointOnShape, getRotatedCorners, 
-    rotatePoint, getShapeCenter
+    rotatePoint, getShapeCenter, screenToMath, evaluateQuadratic, mathToScreen, generateQuadraticPath,
+    vertexToStandard
 } from './mathUtils';
 
 /**
@@ -316,26 +317,50 @@ export const calculateMovedShape = (
     dx: number,
     dy: number,
     pixelsPerUnit: number,
-    drivingPoints: Point[] = []
+    drivingPoints: Point[] = [],
+    canvasWidth?: number,
+    canvasHeight?: number,
+    originY?: number
 ): Shape => {
     if (shape.type === ShapeType.FUNCTION_GRAPH && shape.formulaParams) {
         const dmx = dx / pixelsPerUnit;
         const dmy = -dy / pixelsPerUnit;
         const params = { ...shape.formulaParams };
+        
         if (shape.functionType === 'linear') { 
-            params.b = (params.b || 0) + dmy - (params.k || 1) * dmx; 
+            params.b = Math.round(((params.b || 0) + dmy - (params.k || 1) * dmx) * 10) / 10; 
         } else { 
-            if (shape.functionForm === 'vertex') { 
-                params.h = (params.h || 0) + dmx; 
-                params.k = (params.k || 0) + dmy; 
-            } else { 
-                const a = params.a ?? 1; 
-                const b = params.b || 0; 
-                params.b = b - 2 * a * dmx; 
-                params.c = (params.c || 0) + a * Math.pow(dmx, 2) - b * dmx + dmy; 
-            } 
+            // For Quadratic, movement is essentially a vertex shift.
+            // Regardless of the current 'form', we update h/k first, then sync b/c.
+            // New Vertex Position
+            const newH = Math.round(((params.h || 0) + dmx) * 10) / 10;
+            const newK = Math.round(((params.k || 0) + dmy) * 10) / 10;
+            
+            params.h = newH;
+            params.k = newK;
+
+            // Sync Standard Form (b, c) based on new Vertex (h, k) and existing a
+            const a = params.a ?? 1;
+            const { b, c } = vertexToStandard(a, newH, newK);
+            
+            params.b = Math.round(b * 10) / 10;
+            params.c = Math.round(c * 10) / 10;
         }
-        return { ...shape, formulaParams: params };
+        
+        let pathData = shape.pathData;
+        if (canvasWidth && canvasHeight) {
+             pathData = generateQuadraticPath(
+                 params, 
+                 shape.functionForm || 'standard', 
+                 canvasWidth, 
+                 canvasHeight, 
+                 pixelsPerUnit, 
+                 shape.functionType || 'quadratic', 
+                 originY
+             );
+        }
+
+        return { ...shape, formulaParams: params, pathData };
     }
 
     if (drivingPoints.length > 0 && !shape.constraint) { 

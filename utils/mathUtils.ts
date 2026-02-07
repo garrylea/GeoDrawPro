@@ -195,6 +195,26 @@ export const generateQuadraticPath = (
     return d;
 };
 
+// --- Function Synchronization Helpers ---
+
+export const standardToVertex = (a: number, b: number, c: number): { h: number, k: number } => {
+    // h = -b / 2a
+    // k = c - b^2 / 4a
+    if (a === 0) return { h: 0, k: c }; // Degenerate case, though a shouldn't be 0 for quadratic
+    const h = -b / (2 * a);
+    const k = c - (b * b) / (4 * a);
+    return { h, k };
+};
+
+export const vertexToStandard = (a: number, h: number, k: number): { b: number, c: number } => {
+    // y = a(x-h)^2 + k = a(x^2 - 2hx + h^2) + k = ax^2 - 2ahx + ah^2 + k
+    // b = -2ah
+    // c = ah^2 + k
+    const b = -2 * a * h;
+    const c = a * h * h + k;
+    return { b, c };
+};
+
 // --- Basic Geometry ---
 export const distance = (p1: Point, p2: Point) => {
   return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
@@ -358,7 +378,8 @@ export const isPointInShape = (
         const expectedMY = evaluateQuadratic(mPos.x, shape.formulaParams, shape.functionForm, fType);
         const expectedSP = mathToScreen({ x: mPos.x, y: expectedMY }, canvasWidth, canvasHeight, ppu, originY);
         if (!isFinite(expectedSP.y)) return false;
-        return Math.abs(expectedSP.y - p.y) < threshold;
+        // Reduced tolerance for function graphs to avoid interfering with nearby shapes
+        return Math.abs(expectedSP.y - p.y) < Math.min(threshold, 8);
     }
     if (shape.type === ShapeType.POINT) {
          return distance(p, shape.points[0]) < Math.max(10, shape.strokeWidth + 5 + (hitTolerance || 0));

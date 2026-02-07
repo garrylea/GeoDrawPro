@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Shape, ShapeType, AxisConfig } from '../types';
 import { COLORS } from '../constants';
-import { recalculateMarker, generateQuadraticPath } from '../utils/mathUtils';
+import { recalculateMarker, generateQuadraticPath, standardToVertex, vertexToStandard } from '../utils/mathUtils';
 import { 
   Radius, FunctionSquare, Grid3X3, Sparkles, CaseUpper, 
   Wand2, FoldHorizontal, Maximize, Minus, Plus, 
@@ -76,6 +76,50 @@ const Section = ({ title, icon: Icon, children, isOpen, onToggle }: SectionProps
        </div>
     </div>
   );
+};
+
+const NumberInput = ({ value, onChange, className, step = "0.1", placeholder, title }: { value: number, onChange: (val: number) => void, className?: string, step?: string, placeholder?: string, title?: string }) => {
+    const [localValue, setLocalValue] = useState<string>(value.toString());
+
+    React.useEffect(() => {
+        setLocalValue(value.toString());
+    }, [value]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newVal = e.target.value;
+        setLocalValue(newVal);
+        const parsed = parseFloat(newVal);
+        if (!isNaN(parsed)) {
+            onChange(parsed);
+        } else if (newVal === '' || newVal === '-') {
+            // Allow empty or negative sign without updating parent yet (or update to 0 if preferred, but usually better to wait)
+            // If we don't update parent, the chart won't update while typing "-", which is fine.
+        }
+    };
+
+    const handleBlur = () => {
+        const parsed = parseFloat(localValue);
+        if (isNaN(parsed)) {
+            setLocalValue(value.toString()); // Revert to last valid prop value
+        } else {
+             // Ensure parent is definitely synced (though likely already done via change)
+             onChange(parsed);
+        }
+    };
+
+    return (
+        <input 
+            type="number" 
+            step={step}
+            value={localValue} 
+            onFocus={(e) => e.target.select()}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            className={className} 
+            placeholder={placeholder}
+            title={title}
+        />
+    );
 };
 
 export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
@@ -172,10 +216,36 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
 
   const updateFunctionParams = (key: string, val: number) => {
       if (!selectedShape) return;
+      const roundedVal = Math.round(val * 10) / 10;
       setShapes(prev => prev.map(s => {
           if (s.id === selectedShape.id && s.formulaParams) {
-              const newParams = { ...s.formulaParams, [key]: val };
+              const prevParams = s.formulaParams;
+              let newParams = { ...prevParams, [key]: roundedVal };
               const fType = s.functionType || 'quadratic';
+              
+              if (fType === 'quadratic') {
+                  const a = (key === 'a' ? roundedVal : (prevParams.a ?? 1));
+                  
+                  if (s.functionForm === 'standard') {
+                      // Edited a, b, or c -> Recalculate h, k
+                      // Note: If key is 'a', it's already updated in newParams
+                      const b = (key === 'b' ? roundedVal : (prevParams.b ?? 0));
+                      const c = (key === 'c' ? roundedVal : (prevParams.c ?? 0));
+                      
+                      const { h, k } = standardToVertex(a, b, c);
+                      newParams.h = Math.round(h * 10) / 10;
+                      newParams.k = Math.round(k * 10) / 10;
+                  } else {
+                      // Edited a, h, or k -> Recalculate b, c
+                      const h = (key === 'h' ? roundedVal : (prevParams.h ?? 0));
+                      const k = (key === 'k' ? roundedVal : (prevParams.k ?? 0));
+                      
+                      const { b, c } = vertexToStandard(a, h, k);
+                      newParams.b = Math.round(b * 10) / 10;
+                      newParams.c = Math.round(c * 10) / 10;
+                  }
+              }
+
               return { 
                   ...s, 
                   formulaParams: newParams, 
@@ -254,14 +324,12 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
                     {(selectedShape.functionForm === 'standard' ? ['a', 'b', 'c'] : ['a', 'h', 'k']).map(p => (
                     <div key={p} className="flex items-center gap-2" title={PARAM_DESCRIPTIONS[p]}>
                         <span className="w-6 font-bold text-slate-500 cursor-help border-b border-dotted border-slate-300">{p}</span>
-                        <input 
-                        type="number" 
-                        step="0.1" 
-                        value={selectedShape.formulaParams![p as keyof typeof selectedShape.formulaParams] ?? 0} 
-                        onFocus={() => saveHistory()}
-                        onChange={(e) => updateFunctionParams(p, parseFloat(e.target.value) || 0)}
-                        className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
-                        placeholder={PARAM_DESCRIPTIONS[p]}
+                        <NumberInput 
+                            step="0.1" 
+                            value={selectedShape.formulaParams![p as keyof typeof selectedShape.formulaParams] ?? 0} 
+                            onChange={(val) => { saveHistory(); updateFunctionParams(p, val); }}
+                            className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                            placeholder={PARAM_DESCRIPTIONS[p]}
                         />
                     </div>
                     ))}
@@ -278,25 +346,21 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
               <div className="space-y-3">
                    <div className="flex items-center gap-2" title="Slope (k)">
                         <span className="w-6 font-bold text-slate-500 italic border-b border-dotted border-slate-300 cursor-help">k</span>
-                        <input 
-                            type="number" 
+                        <NumberInput 
                             step="0.1" 
                             title="Slope of the line"
                             value={selectedShape.formulaParams.k ?? 1} 
-                            onFocus={() => saveHistory()}
-                            onChange={(e) => updateFunctionParams('k', parseFloat(e.target.value) || 0)}
+                            onChange={(val) => { saveHistory(); updateFunctionParams('k', val); }}
                             className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
                         />
                    </div>
                    <div className="flex items-center gap-2" title="Y-Intercept (b)">
                         <span className="w-6 font-bold text-slate-500 italic border-b border-dotted border-slate-300 cursor-help">b</span>
-                        <input 
-                            type="number" 
+                        <NumberInput 
                             step="0.1" 
                             title="Y-intercept of the line"
                             value={selectedShape.formulaParams.b ?? 0} 
-                            onFocus={() => saveHistory()}
-                            onChange={(e) => updateFunctionParams('b', parseFloat(e.target.value) || 0)}
+                            onChange={(val) => { saveHistory(); updateFunctionParams('b', val); }}
                             className="flex-1 bg-slate-50 border rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
                         />
                    </div>

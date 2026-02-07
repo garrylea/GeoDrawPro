@@ -595,7 +595,27 @@ export function Editor() {
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { const startAngle = getAngleDegrees(compassState.center, pos); setCompassState({ ...compassState, radiusPoint: pos, startAngle: startAngle, lastMouseAngle: startAngle, accumulatedRotation: 0 }); } return; }
     if (tool === ToolType.RULER) { const existingRuler = shapes.find(s => s.type === ShapeType.RULER); if (existingRuler) { setSelectedIds(new Set([existingRuler.id])); setDragStartPos(rawPos); setIsDragging(true); return; } saveHistory(); const id = generateId(); const width = 400, height = 40; const center = pos; const newShape: Shape = { id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT); return; }
     if (pickingMirrorMode) { const line = shapes.find(s => (s.type === ShapeType.LINE || s.type === ShapeType.FREEHAND) && distance(pos, getClosestPointOnShape(pos, s)) < 10); if (line) handleFold(line.id); return; }
-    if (tool === ToolType.FUNCTION || tool === ToolType.LINEAR_FUNCTION) { saveHistory(); const id = generateId(); const isLinear = tool === ToolType.LINEAR_FUNCTION; const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; const fType = isLinear ? 'linear' : 'quadratic'; const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY); const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); return; }
+    if (tool === ToolType.FUNCTION || tool === ToolType.LINEAR_FUNCTION) { 
+        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+        if (hit && hit.type === ShapeType.FUNCTION_GRAPH) {
+            setTool(ToolType.SELECT);
+            setSelectedIds(new Set([hit.id]));
+            setActiveShapeId(null);
+            setDragStartPos(rawPos);
+            setIsDragging(true);
+            return;
+        }
+        saveHistory(); 
+        const id = generateId(); 
+        const isLinear = tool === ToolType.LINEAR_FUNCTION; 
+        const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; 
+        const fType = isLinear ? 'linear' : 'quadratic'; 
+        const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY); 
+        const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; 
+        setShapes(prev => [...prev, newShape]); 
+        setSelectedIds(new Set([id])); 
+        return; 
+    }
     if (tool === ToolType.SELECT) { 
         const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY); 
         if (hit) { 
@@ -724,7 +744,10 @@ export function Editor() {
                  setShapes((prev: Shape[]) => {
                      const drivingShape = prev.find(s => s.id === singleSelId); if (!drivingShape) return prev;
                      const drivingPoints = [drivingShape.points[0]];
-                     return prev.map(s => { if (s.id === singleSelId) return calculateMovedShape(s, dx, dy, pixelsPerUnit); return calculateMovedShape(s, dx, dy, pixelsPerUnit, drivingPoints); });
+                     return prev.map(s => { 
+                         if (s.id === singleSelId) return calculateMovedShape(s, dx, dy, pixelsPerUnit, [], canvasSize.width, svgHeight, originY); 
+                         return calculateMovedShape(s, dx, dy, pixelsPerUnit, drivingPoints, canvasSize.width, svgHeight, originY); 
+                     });
                  });
              }
              return; 
@@ -808,8 +831,8 @@ export function Editor() {
                   const drivingPoints: Point[] = [];
                   prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
                   updatedShapes = prev.map((s: Shape) => {
-                      if (selectedIds.has(s.id)) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit); }
-                      if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, drivingPoints); }
+                      if (selectedIds.has(s.id)) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, [], canvasSize.width, svgHeight, originY); }
+                      if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, drivingPoints, canvasSize.width, svgHeight, originY); }
                       return s;
                   });
               }
