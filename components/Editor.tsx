@@ -115,14 +115,19 @@ export function Editor() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
-  const PAGE_HEIGHT = 1080; 
+  
+  // PAGE_HEIGHT is now a state to allow it to match imported PDF proportions
+  const [pageHeight, setPageHeight] = useState(1400); 
   const [pageCount, setPageCount] = useState(1);
   const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
-  const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  // LOGICAL_CANVAS_WIDTH is fixed for coordinate stability
+  const LOGICAL_CANVAS_WIDTH = 1600;
+  const [canvasSize, setCanvasSize] = useState({ width: LOGICAL_CANVAS_WIDTH, height: window.innerHeight });
   const [zoom, setZoom] = useState(1);
 
-  const originY = PAGE_HEIGHT / 2;
-  const svgHeight = Math.max(canvasSize.height, pageCount * PAGE_HEIGHT);
+  const originY = pageHeight / 2;
+  const svgHeight = Math.max(canvasSize.height, pageCount * pageHeight);
   const pixelsPerUnit = getPixelsPerUnit(canvasSize.width, canvasSize.height, axisConfig.ticks);
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -175,7 +180,11 @@ export function Editor() {
 
   const handleSave = async () => {
       const success = await saveProject(shapes, 'project');
-      if (success) { setIsDirty(false); }
+      if (success) { 
+          setIsDirty(false); 
+          setSaveMessage('文件保存成功！');
+          setTimeout(() => setSaveMessage(null), 3000);
+      }
       return success;
   };
 
@@ -199,18 +208,12 @@ export function Editor() {
   }, []); 
 
   useEffect(() => {
-    const updateCanvasSize = () => {
-        // FIX: Use window dimensions instead of container dimensions.
-        // This ensures the coordinate system (origin) remains stable (at window center)
-        // even when the Sidebar opens and shrinks the container width.
-        // It prevents the axis/grid from "swimming" or shifting relative to drawn shapes.
-        setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    const updateCanvasHeight = () => {
+        setCanvasSize(prev => ({ ...prev, height: window.innerHeight }));
     };
-    updateCanvasSize();
-    
-    // Listen to window resize instead of container ResizeObserver
-    window.addEventListener('resize', updateCanvasSize);
-    return () => window.removeEventListener('resize', updateCanvasSize);
+    updateCanvasHeight();
+    window.addEventListener('resize', updateCanvasHeight);
+    return () => window.removeEventListener('resize', updateCanvasHeight);
   }, []);
 
   useEffect(() => {
@@ -275,22 +278,25 @@ export function Editor() {
               const imgUrl = canvas.toDataURL('image/png');
               
               const pageIndex = i - 1;
-              const pageTopY = pageIndex * PAGE_HEIGHT;
-              const pageCenterY = pageTopY + (PAGE_HEIGHT / 2);
-              const centerX = canvasSize.width / 2;
+              const centerX = LOGICAL_CANVAS_WIDTH / 2;
               
-              // Fit to page height logic
-              const padding = 40;
-              let displayWidth = viewport.width;
-              let displayHeight = viewport.height;
-              
-              if (displayHeight > (PAGE_HEIGHT - padding)) {
-                  const scaleFactor = (PAGE_HEIGHT - padding) / displayHeight;
-                  displayHeight = PAGE_HEIGHT - padding;
-                  displayWidth = displayWidth * scaleFactor;
+              // NEW: Fit to 80% of logical width while maintaining aspect ratio
+              const targetWidth = LOGICAL_CANVAS_WIDTH * 0.8;
+              const aspectRatio = viewport.height / viewport.width;
+              const displayWidth = targetWidth;
+              const displayHeight = targetWidth * aspectRatio;
+
+              // Synchronize editor page height with PDF page height on the first page
+              if (i === 1) {
+                  setPageHeight(displayHeight);
               }
+
+              // Use the calculated displayHeight for consistent positioning
+              const pageTopY = pageIndex * displayHeight;
+              const pageCenterY = pageTopY + (displayHeight / 2);
               
               const shapeId = generateId();
+              
               const newShape: Shape = {
                   id: shapeId,
                   type: ShapeType.IMAGE,
@@ -879,14 +885,14 @@ export function Editor() {
               const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray); 
               let maxY = 0; 
               sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } }); 
-              const requiredPages = Math.ceil(maxY / PAGE_HEIGHT); 
+              const requiredPages = Math.ceil(maxY / pageHeight); 
               setPageCount(Math.max(1, requiredPages)); 
               setShapes(sanitized); 
               setSelectedIds(new Set()); 
               setIsDirty(false); 
           } 
       } catch(e) { console.error("Load Failed", e); } 
-  }, [saveHistory, PAGE_HEIGHT]);
+  }, [saveHistory, pageHeight]);
 
   useEffect(() => {
     if (isElectron()) {
@@ -918,10 +924,10 @@ export function Editor() {
         <div className="flex flex-1 overflow-hidden relative">
             <Sidebar activeTool={tool} onToolChange={handleToolChange} />
             <div className="flex-1 relative flex flex-col min-w-0 bg-slate-50">
-                <div className={`flex-1 bg-white relative overflow-x-hidden overflow-y-auto custom-scrollbar ${tool === ToolType.ERASER ? 'cursor-eraser' : (tool === ToolType.SELECT ? 'cursor-default' : 'cursor-crosshair')}`} ref={containerRef} onDragOver={(e) => {e.preventDefault(); e.dataTransfer.dropEffect = 'copy';}} onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.type === 'application/pdf') { processPdfFile(file); } else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); } else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); } }}>
-                    <svg ref={svgRef} className="w-full touch-none block shadow-sm" style={{ height: svgHeight, transform: `scale(${zoom})`, transformOrigin: 'top left' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
-                        <AxisLayer config={axisConfig} width={canvasSize.width} height={svgHeight} pixelsPerUnit={pixelsPerUnit} overrideOrigin={{ x: canvasSize.width / 2, y: originY }} pageCount={pageCount} pageHeight={PAGE_HEIGHT} />
-                        {pageCount > 1 && Array.from({ length: pageCount - 1 }).map((_, i) => ( <g key={`page-break-${i}`} opacity="0.4"> <line x1={0} y1={(i + 1) * PAGE_HEIGHT} x2={canvasSize.width} y2={(i + 1) * PAGE_HEIGHT} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8,8" /> <text x={10} y={(i + 1) * PAGE_HEIGHT - 5} fontSize={10} fill="#94a3b8" fontFamily="sans-serif">Page {i + 1} End</text> </g> ))}
+                <div className={`flex-1 bg-white relative overflow-x-auto overflow-y-auto custom-scrollbar ${tool === ToolType.ERASER ? 'cursor-eraser' : (tool === ToolType.SELECT ? 'cursor-default' : 'cursor-crosshair')}`} ref={containerRef} onDragOver={(e) => {e.preventDefault(); e.dataTransfer.dropEffect = 'copy';}} onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.type === 'application/pdf') { processPdfFile(file); } else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); } else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); } }}>
+                    <svg ref={svgRef} className="mx-auto touch-none block shadow-sm bg-white" style={{ width: canvasSize.width, height: svgHeight, transform: `scale(${zoom})`, transformOrigin: 'top center' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
+                        <AxisLayer config={axisConfig} width={canvasSize.width} height={svgHeight} pixelsPerUnit={pixelsPerUnit} overrideOrigin={{ x: canvasSize.width / 2, y: originY }} pageCount={pageCount} pageHeight={pageHeight} />
+                        {pageCount > 1 && Array.from({ length: pageCount - 1 }).map((_, i) => ( <g key={`page-break-${i}`} opacity="0.4"> <line x1={0} y1={(i + 1) * pageHeight} x2={canvasSize.width} y2={(i + 1) * pageHeight} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8,8" /> <text x={10} y={(i + 1) * pageHeight - 5} fontSize={10} fill="#94a3b8" fontFamily="sans-serif">Page {i + 1} End</text> </g> ))}
                                   {shapes.filter(s => !isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} tool={tool} /> ))}
                                   {shapes.filter(s => isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} tool={tool} /> ))}                        {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
                         {tool === ToolType.RULER && selectedIds.size === 0 && ( <g style={{ opacity: 0.35, pointerEvents: 'none' }}> <ShapeRenderer shape={{ id: 'ghost-ruler', type: ShapeType.RULER, points: [{ x: (cursorPos?.x || 0) - 200, y: (cursorPos?.y || 0) - 20 }, { x: (cursorPos?.x || 0) + 200, y: (cursorPos?.y || 0) + 20 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }} isSelected={false} tool={tool} /> </g> )}
@@ -987,6 +993,15 @@ export function Editor() {
                         <h3 className="font-bold text-lg text-slate-800">Importing PDF</h3>
                         <p className="text-slate-500 text-sm">{loadingState.message}</p>
                     </div>
+                </div>
+            </div>
+        )}
+
+        {saveMessage && (
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="bg-emerald-500 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2 border border-emerald-400">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    {saveMessage}
                 </div>
             </div>
         )}

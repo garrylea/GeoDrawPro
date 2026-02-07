@@ -82,8 +82,8 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1400,
+    height: 1000,
     title: "GeoDraw Pro",
     icon: iconPath, 
     show: false,
