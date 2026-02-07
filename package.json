@@ -25,12 +25,14 @@
         "ext": "geo",
         "name": "GeoDraw Project",
         "description": "GeoDraw Pro Project File",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "public/icon.png"
       },
       {
         "ext": "json",
         "name": "JSON File",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "public/icon.png"
       }
     ],
     "directories": {
