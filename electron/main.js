@@ -398,6 +398,9 @@ ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
             outputBuffer = createIco(pngIcons);
         } else if (format === 'icns') {
             outputBuffer = createIcns(pngIcons);
+        } else if (format === 'png') {
+            // For Linux/Generic PNG, just save the first (and likely only) buffer
+            outputBuffer = pngIcons[0].buffer;
         } else {
             throw new Error("Unsupported format");
         }
