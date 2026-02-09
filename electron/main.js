@@ -73,13 +73,8 @@ app.whenReady().then(() => {
 
 function createWindow() {
   const isDev = !app.isPackaged;
-  let iconPath;
-  
-  if (isDev) {
-    iconPath = path.join(__dirname, '../public/icon.png');
-  } else {
-    iconPath = path.join(__dirname, '../dist/icon.png');
-  }
+  // Use PNG for BrowserWindow icon (compatible across platforms)
+  const iconPath = path.join(__dirname, '..', 'public', 'icon.png');
 
   mainWindow = new BrowserWindow({
     width: 1400,

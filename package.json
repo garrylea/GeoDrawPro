@@ -18,7 +18,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/icon.png"
+      "public/**/*"
     ],
     "fileAssociations": [
       {
@@ -41,12 +41,12 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "public/icon.png",
+      "icon": "public/icon.icns",
       "identity": null
     },
     "win": {
       "target": "nsis",
-      "icon": "public/icon.png"
+      "icon": "public/icon.ico"
     },
     "linux": {
       "target": "AppImage",
