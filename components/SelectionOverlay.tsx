@@ -40,7 +40,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   const handleStyle = {
     width: handleSize,
     height: handleSize,
-    fill: '#ffffff',
+    fill: 'rgba(255, 255, 255, 0.2)', // Increased transparency to see underneath
     stroke: activeStroke,
     strokeWidth: 2,
     rx: 2, 
@@ -289,7 +289,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
              onPointerDown={(e) => { e.stopPropagation(); onSetPivot(indices[i]); }}
              style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
           >
-              <circle r={6} fill="rgba(255, 255, 255, 0.8)" stroke="#ef4444" strokeWidth={1} />
+              <circle r={6} fill="rgba(255, 255, 255, 0.2)" stroke="#ef4444" strokeWidth={1} />
               <Plus size={8} color="#ef4444" transform="translate(-4, -4)" />
           </g>
       ));
@@ -311,7 +311,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
         <line x1={minX + width/2} y1={minY} x2={rotHandlePos.x} y2={rotHandlePos.y} stroke={activeStroke} strokeWidth={1} />
         <circle 
             cx={rotHandlePos.x} cy={rotHandlePos.y} r={5} 
-            fill="#ffffff" stroke={activeStroke} strokeWidth={2} 
+            fill="rgba(255, 255, 255, 0.2)" stroke={activeStroke} strokeWidth={2} 
             style={{ cursor: 'grab', pointerEvents: 'auto' }}
             onPointerDown={onRotateStart}
         />

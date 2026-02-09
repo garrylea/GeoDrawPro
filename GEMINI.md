@@ -81,3 +81,10 @@
 3. **Center Detection**: When approaching the center of a closed shape, it snaps and displays a **Yellow Crosshair** indicator.
 **Benefit:** Students have a "visible at a glance" reference for all key geometric points, making it effortless to draw medians, mid-segments, and centers with mathematical precision.
 
+### 10. Transparent Selection Anchors (2026-02-09)
+**Problem:** The white, opaque handles (anchors) used for resizing and rotating shapes would often obscure the exact intersection of lines or points underneath, making it difficult to achieve perfect pixel-level alignment.
+**Solution:** Updated the visual style of all selection handles.
+- Changed the fill of resize handles, rotation grips, and pivot indicators to **semi-transparent white** (`rgba(255, 255, 255, 0.2)`).
+- Maintained the solid border for visibility while allowing the user to see through the handle's center.
+**Benefit:** Users can now see the exact point or line they are aligning to, even when it is directly beneath the selection handle, significantly improving the precision of geometric constructions.
+
