@@ -57,3 +57,11 @@
 - Functional tools (Text, Images, Rulers) remain selectable by their interior for ease of use.
 **Benefit:** Allows users to freely draw and erase annotations inside large geometric shapes without fear of accidentally moving or deleting the background shape.
 
+### 7. Variable Rotation Pivot for Ruler (2026-02-09)
+**Problem:** The Ruler's rotation was always centered, making it difficult to align one end of the ruler with an existing line and then rotate it into position.
+**Solution:** Implemented selectable rotation pivots for the Ruler tool.
+- By default, a Ruler now rotates around its **Start point** (left end).
+- When a Ruler is selected and the **Alt key** is held, three pivot options appear: **Start**, **Center**, and **End**.
+- Clicking one of these anchors updates the rotation pivot for that ruler.
+**Benefit:** Users can "pin" one end of the ruler to a vertex or line end and easily rotate the other end for precise measurements and alignment.
+

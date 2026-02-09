@@ -29,7 +29,24 @@ import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker';
 export function Editor() {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [history, setHistory] = useState<Shape[][]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set<string>());
+  const [selectedIds, _setSelectedIds] = useState<Set<string>>(new Set<string>());
+  const setSelectedIds = (ids: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      _setSelectedIds(prev => {
+          const next = typeof ids === 'function' ? ids(prev) : ids;
+          if (next.size === 1) {
+              const id = Array.from(next)[0];
+              const s = shapesRef.current.find(shape => shape.id === id);
+              if (s && s.type === ShapeType.RULER) {
+                  setPivotIndex(0); // Default to Start for Ruler
+              } else {
+                  setPivotIndex('center');
+              }
+          } else {
+              setPivotIndex('center');
+          }
+          return next;
+      });
+  };
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
   const [clipboard, setClipboard] = useState<Shape[]>([]);
   
@@ -968,7 +985,27 @@ export function Editor() {
                                 isMarkingAngles={markingAnglesMode} 
                                 isDragging={isDragging} 
                                 onResizeStart={(idx, e) => { e.stopPropagation(); saveHistory(); refreshDomCache(); setDragHandleIndex(idx); setIsDragging(true); }} 
-                                onRotateStart={(e) => { e.stopPropagation(); saveHistory(); refreshDomCache(); setIsRotating(true); let center = getShapeCenter(s.points, s.type, s.fontSize, s.text); if (pivotIndex !== 'center') center = getRotatedCorners(s)[pivotIndex as number]; setRotationCenter(center); lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI); }} 
+                                onRotateStart={(e) => { 
+                                    e.stopPropagation(); 
+                                    saveHistory(); 
+                                    refreshDomCache(); 
+                                    setIsRotating(true); 
+                                    let center = getShapeCenter(s.points, s.type, s.fontSize, s.text); 
+                                    if (pivotIndex !== 'center') {
+                                        if (s.type === ShapeType.RULER) {
+                                            const p0 = s.points[0], p1 = s.points[1];
+                                            const minX = Math.min(p0.x, p1.x), maxX = Math.max(p0.x, p1.x);
+                                            const minY = Math.min(p0.y, p1.y), maxY = Math.max(p0.y, p1.y);
+                                            const height = maxY - minY;
+                                            if (pivotIndex === 0) center = { x: minX, y: minY + height / 2 };
+                                            else if (pivotIndex === 1) center = { x: maxX, y: minY + height / 2 };
+                                        } else {
+                                            center = getRotatedCorners(s)[pivotIndex as number]; 
+                                        }
+                                    }
+                                    setRotationCenter(center); 
+                                    lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI); 
+                                }} 
                                 onSetPivot={(idx) => setPivotIndex(idx)} 
                                 onMarkAngle={(idx) => { const corners = getRotatedCorners(s); const len = corners.length, prevIdx = (idx - 1 + len) % len, nextIdx = (idx + 1) % len; const existing = shapes.find(m => m.type === ShapeType.MARKER && m.markerConfig?.targets[0].shapeId === s.id && m.markerConfig?.targets[0].pointIndices[1] === idx); if (existing) { setShapes(ps => ps.map(m => m.id === existing.id ? (recalculateMarker({ ...m, markerConfig: { ...m.markerConfig!, type: m.markerConfig!.type === 'angle_arc' ? 'perpendicular' : 'angle_arc' } }, ps) || m) : m)); } else { saveHistory(); const nm = recalculateMarker({ id: generateId(), type: ShapeType.MARKER, points: [corners[idx]], fill: 'none', stroke: '#ef4444', strokeWidth: 2, rotation: 0, markerConfig: { type: 'angle_arc', targets: [{ shapeId: s.id, pointIndices: [prevIdx, idx, nextIdx] }] } }, shapes); if (nm) setShapes(ps => [...ps, nm]); } }} 
                                 onAngleChange={() => {}} 
