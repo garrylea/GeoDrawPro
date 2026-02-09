@@ -70,7 +70,7 @@ export function Editor() {
   const [dragStartPos, setDragStartPos] = useState<Point | null>(null); 
   const [dragHandleIndex, setDragHandleIndex] = useState<number | null>(null); 
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
-  const [snapIndicator, setSnapIndicator] = useState<Point | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<(Point & { type?: 'endpoint' | 'midpoint' | 'center' }) | null>(null);
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
   const cursorPosRef = useRef<Point | null>(null);
   
@@ -508,7 +508,7 @@ export function Editor() {
             : (tool === ToolType.SELECT && isDragging && selectedIds.size > 0 ? Array.from(selectedIds) : []);
 
         const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
-        const { point, snapped, constraint } = getSnapPoint(raw, shapes, excludeIds, gridSnapConfig);
+        const { point, snapped, constraint, type } = getSnapPoint(raw, shapes, excludeIds, gridSnapConfig);
         
         if (!snapped && hoveredShapeId) {
             const shape = shapes.find(s => s.id === hoveredShapeId);
@@ -516,10 +516,10 @@ export function Editor() {
                 const mp = screenToMath(raw, canvasSize.width, svgHeight, pixelsPerUnit, originY);
                 const my = evaluateQuadratic(mp.x, shape.formulaParams, shape.functionForm, shape.functionType || 'quadratic');
                 const sp = mathToScreen({ x: mp.x, y: my }, canvasSize.width, svgHeight, pixelsPerUnit, originY);
-                if (Math.abs(sp.y - raw.y) < 20) { setSnapIndicator(sp); setHoveredConstraint({ type: 'on_path', parentId: hoveredShapeId, paramX: mp.x }); return { ...sp, p: pressure }; }
+                if (Math.abs(sp.y - raw.y) < 20) { setSnapIndicator({ ...sp, type: 'midpoint' }); setHoveredConstraint({ type: 'on_path', parentId: hoveredShapeId, paramX: mp.x }); return { ...sp, p: pressure }; }
             }
         }
-        setSnapIndicator(snapped ? point : null); setHoveredConstraint(constraint || null); return { ...point, p: pressure };
+        setSnapIndicator(snapped ? { ...point, type } : null); setHoveredConstraint(constraint || null); return { ...point, p: pressure };
     }
     setSnapIndicator(null); setHoveredConstraint(null); return raw;
   };
@@ -1013,7 +1013,21 @@ export function Editor() {
                             />
                         ))}
                         {selectedIds.size > 1 && groupBounds && ( <SelectionOverlay shape={{ id: 'selection-group', type: ShapeType.RECTANGLE, points: [{x: groupBounds.minX, y: groupBounds.minY}, {x: groupBounds.maxX, y: groupBounds.maxY}], fill: 'none', stroke: 'transparent', strokeWidth: 0, rotation: 0 }} isSelected={true} pivotIndex={pivotIndex} isAltPressed={isAltPressed} isDragging={isDragging} onResizeStart={(idx, e) => { e.stopPropagation(); saveHistory(); refreshDomCache(); setDragHandleIndex(idx); setIsDragging(true); }} onRotateStart={(e) => { e.stopPropagation(); saveHistory(); refreshDomCache(); setIsRotating(true); const center = { x: groupBounds.minX + groupBounds.width / 2, y: groupBounds.minY + groupBounds.height / 2 }; setRotationCenter(center); lastRotationMouseAngle.current = Math.atan2(getMousePos(e, false).y - center.y, getMousePos(e, false).x - center.x) * (180 / Math.PI); }} onSetPivot={() => {}} onMarkAngle={() => {}} onAngleChange={() => {}} /> )}
-                        {snapIndicator && <circle cx={snapIndicator.x} cy={snapIndicator.y} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />}
+                        {snapIndicator && (
+                            <g transform={`translate(${snapIndicator.x}, ${snapIndicator.y})`}>
+                                {snapIndicator.type === 'midpoint' ? (
+                                    <path d="M -6 4 L 0 -7 L 6 4 Z" fill="none" stroke="#fbbf24" strokeWidth={2} />
+                                ) : snapIndicator.type === 'center' ? (
+                                    <g>
+                                        <circle cx={0} cy={0} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />
+                                        <line x1={-8} y1={0} x2={8} y2={0} stroke="#fbbf24" strokeWidth={1} />
+                                        <line x1={0} y1={-8} x2={0} y2={8} stroke="#fbbf24" strokeWidth={1} />
+                                    </g>
+                                ) : (
+                                    <circle cx={0} cy={0} r={5} fill="none" stroke="#fbbf24" strokeWidth={2} />
+                                )}
+                            </g>
+                        )}
                         <rect ref={selectionRectRef} x="0" y="0" width="0" height="0" fill="#3b82f6" fillOpacity="0.1" stroke="#3b82f6" strokeWidth="1" style={{ display: 'none', pointerEvents: 'none' }} />
                     </svg>
                     {textEditing && <div style={{ position: 'absolute', left: textEditing.x, top: textEditing.y, transform: 'translate(0, -50%)' }}><input ref={inputRef} type="text" value={textEditing.text} onChange={(e) => setTextEditing(prev => prev ? ({...prev, text: e.target.value}) : null)} onKeyDown={(e) => { if(e.key === 'Enter') { finishTextEditing(); } if(e.key === 'Escape') { cancelTextEditing(); } }} onBlur={finishTextEditing} className="bg-transparent border border-blue-500 rounded px-1 py-0.5 text-lg font-sans outline-none" style={{ color: currentStyle.stroke, minWidth: '50px' }} autoFocus /><div className="absolute top-full left-0 bg-white shadow-lg border rounded p-1 flex gap-1 mt-1 z-50 w-64 flex-wrap">{MATH_SYMBOLS.map(sym => <button key={sym} onMouseDown={(e) => e.preventDefault()} onClick={() => setTextEditing(p => p ? ({...p, text: p.text + sym}) : null)} className="hover:bg-gray-100 p-1 rounded text-sm min-w-[20px]">{sym}</button>)}</div></div>}

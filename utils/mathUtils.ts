@@ -839,11 +839,12 @@ export const getSnapPoint = (
     shapes: Shape[], 
     excludeIds: string[] = [], 
     gridConfig?: { width: number, height: number, ppu: number, originY?: number }
-): { point: Point, snapped: boolean, constraint?: Constraint } => {
+): { point: Point, snapped: boolean, constraint?: Constraint, type?: 'endpoint' | 'midpoint' | 'center' } => {
     let closestDist = 10; 
     let snapPt = pos;
     let snapped = false;
     let constraint: Constraint | undefined = undefined;
+    let snapType: 'endpoint' | 'midpoint' | 'center' | undefined = undefined;
 
     if (gridConfig) {
         const { ppu } = gridConfig;
@@ -870,6 +871,7 @@ export const getSnapPoint = (
                 snapPt = center;
                 closestDist = d;
                 snapped = true;
+                snapType = 'center';
             }
         }
 
@@ -891,32 +893,40 @@ export const getSnapPoint = (
         }
         
         if (shape.points) {
+            // Vertices
             for (const p of shape.points) {
                 const d = distance(pos, p);
                 if (d < closestDist) {
                     snapPt = p;
                     closestDist = d;
                     snapped = true;
+                    snapType = 'endpoint';
                     constraint = undefined; 
                 }
             }
+
+            // Midpoints
             if (shape.points.length >= 2) {
-                for(let i=0; i<shape.points.length - 1; i++) {
+                const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(shape.type);
+                const segmentsCount = isClosed ? shape.points.length : shape.points.length - 1;
+                
+                for(let i = 0; i < segmentsCount; i++) {
                     const p1 = shape.points[i];
-                    const p2 = shape.points[i+1];
-                    const mid = { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 };
+                    const p2 = shape.points[(i + 1) % shape.points.length];
+                    const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
                     const d = distance(pos, mid);
                     if (d < closestDist) {
                         snapPt = mid;
                         closestDist = d;
                         snapped = true;
+                        snapType = 'midpoint';
                         constraint = { type: 'on_path', parentId: shape.id }; 
                     }
                 }
             }
         }
     }
-    return { point: snapPt, snapped, constraint };
+    return { point: snapPt, snapped, constraint, type: snapType };
 };
 
 export const fitShapesToViewport = (shapes: Shape[], width: number, height: number): Shape[] => {
