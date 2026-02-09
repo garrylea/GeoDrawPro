@@ -466,7 +466,8 @@ export function Editor() {
           }
           if (e.key === 'a' || e.key === 'A') { setTool(ToolType.SELECT); return; }
           if (e.key === 'l' || e.key === 'L') { setTool(ToolType.LINE); return; }
-          if (e.key === 'p' || e.key === 'P') { setTool(ToolType.FREEHAND); return; }
+          if (e.key === 'p' || e.key === 'P') { setTool(ToolType.POINT); return; }
+          if (e.key === 'f' || e.key === 'F') { setTool(ToolType.FREEHAND); return; }
           if (e.key === 'e' || e.key === 'E') { setTool(ToolType.ERASER); return; }
           if (e.key === 'r' || e.key === 'R') { setTool(ToolType.RULER); return; }
           if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { const selected = shapes.filter(s => selectedIds.has(s.id)); if (selected.length > 0) setClipboard(JSON.parse(JSON.stringify(selected))); return; }

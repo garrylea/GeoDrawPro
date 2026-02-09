@@ -93,3 +93,11 @@
 **Cause:** The `SelectionOverlay` component re-renders when `isDragging` state changes. This re-render sometimes caused the underlying DOM node (`<g id="selection-overlay-group">`) to be replaced by a new one. The `refreshDomCache` function, called *before* the state change, held a reference to the *old* (now disconnected) DOM node, so transient transform updates were being applied to a "dead" element.
 **Fix:** Added a liveness check in `updateTransientVisuals`. Before applying transforms, it checks if the cached overlay element is missing or disconnected (`!isConnected`). If so, it re-queries the DOM to find the new live element, ensuring the overlay always moves in sync with the shape.
 
+### 12. Shortcut Key Optimization (2026-02-09)
+**Problem:** The shortcut 'P' was used for the Pencil (Freehand) tool, leaving no intuitive shortcut for the Point tool, which is a core geometric element.
+**Solution:** Re-assigned shortcuts to better match mathematical intuition.
+- **Point (P)**: Now assigned to 'P' (Point).
+- **Pencil (F)**: Now assigned to 'F' (Freehand).
+- Updated sidebar tooltips to reflect these changes (e.g., "Select (A)", "Point (P)", "Pencil (F)").
+**Benefit:** Makes the software more intuitive for geometry-focused users, aligning with standard mathematical tools where P usually stands for Point.
+

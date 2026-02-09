@@ -15,16 +15,16 @@ export const MATH_SYMBOLS = [
 ];
 
 export const TOOL_CONFIG = [
-  { id: ToolType.SELECT, label: 'Select', icon: MousePointer2 },
-  { id: ToolType.ERASER, label: 'Eraser', icon: Eraser },
-  { id: ToolType.FREEHAND, label: 'Pencil', icon: Pencil },
+  { id: ToolType.SELECT, label: 'Select (A)', icon: MousePointer2 },
+  { id: ToolType.ERASER, label: 'Eraser (E)', icon: Eraser },
+  { id: ToolType.FREEHAND, label: 'Pencil (F)', icon: Pencil },
   { id: ToolType.COMPASS, label: 'Compass', icon: Compass }, 
-  { id: ToolType.RULER, label: 'Ruler', icon: Ruler },       
+  { id: ToolType.RULER, label: 'Ruler (R)', icon: Ruler },       
   { id: ToolType.LINEAR_FUNCTION, label: 'Linear Function', icon: TrendingUp }, // New
   { id: ToolType.FUNCTION, label: 'Quadratic Function', icon: FunctionSquare },
   
-  { id: ToolType.POINT, label: 'Point', icon: Dot },
-  { id: ToolType.LINE, label: 'Line', icon: Minus },
+  { id: ToolType.POINT, label: 'Point (P)', icon: Dot },
+  { id: ToolType.LINE, label: 'Line (L)', icon: Minus },
   { id: ToolType.RECTANGLE, label: 'Rectangle', icon: Maximize },
   { id: ToolType.SQUARE, label: 'Square', icon: Square },
   { id: ToolType.CIRCLE, label: 'Circle', icon: Circle },
