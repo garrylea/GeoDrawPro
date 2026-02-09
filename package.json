@@ -41,12 +41,12 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "public/icon.icns",
+      "icon": "icon.icns",
       "identity": null
     },
     "win": {
       "target": "nsis",
-      "icon": "public/icon.ico"
+      "icon": "icon.ico"
     },
     "linux": {
       "target": "AppImage",
