@@ -87,6 +87,7 @@ export function Editor() {
   const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
   const [autoLabelMode, setAutoLabelMode] = useState(true); 
   const [smartSketchMode, setSmartSketchMode] = useState(true);
+  const [lockBackground, setLockBackground] = useState(true);
   const [pressureEnabled, _setPressureEnabled] = useState(true); 
   const setPressureEnabled = (val: boolean) => {
       _setPressureEnabled(val);
@@ -318,6 +319,7 @@ export function Editor() {
           setShapes(prev => [...prev, ...newShapes]);
           // Ensure canvas is tall enough
           setPageCount(prev => Math.max(prev, numPages));
+          setLockBackground(true);
       } catch (err) {
           console.error("Error processing PDF:", err);
           alert("Failed to load PDF file.");
@@ -629,7 +631,19 @@ export function Editor() {
         return; 
     }
     if (tool === ToolType.SELECT) { 
-        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY); 
+        let hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY); 
+        
+        // Background Penetration Logic: 
+        // If background is locked and we hit an image, only select it if clicking near the edge.
+        // This allows drawing selection boxes OVER the PDF without moving it.
+        if (hit && hit.type === ShapeType.IMAGE && lockBackground) {
+            const corners = getRotatedCorners(hit);
+            const distToEdge = distance(rawPos, getClosestPointOnShape(rawPos, { ...hit, points: corners, type: ShapeType.POLYGON }));
+            if (distToEdge > 15) {
+                hit = null; // Penetrate through the image
+            }
+        }
+
         if (hit) { 
             const el = svgRef.current?.querySelector(`g[data-shape-id="${hit.id}"]`);
             if (el) { domCacheRef.current.set(hit.id, el); initialShapeStateRef.current.set(hit.id, hit); }
@@ -978,7 +992,7 @@ export function Editor() {
             <div className={`h-full bg-slate-50 border-l border-slate-200 shadow-xl z-20 transition-all duration-300 ease-in-out flex ${isSidebarOpen ? 'w-[350px]' : 'w-[15px]'}`} onMouseEnter={() => setIsSidebarOpen(true)} onMouseLeave={() => setIsSidebarOpen(false)}>
                 <div className="w-[15px] h-full flex flex-row items-center justify-center gap-[3px] bg-slate-50 hover:bg-slate-100 cursor-pointer shrink-0 border-r border-slate-200 transition-colors"><div className="w-[1px] h-[16px] bg-slate-300 rounded-full"></div><div className="w-[1px] h-[16px] bg-slate-300 rounded-full"></div><div className="w-[1px] h-[16px] bg-slate-300 rounded-full"></div></div>
                 <div className={`flex-1 overflow-hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                     <PropertiesPanel selectedShape={selectedShape} shapes={shapes} setShapes={setShapes} selectedIds={selectedIds} axisConfig={axisConfig} setAxisConfig={setAxisConfig} autoLabelMode={autoLabelMode} setAutoLabelMode={setAutoLabelMode} smartSketchMode={smartSketchMode} setSmartSketchMode={setSmartSketchMode} pressureEnabled={pressureEnabled} setPressureEnabled={setPressureEnabled} markingAnglesMode={markingAnglesMode} setMarkingAnglesMode={setMarkingAnglesMode} pickingMirrorMode={pickingMirrorMode} setPickingMirrorMode={setPickingMirrorMode} currentStyle={currentStyle} setCurrentStyle={setCurrentStyle} canvasSize={{ width: canvasSize.width, height: svgHeight }} pixelsPerUnit={pixelsPerUnit} originY={originY} onFitToViewport={handleFitToViewport} saveHistory={saveHistory} isDragging={isDragging} />
+                     <PropertiesPanel selectedShape={selectedShape} shapes={shapes} setShapes={setShapes} selectedIds={selectedIds} axisConfig={axisConfig} setAxisConfig={setAxisConfig} autoLabelMode={autoLabelMode} setAutoLabelMode={setAutoLabelMode} smartSketchMode={smartSketchMode} setSmartSketchMode={setSmartSketchMode} pressureEnabled={pressureEnabled} setPressureEnabled={setPressureEnabled} lockBackground={lockBackground} setLockBackground={setLockBackground} markingAnglesMode={markingAnglesMode} setMarkingAnglesMode={setMarkingAnglesMode} pickingMirrorMode={pickingMirrorMode} setPickingMirrorMode={setPickingMirrorMode} currentStyle={currentStyle} setCurrentStyle={setCurrentStyle} canvasSize={{ width: canvasSize.width, height: svgHeight }} pixelsPerUnit={pixelsPerUnit} originY={originY} onFitToViewport={handleFitToViewport} saveHistory={saveHistory} isDragging={isDragging} />
                 </div>
             </div>
         </div>

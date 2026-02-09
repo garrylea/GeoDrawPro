@@ -41,3 +41,11 @@
 **Cause:** The `pointerdown` event handler for the right mouse button did not explicitly capture the pointer (`setPointerCapture`). Consequently, when the cursor left the element, the browser stopped sending `pointermove` events to the handler, and `pointerleave` would often trigger `handlePointerUp`, prematurely ending the scroll.
 **Fix:** Added `setPointerCapture(e.pointerId)` to `handlePointerDown` when the right mouse button is pressed, and `releasePointerCapture(e.pointerId)` to `handlePointerUp`. This ensures the scrolling gesture persists even if the cursor moves outside the canvas boundaries.
 
+### 5. PDF Background Interfering with Selection (2026-02-09)
+**Problem:** When a large PDF is loaded as an background IMAGE, trying to draw a selection box over annotations would instead trigger a move/drag action on the PDF itself, making it impossible to bulk-select annotations.
+**Solution:** Implemented "Lock Background + Smart Penetration" logic.
+1. Added a **"Lock BG"** toggle in SMART Tools (enabled by default when PDF is loaded).
+2. When locked, clicking the **center area** (>15px from edge) of an IMAGE does not select it, allowing the pointer events to "penetrate" through to the canvas to start a selection rectangle.
+3. Clicking near the **edges** of the locked IMAGE still allows selecting and moving it.
+**Benefit:** Users can easily select multiple annotations on top of a PDF without needing to manually lock/unlock layers constantly.
+

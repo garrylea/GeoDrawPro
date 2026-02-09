@@ -5,7 +5,7 @@ import { recalculateMarker, generateQuadraticPath, standardToVertex, vertexToSta
 import { 
   Radius, FunctionSquare, Grid3X3, Sparkles, CaseUpper, 
   Wand2, FoldHorizontal, Maximize, Minus, Plus, 
-  Fingerprint, ChevronDown, PaintBucket, PenTool
+  Fingerprint, ChevronDown, PaintBucket, PenTool, Lock
 } from 'lucide-react';
 
 interface PropertiesPanelProps {
@@ -21,6 +21,8 @@ interface PropertiesPanelProps {
   setSmartSketchMode: (v: boolean) => void;
   pressureEnabled: boolean;
   setPressureEnabled: (v: boolean) => void;
+  lockBackground: boolean;
+  setLockBackground: (v: boolean) => void;
   markingAnglesMode: boolean;
   setMarkingAnglesMode: (v: boolean) => void;
   pickingMirrorMode: boolean;
@@ -135,6 +137,8 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
   setSmartSketchMode,
   pressureEnabled,
   setPressureEnabled,
+  lockBackground,
+  setLockBackground,
   markingAnglesMode,
   setMarkingAnglesMode,
   pickingMirrorMode,
@@ -469,6 +473,9 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
           <button onClick={() => setPressureEnabled(!pressureEnabled)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${pressureEnabled ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
             <Fingerprint size={16} /> Pressure
           </button>
+          <button onClick={() => setLockBackground(!lockBackground)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${lockBackground ? 'bg-slate-100 border-slate-300 text-slate-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+            <Lock size={16} /> Lock BG
+          </button>
           <button onClick={() => setMarkingAnglesMode(!markingAnglesMode)} className={`p-2 rounded text-xs font-medium border flex flex-col items-center gap-1 transition-colors ${markingAnglesMode ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
             <Radius size={16} /> Angles
           </button>
@@ -520,6 +527,7 @@ export const PropertiesPanel = React.memo<PropertiesPanelProps>(({
         prev.autoLabelMode !== next.autoLabelMode ||
         prev.smartSketchMode !== next.smartSketchMode ||
         prev.pressureEnabled !== next.pressureEnabled ||
+        prev.lockBackground !== next.lockBackground ||
         prev.markingAnglesMode !== next.markingAnglesMode ||
         prev.pickingMirrorMode !== next.pickingMirrorMode) return false;
 
