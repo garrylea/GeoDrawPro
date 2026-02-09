@@ -582,7 +582,13 @@ export function Editor() {
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button === 2) { isScrollingRef.current = true; lastScrollPos.current = { x: e.clientX, y: e.clientY }; e.preventDefault(); return; }
+    if (e.button === 2) { 
+        isScrollingRef.current = true; 
+        lastScrollPos.current = { x: e.clientX, y: e.clientY }; 
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        e.preventDefault(); 
+        return; 
+    }
     if (textEditing || angleEditing) { if (textEditing) finishTextEditing(); return; }
     const pos = getMousePos(e, true); const rawPos = getMousePos(e, false); dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
@@ -765,6 +771,12 @@ export function Editor() {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+      if (isScrollingRef.current) { 
+          isScrollingRef.current = false; 
+          lastScrollPos.current = null; 
+          try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch(e) {}
+          return; 
+      }
       if (isScrollingRef.current) { isScrollingRef.current = false; lastScrollPos.current = null; return; }
       const rawPos = getMousePos(e, false);
       

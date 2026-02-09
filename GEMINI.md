@@ -36,3 +36,8 @@
 **Fix:** Updated the rendering logic to prioritize the `usePressure` flag. If `usePressure` is explicitly set to `true` or `false`, it is respected. Only if `usePressure` is `undefined` (legacy data) does it fall back to checking `hasPressureData`.
 **Lesson:** When providing an explicit control flag for a feature, ensure that feature detection logic does not override the user's explicit preference.
 
+### 4. Right-Click Scrolling Interruption (2026-02-09)
+**Problem:** The right-click drag gesture to scroll (flip pages) would stop working if the mouse cursor moved outside the SVG canvas area, making navigation difficult on smaller screens or when dragging near edges.
+**Cause:** The `pointerdown` event handler for the right mouse button did not explicitly capture the pointer (`setPointerCapture`). Consequently, when the cursor left the element, the browser stopped sending `pointermove` events to the handler, and `pointerleave` would often trigger `handlePointerUp`, prematurely ending the scroll.
+**Fix:** Added `setPointerCapture(e.pointerId)` to `handlePointerDown` when the right mouse button is pressed, and `releasePointerCapture(e.pointerId)` to `handlePointerUp`. This ensures the scrolling gesture persists even if the cursor moves outside the canvas boundaries.
+
