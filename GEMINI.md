@@ -88,3 +88,8 @@
 - Maintained the solid border for visibility while allowing the user to see through the handle's center.
 **Benefit:** Users can now see the exact point or line they are aligning to, even when it is directly beneath the selection handle, significantly improving the precision of geometric constructions.
 
+### 11. Selection Overlay Detachment During Drag (2026-02-09)
+**Problem:** Occasionally, when dragging a shape (especially on the 2nd or 3rd attempt), the shape would move but its selection handles (overlay) would stay behind until the mouse was released.
+**Cause:** The `SelectionOverlay` component re-renders when `isDragging` state changes. This re-render sometimes caused the underlying DOM node (`<g id="selection-overlay-group">`) to be replaced by a new one. The `refreshDomCache` function, called *before* the state change, held a reference to the *old* (now disconnected) DOM node, so transient transform updates were being applied to a "dead" element.
+**Fix:** Added a liveness check in `updateTransientVisuals`. Before applying transforms, it checks if the cached overlay element is missing or disconnected (`!isConnected`). If so, it re-queries the DOM to find the new live element, ensuring the overlay always moves in sync with the shape.
+

@@ -534,6 +534,13 @@ export function Editor() {
   };
 
   const updateTransientVisuals = (state: TransientState | null) => {
+    // Safety: Ensure overlay is in cache and valid (React re-renders can replace the DOM node)
+    let overlay = domCacheRef.current.get('selection-overlay-group');
+    if (!overlay || !overlay.isConnected) {
+        overlay = document.getElementById('selection-overlay-group') || undefined;
+        if (overlay) domCacheRef.current.set('selection-overlay-group', overlay);
+    }
+
     if (!state) {
         domCacheRef.current.forEach((el, id) => { 
              const shape = shapesRef.current.find(s => s.id === id);
