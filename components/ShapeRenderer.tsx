@@ -48,6 +48,39 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
   const center = getShapeCenter(points, type);
   const rotationTransform = rotation ? `rotate(${rotation} ${center.x} ${center.y})` : '';
 
+  const renderMidpoints = () => {
+    if ([ShapeType.FREEHAND, ShapeType.PATH, ShapeType.POINT, ShapeType.TEXT, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.FUNCTION_GRAPH, ShapeType.MARKER].includes(type)) return null;
+
+    const dots: React.ReactNode[] = [];
+    const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(type);
+
+    // 1. Center for Circle/Ellipse
+    if (type === ShapeType.CIRCLE || type === ShapeType.ELLIPSE) {
+        dots.push(<circle key="center-dot" cx={center.x} cy={center.y} r={3} fill="#94a3b8" opacity={0.5} style={{ pointerEvents: 'none' }} />);
+    } 
+    // 2. Edge Midpoints for segments
+    else if (points && points.length >= 2) {
+        let pts = points;
+        if (type === ShapeType.RECTANGLE || type === ShapeType.SQUARE) {
+            pts = [
+                { x: x, y: y }, { x: x + width, y: y }, 
+                { x: x + width, y: y + height }, { x: x, y: y + height }
+            ];
+        }
+        
+        const count = (type === ShapeType.RECTANGLE || type === ShapeType.SQUARE || type === ShapeType.TRIANGLE || type === ShapeType.POLYGON) ? pts.length : pts.length - 1;
+        
+        for (let i = 0; i < count; i++) {
+            const p1 = pts[i];
+            const p2 = pts[(i + 1) % pts.length];
+            const mx = (p1.x + p2.x) / 2;
+            const my = (p1.y + p2.y) / 2;
+            dots.push(<circle key={`mid-${i}`} cx={mx} cy={my} r={3} fill="#94a3b8" opacity={0.5} style={{ pointerEvents: 'none' }} />);
+        }
+    }
+    return <g className="midpoints-layer">{dots}</g>;
+  };
+
   if (type === ShapeType.FUNCTION_GRAPH) {
       if (!pathData) return null;
       return (
@@ -291,6 +324,7 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
           </g>
       )}
       {element}
+      {renderMidpoints()}
       {labelElements}
     </g>
   );

@@ -75,9 +75,9 @@
 
 ### 9. Smart Midpoint & Center Snapping (2026-02-09)
 **Problem:** Finding the exact midpoint of a line segment or the center of a shape for geometric constructions (like medians or circumcenters) was difficult and required manual measurement.
-**Solution:** Implemented intelligent snapping with specialized visual "Smart Markers".
-1. **Midpoint Detection**: When the cursor approaches the middle of any line segment (including edges of polygons and triangles), it automatically snaps to the midpoint and displays a **Yellow Triangle** indicator.
-2. **Center Detection**: When approaching the center of a closed shape (Rectangle, Circle, Ellipse, Triangle), it snaps to the center and displays a **Yellow Crosshair** indicator.
-3. **Contextual Appearance**: These markers are "hidden" (dark markers) and only appear when the user's cursor is close enough to be relevant for snapping.
-**Benefit:** Students can now effortlessly draw medians, mid-segments, and other complex geometric constructions with perfect mathematical accuracy without needing a ruler.
+**Solution:** Implemented intelligent snapping with permanent visual "Smart Markers".
+1. **Persistent Visual Cues**: Every line segment, triangle edge, and polygon side now displays a small, subtle **Dark Gray Dot** (`#94a3b8`, 50% opacity) at its exact midpoint. Circles and ellipses also show a dot at their center.
+2. **Midpoint Detection**: When the cursor approaches these dots, it automatically snaps to the exact coordinates and displays a **Yellow Triangle** indicator to confirm the snap.
+3. **Center Detection**: When approaching the center of a closed shape, it snaps and displays a **Yellow Crosshair** indicator.
+**Benefit:** Students have a "visible at a glance" reference for all key geometric points, making it effortless to draw medians, mid-segments, and centers with mathematical precision.
 
