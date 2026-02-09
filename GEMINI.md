@@ -49,3 +49,11 @@
 3. Clicking near the **edges** of the locked IMAGE still allows selecting and moving it.
 **Benefit:** Users can easily select multiple annotations on top of a PDF without needing to manually lock/unlock layers constantly.
 
+### 6. Hollow Selection for Transparent Shapes (2026-02-09)
+**Problem:** For closed shapes like triangles or circles, users would accidentally select or erase them when trying to interact with annotations inside the shape, because clicking anywhere in the interior was considered a "hit".
+**Solution:** Implemented "Hollow Selection" logic.
+- If a shape's **fill** is set to `transparent`, it is no longer selectable by its interior. Only clicking/erasing near its **edges** will trigger a hit.
+- If a shape has a visible **fill color**, it remains selectable by its entire area.
+- Functional tools (Text, Images, Rulers) remain selectable by their interior for ease of use.
+**Benefit:** Allows users to freely draw and erase annotations inside large geometric shapes without fear of accidentally moving or deleting the background shape.
+
