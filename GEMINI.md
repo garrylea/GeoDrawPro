@@ -65,3 +65,11 @@
 - Clicking one of these anchors updates the rotation pivot for that ruler.
 **Benefit:** Users can "pin" one end of the ruler to a vertex or line end and easily rotate the other end for precise measurements and alignment.
 
+### 8. Grid & Ruler Unit Synchronization (2026-02-09)
+**Problem:** The Ruler's unit markings were fixed (20px per unit) while the Grid's unit size was dynamic (`pixelsPerUnit`), making it impossible to use the on-screen ruler for accurate mathematical measurements.
+**Solution:** Unified the measurement system across the entire application.
+1. **Ruler Sync**: The Ruler now uses the global `pixelsPerUnit` (PPU) for its scale. 1 major unit on the ruler now corresponds exactly to 1 unit on the coordinate grid.
+2. **Sub-unit Snapping**: Updated the snapping logic to snap to 0.1 unit increments (`ppu / 10`), matching the smallest markings on the ruler.
+3. **Center Snapping**: Added automatic snapping to the center point of closed shapes (Circles, Rectangles, etc.).
+**Benefit:** The physical ruler on the screen now provides mathematically accurate measurements relative to the axes and grid, and drawing tools snap perfectly to the ruler's markings.
+

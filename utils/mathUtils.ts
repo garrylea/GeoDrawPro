@@ -847,8 +847,11 @@ export const getSnapPoint = (
 
     if (gridConfig) {
         const { ppu } = gridConfig;
-        const gx = Math.round(pos.x / ppu) * ppu;
-        const gy = Math.round(pos.y / ppu) * ppu;
+        // SNAPPING IMPROVED: Snap to 0.1 unit increments (ppu / 10)
+        // This matches the ruler's sub-ticks.
+        const step = ppu / 10;
+        const gx = Math.round(pos.x / step) * step;
+        const gy = Math.round(pos.y / step) * step;
         if (Math.abs(gx - pos.x) < 5 && Math.abs(gy - pos.y) < 5) {
              snapPt = { x: gx, y: gy };
              closestDist = 5; 
@@ -858,6 +861,18 @@ export const getSnapPoint = (
 
     for (const shape of shapes) {
         if (excludeIds.includes(shape.id)) continue;
+        
+        // Add Center Point Snapping for closed shapes
+        if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(shape.type)) {
+            const center = getShapeCenter(shape.points, shape.type);
+            const d = distance(pos, center);
+            if (d < closestDist) {
+                snapPt = center;
+                closestDist = d;
+                snapped = true;
+            }
+        }
+
         if (shape.type === ShapeType.FUNCTION_GRAPH) {
              if (shape.formulaParams && gridConfig) {
                  const originY = gridConfig.originY ?? (gridConfig.height / 2);

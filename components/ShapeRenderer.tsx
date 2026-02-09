@@ -6,9 +6,10 @@ interface ShapeRendererProps {
   shape: Shape;
   isSelected: boolean;
   tool?: ToolType;
+  pixelsPerUnit?: number; // Added to sync scale
 }
 
-export const ShapeRenderer = React.memo(({ shape, isSelected, tool }: ShapeRendererProps) => {
+export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUnit = 40 }: ShapeRendererProps) => {
   const { type, points, fill, stroke, strokeWidth, text, rotation, strokeType, pathData, fontSize, labels, imageUrl, usePressure } = shape;
   
   if (type === ShapeType.MARKER) {
@@ -225,26 +226,42 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool }: ShapeRende
         );
         const rulerTicks = [];
         const rulerLabels = [];
-        const tickSpacing = 2; 
+        
+        // SYNCED: 1 unit on ruler = pixelsPerUnit pixels
+        // Sub-ticks every 0.1 units
+        const tickSpacing = pixelsPerUnit / 10; 
         const numTicks = Math.floor(width / tickSpacing);
+        
         for(let i=0; i<=numTicks; i++) {
             const tx = x + i * tickSpacing;
             let tickLen = 4;
             let tickWeight = 0.4;
             let opacity = 0.4;
+            
             if (i % 10 === 0) {
                 tickLen = 14; 
                 tickWeight = 1.2;
                 opacity = 1.0;
+                rulerLabels.push(
+                    <text 
+                        key={`rl-${i}`} 
+                        x={tx} y={y + 28} 
+                        fontSize={9} 
+                        fill="#475569" 
+                        fontFamily="monospace" 
+                        fontWeight="bold" 
+                        textAnchor="middle" 
+                        style={{ userSelect: 'none', pointerEvents: 'none' }}
+                    >
+                        {i / 10}
+                    </text>
+                );
             } else if (i % 5 === 0) {
                 tickLen = 8; 
                 tickWeight = 0.8;
                 opacity = 0.7;
             }
             rulerTicks.push(<line key={`rt-${i}`} x1={tx} y1={y} x2={tx} y2={y + tickLen} stroke="#64748b" strokeWidth={tickWeight} strokeOpacity={opacity} strokeLinecap="square" />);
-            if (i % 10 === 0) {
-                rulerLabels.push(<text key={`rl-${i}`} x={tx} y={y + 28} fontSize={9} fill="#475569" fontFamily="monospace" fontWeight="bold" textAnchor="middle" style={{ userSelect: 'none', pointerEvents: 'none' }}>{i / 10}</text>);
-            }
         }
         element = (
             <g>
