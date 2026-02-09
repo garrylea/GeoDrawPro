@@ -151,7 +151,8 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool }: ShapeRende
     case ShapeType.FREEHAND:
         if (points.length < 2) return null;
         const hasPressureData = points.some(p => p.p !== undefined && p.p !== 0.5);
-        if (usePressure || hasPressureData) {
+        const shouldShowPressure = usePressure !== undefined ? usePressure : hasPressureData;
+        if (shouldShowPressure) {
             const pressurePath = getVariableWidthPath(points, strokeWidth);
             element = <path d={pressurePath} fill={isSelected ? '#3b82f6' : stroke} stroke="none" opacity={0.9} />;
         } else {

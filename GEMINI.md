@@ -30,3 +30,9 @@
 **Cause:** The previous fix only restored the transform for shape elements (identified by ID in `shapes`). The selection overlay (`selection-overlay-group`) was still being reset to an empty transform because it wasn't recognized as a shape.
 **Fix:** Extended the `updateTransientVisuals` cleanup logic to explicitly handle `selection-overlay-group`, calculating and restoring the correct rotation transform based on the selected shape's state.
 
+### 3. Pressure Pen Toggle Ineffectiveness (2026-02-09)
+**Problem:** The "Pressure Pen" toggle in SMART Tools was not working as expected; lines drawn with a pressure-sensitive pen would still show variable width even when pressure was disabled.
+**Cause:** In `ShapeRenderer.tsx`, the logic for freehand shapes used `(usePressure || hasPressureData)`. Since most pen-drawn points have pressure data (p != 0.5), `hasPressureData` was always true, overriding the `usePressure: false` flag set by the toggle.
+**Fix:** Updated the rendering logic to prioritize the `usePressure` flag. If `usePressure` is explicitly set to `true` or `false`, it is respected. Only if `usePressure` is `undefined` (legacy data) does it fall back to checking `hasPressureData`.
+**Lesson:** When providing an explicit control flag for a feature, ensure that feature detection logic does not override the user's explicit preference.
+
