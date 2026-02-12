@@ -112,6 +112,11 @@
     - When dragging a **driver point** directly, connected lines are updated via direct DOM attribute manipulation (`x1, y1` etc.), allowing them to "stretch" elastically in real-time.
 5.  **Multi-Parent Accumulation**: Fixed a recursive loop bug where updating a shape with multiple parents (e.g., a line with two moving points) would use stale data from the start of the loop. The system now always fetches the "latest accumulating state" within the resolver loop.
 6.  **Visual coordinate Truth**: All constraint math uses `getRotatedCorners` (Visual Space) instead of `shape.points` (Raw Space) because the app maintains a separate `rotation` property. This ensures points stay on edges even after the parent is rotated.
+7.  **Circle/Ellipse Perimeter Constraints**: Points on circular shapes now use a `paramAngle` (0-360°) constraint. Fixed a major bug where circle radius was calculated using the diagonal length instead of bounding box width, which caused points to "drift" into empty space during movement.
+8.  **Selection Overlay Rotation Sync**: Fixed a bug where the bounding box (selection handles) would snap to 0° during a move even if the shape was rotated. The `updateTransientVisuals` logic now explicitly carries over the target shape's persistent rotation to the overlay group.
+9.  **Rigid Body vs. Elastic Race Conditions**: Optimized the visual engine to treat the entire dependency tree (Shape -> Point -> Line) as a single rigid body during group movement. This eliminates "lagging lines" where dependents would wait for the mouse release to catch up.
+10. **Circle Hit Detection Parity**: Fixed a regression where circles became unselectable. The hit detection logic was corrected to match the rendering engine's radius definition (`width / 2`), ensuring the "Hollow Selection" (edge-only click) works with pixel-perfect accuracy.
 **Lesson:** When building complex dependency systems in React, separate the **Mathematical Truth** (recursive coordinate resolution) from the **Visual Performance** (transient DOM transforms), and ensure the "Final Snap" on release perfectly reconciles both.
+
 
 
