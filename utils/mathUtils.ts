@@ -896,7 +896,7 @@ export const getSnapPoint = (
         // PERIMETER SNAPPING: Circle & Ellipse
         if (shape.type === ShapeType.CIRCLE) {
             const center = getShapeCenter(shape.points, shape.type);
-            const radius = distance(shape.points[0], shape.points[1]) / 2;
+            const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
             const d = distance(pos, center);
             if (Math.abs(d - radius) < 15) {
                 const angle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
@@ -913,25 +913,17 @@ export const getSnapPoint = (
                     constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
                 }
             }
+            continue; // CRITICAL: Skip vertex/edge logic for circles
         } else if (shape.type === ShapeType.ELLIPSE) {
             const center = getShapeCenter(shape.points, shape.type);
             const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
             const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
-            
-            // Transform pos to local unrotated space
             let localPos = pos;
             if (shape.rotation) localPos = rotatePoint(pos, center, -shape.rotation);
-            
             const angle = Math.atan2(localPos.y - center.y, localPos.x - center.x) * (180 / Math.PI);
             const rad = (angle * Math.PI) / 180;
-            let projected = {
-                x: center.x + rx * Math.cos(rad),
-                y: center.y + ry * Math.sin(rad)
-            };
-            
-            // Transform back to world space
+            let projected = { x: center.x + rx * Math.cos(rad), y: center.y + ry * Math.sin(rad) };
             if (shape.rotation) projected = rotatePoint(projected, center, shape.rotation);
-            
             if (distance(pos, projected) < 15 && distance(pos, projected) < closestDist) {
                 snapPt = projected;
                 closestDist = distance(pos, projected);
@@ -939,6 +931,7 @@ export const getSnapPoint = (
                 snapType = 'on_edge';
                 constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
             }
+            continue; // CRITICAL: Skip vertex/edge logic for ellipses
         }
 
         if (shape.type === ShapeType.FUNCTION_GRAPH) {
