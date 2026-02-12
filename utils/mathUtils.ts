@@ -962,8 +962,10 @@ export const getSnapPoint = (
         const visualPoints = getRotatedCorners(shape);
 
         if (visualPoints.length > 0) {
-            // Vertices
-            for (let j = 0; j < visualPoints.length; j++) {
+            // Vertices - Skip for circles/ellipses to prevent corner snapping
+            const canSnapToVertices = ![ShapeType.CIRCLE, ShapeType.ELLIPSE].includes(shape.type);
+            
+            for (let j = 0; j < (canSnapToVertices ? visualPoints.length : 0); j++) {
                 const p = visualPoints[j];
                 const d = distance(pos, p);
                 if (d < closestDist) {
@@ -985,7 +987,9 @@ export const getSnapPoint = (
 
             // Edges & Midpoints
             if (visualPoints.length >= 2) {
-                const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE].includes(shape.type);
+                // CRITICAL FIX: Only polygons/rectangles should snap to edges. 
+                // Circles and ellipses must snap to their actual curve.
+                const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(shape.type);
                 const segmentsCount = isClosed ? visualPoints.length : visualPoints.length - 1;
                 
                 for(let i = 0; i < segmentsCount; i++) {
