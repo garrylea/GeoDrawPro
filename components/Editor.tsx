@@ -716,9 +716,14 @@ export function Editor() {
         y: (e.clientY - (rect?.top || 0)) / zoom 
     };
     
+    // CRITICAL UX FIX: Disable snapping for FREEHAND tool to allow smooth drawing
+    const shouldSnap = tool !== ToolType.FREEHAND;
+    
     // Use the unified binder for initial position and constraint. 
     // Exclude activeShapeId if we are finishing a multi-click shape (like a LINE).
-    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : [], tool === ToolType.LINE);
+    const { point: pos, constraint: currentConstraint } = shouldSnap 
+        ? bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : [], tool === ToolType.LINE)
+        : { point: rawPos, constraint: undefined };
 
     dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
@@ -817,8 +822,14 @@ export function Editor() {
     // Snapping configuration for detecting constraints
     const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
     
+    // CRITICAL UX FIX: Disable snapping for FREEHAND tool
+    const shouldSnap = tool !== ToolType.FREEHAND;
+
     // Detect snapping target (all shapes except current dragging selection and the active shape being drawn)
-    const snapResult = getSnapPoint(rawPos, shapesRef.current.filter(s => !selectedIds.has(s.id) && s.id !== activeShapeId), [], gridSnapConfig);
+    const snapResult = shouldSnap 
+        ? getSnapPoint(rawPos, shapesRef.current.filter(s => !selectedIds.has(s.id) && s.id !== activeShapeId), [], gridSnapConfig)
+        : { point: rawPos, snapped: false, constraint: undefined, type: undefined };
+        
     const pos = snapResult.point;
 
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
