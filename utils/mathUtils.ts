@@ -404,11 +404,12 @@ export const isPointInShape = (
 
     if (shape.type === ShapeType.CIRCLE) {
          const center = getShapeCenter(shape.points);
-         const radius = distance(shape.points[0], shape.points[1]) / 2;
+         // Visual radius is half of the width/height of the bounding box
+         const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
          const d = distance(p, center);
          const hasFill = shape.fill && shape.fill !== 'transparent';
          
-         if (hasFill && d <= radius) return true;
+         if (hasFill && d <= radius + threshold/2) return true;
          return Math.abs(d - radius) < threshold;
     }
     

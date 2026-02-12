@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveConstraints, constrainPointToEdge, getDependents } from './constraintSystem';
-import { getSnapPoint, getRotatedCorners } from './mathUtils';
+import { getSnapPoint, getRotatedCorners, isPointInShape } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
 
@@ -630,5 +630,27 @@ describe('Constraint System', () => {
         const cCorners = getRotatedCorners(circle);
         expect(cCorners.length).toBe(4);
         // Even for circles, we calculate 4 bounding box corners
+    });
+
+    it('should correctly detect hits on a Circle', () => {
+        // Circle defined by (100,100) and (200,200). Center (150,150), Radius 50 visually.
+        const circle: Shape = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
+        circle.fill = '#ff0000'; // Filled circle
+        
+        // 1. Center hit
+        expect(isPointInShape({x:150, y:150}, circle)).toBe(true);
+        
+        // 2. Edge hit
+        expect(isPointInShape({x:100, y:150}, circle)).toBe(true);
+        
+        // 3. Far away miss
+        expect(isPointInShape({x:0, y:0}, circle)).toBe(false);
+        
+        // 4. Transparent circle interior hit (Hollow selection)
+        const transparentCircle = { ...circle, fill: 'transparent' };
+        // Center should be FALSE now due to hollow selection
+        expect(isPointInShape({x:150, y:150}, transparentCircle)).toBe(false);
+        // Edge should still be TRUE
+        expect(isPointInShape({x:100, y:150}, transparentCircle)).toBe(true);
     });
 });
