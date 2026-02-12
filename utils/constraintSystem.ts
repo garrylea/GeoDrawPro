@@ -1,5 +1,5 @@
 import { Shape, ShapeType, Point } from '../types';
-import { lerp, mathToScreen, evaluateQuadratic, getRotatedCorners } from './mathUtils';
+import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners } from './mathUtils';
 
 /**
  * Updates all shapes that depend on the modified shape.
@@ -14,26 +14,31 @@ export const resolveConstraints = (
     originY?: number,
     depth: number = 0
 ): Shape[] => {
-    // Prevent infinite recursion in case of accidental cycles
-    if (depth > 10) return allShapes;
+    if (depth > 15) {
+        console.warn('[ConstraintSystem] Max recursion depth reached');
+        return allShapes;
+    }
 
-    // 1. Find direct dependents (search parentId OR parents array)
-    const dependents = allShapes.filter(s => 
-        s.constraint?.parentId === modifiedShapeId || 
-        s.constraint?.parents?.includes(modifiedShapeId)
-    );
+    // 1. Find direct dependents
+    const dependents = allShapes.filter(s => {
+        if (!s.constraint) return false;
+        const isDirect = s.constraint.parentId === modifiedShapeId;
+        const isMulti = Array.isArray(s.constraint.parents) && s.constraint.parents.some(p => p === modifiedShapeId);
+        return isDirect || isMulti;
+    });
     
     if (dependents.length === 0) return allShapes;
 
     let updatedShapes = [...allShapes];
 
-    for (const dependent of dependents) {
-        if (!dependent.constraint) continue;
+    for (const dependentStub of dependents) {
+        const currentDependent = updatedShapes.find(s => s.id === dependentStub.id);
+        if (!currentDependent || !currentDependent.constraint) continue;
 
-        const { type, parentId, parents, edgeIndex, paramT, paramX } = dependent.constraint;
+        const { type, parentId, parents, edgeIndex, paramT, paramX } = currentDependent.constraint;
         let nextShape: Shape | null = null;
 
-        // --- CASE 1: Point on Edge (Polygon/Line/Rect etc.) ---
+        // --- CASE 1: Point on Edge ---
         if (type === 'on_edge' && edgeIndex !== undefined && paramT !== undefined && parentId === modifiedShapeId) {
             const parent = updatedShapes.find(s => s.id === parentId);
             if (parent) {
@@ -43,51 +48,38 @@ export const resolveConstraints = (
                     const p2 = visualPoints[(edgeIndex + 1) % visualPoints.length];
                     if (p1 && p2) {
                         const newPos = lerp(p1, p2, paramT);
-                        nextShape = { ...dependent, points: [newPos] };
+                        nextShape = { ...currentDependent, points: [newPos] };
                     }
                 }
             }
         }
         
-        // --- CASE 2: Point on Function Graph ---
-        else if (type === 'on_path' && paramX !== undefined && parentId === modifiedShapeId) {
-             const parent = updatedShapes.find(s => s.id === parentId);
-             if (parent && parent.type === ShapeType.FUNCTION_GRAPH && parent.formulaParams) {
-                 const fType = parent.functionType || 'quadratic';
-                 const mx = paramX;
-                 const my = evaluateQuadratic(mx, parent.formulaParams, parent.functionForm, fType);
-                 const newPos = mathToScreen({ x: mx, y: my }, canvasWidth, canvasHeight, pixelsPerUnit, originY);
-                 nextShape = { ...dependent, points: [newPos] };
-             }
-        }
-
         // --- CASE 3: Line/Shape connected to dynamic Points ---
         else if (type === 'points_link') {
             const pids = parents || (parentId ? [parentId] : []);
-            const newPoints = [...dependent.points];
+            const newPoints = [...currentDependent.points];
             let changed = false;
 
             pids.forEach((pid, idx) => {
                 if (!pid) return;
-                // If this vertex is linked to the modified parent
                 const parent = updatedShapes.find(s => s.id === pid);
                 if (parent && parent.points.length > 0) {
-                    newPoints[idx] = parent.points[0];
-                    changed = true;
+                    const pt = parent.points[0];
+                    if (Math.abs(newPoints[idx].x - pt.x) > 0.01 || Math.abs(newPoints[idx].y - pt.y) > 0.01) {
+                        newPoints[idx] = { x: pt.x, y: pt.y };
+                        changed = true;
+                    }
                 }
             });
 
             if (changed) {
-                nextShape = { ...dependent, points: newPoints, rotation: 0 };
+                nextShape = { ...currentDependent, points: newPoints, rotation: 0 };
             }
         }
 
-        // Apply update if a new state was calculated
         if (nextShape) {
-            updatedShapes = updatedShapes.map(s => s.id === dependent.id ? nextShape! : s);
-            
-            // RECURSION: Propagate changes to shapes depending on this shape
-            updatedShapes = resolveConstraints(updatedShapes, dependent.id, canvasWidth, canvasHeight, pixelsPerUnit, originY, depth + 1);
+            updatedShapes = updatedShapes.map(s => s.id === currentDependent.id ? nextShape! : s);
+            updatedShapes = resolveConstraints(updatedShapes, currentDependent.id, canvasWidth, canvasHeight, pixelsPerUnit, originY, depth + 1);
         }
     }
 
@@ -104,7 +96,6 @@ export const getDependents = (allShapes: Shape[], parentIds: Set<string>): Shape
 
     while (queue.length > 0) {
         const pid = queue.shift()!;
-        // Search in both parentId and parents array
         const children = allShapes.filter(s => 
             !visited.has(s.id) && 
             (s.constraint?.parentId === pid || s.constraint?.parents?.includes(pid))
@@ -121,21 +112,18 @@ export const getDependents = (allShapes: Shape[], parentIds: Set<string>): Shape
 
 /**
  * Constrains a point to an edge when it is being dragged.
- * Calculates the new 't' parameter and snaps the point to the segment.
  */
 export const constrainPointToEdge = (
     cursorPos: Point,
     parent: Shape,
     edgeIndex: number
 ): { point: Point, t: number } => {
-    // CRITICAL: Must use visual points for dragging projection
     const visualPoints = getRotatedCorners(parent);
     if (visualPoints.length < 2 || edgeIndex >= visualPoints.length) return { point: cursorPos, t: 0 };
 
     const p1 = visualPoints[edgeIndex];
     const p2 = visualPoints[(edgeIndex + 1) % visualPoints.length];
     
-    // Project cursor onto vector p1->p2
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const len2 = dx * dx + dy * dy;

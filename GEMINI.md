@@ -101,3 +101,17 @@
 - Updated sidebar tooltips to reflect these changes (e.g., "Select (A)", "Point (P)", "Pencil (F)").
 **Benefit:** Makes the software more intuitive for geometry-focused users, aligning with standard mathematical tools where P usually stands for Point.
 
+### 13. Dynamic Geometric Constraints (2026-02-12)
+**Problem:** Implementing "GeoGebra-like" linkage where points stay on edges and lines follow points across nested transformations (move, rotate, resize).
+**Solution:** Built a recursive **Dependency Graph System** with specialized handling for SVG transforms.
+1.  **Unified Binding Logic**: Extracted all "Coordinate-to-Constraint" detection into a single `bindPointToShapes` function. This is used for both **creating new points** and **releasing moved points**, ensuring 100% behavior consistency regardless of drawing order.
+2.  **Point Priority Snapping**: Updated `getSnapPoint` to prioritize `POINT` shapes over edges. Without this, backgrounds would "block" points, making it impossible to reliably link line endpoints to dynamic points.
+3.  **Semantic Constraint Filtering**: Implemented a "Semantic Firewall" where Points are forbidden from linking to other Points (they only link to edges), while Lines are encouraged to link to Points. This prevents points from accidentally losing their edge-locks when users draw lines starting from them.
+4.  **Rigid Body vs. Elastic Visuals**:
+    - When dragging a **parent shape** (Triangle/Rectangle), all dependents (Points/Lines) are moved using the same CSS `translate` (Rigid Body). This prevents the "lagging line" visual artifact.
+    - When dragging a **driver point** directly, connected lines are updated via direct DOM attribute manipulation (`x1, y1` etc.), allowing them to "stretch" elastically in real-time.
+5.  **Multi-Parent Accumulation**: Fixed a recursive loop bug where updating a shape with multiple parents (e.g., a line with two moving points) would use stale data from the start of the loop. The system now always fetches the "latest accumulating state" within the resolver loop.
+6.  **Visual coordinate Truth**: All constraint math uses `getRotatedCorners` (Visual Space) instead of `shape.points` (Raw Space) because the app maintains a separate `rotation` property. This ensures points stay on edges even after the parent is rotated.
+**Lesson:** When building complex dependency systems in React, separate the **Mathematical Truth** (recursive coordinate resolution) from the **Visual Performance** (transient DOM transforms), and ensure the "Final Snap" on release perfectly reconciles both.
+
+

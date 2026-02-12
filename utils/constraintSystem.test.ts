@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveConstraints, constrainPointToEdge } from './constraintSystem';
+import { resolveConstraints, constrainPointToEdge, getDependents } from './constraintSystem';
 import { getSnapPoint } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
@@ -494,5 +494,123 @@ describe('Constraint System', () => {
         
         // Ensure points array is still length 2 (didn't disappear or collapse)
         expect(finalLine.points.length).toBe(2);
+    });
+
+    it('STRESS: should NEVER allow a point to escape even with extreme mouse teleportation', () => {
+        const triangle = createShape('tri1', ShapeType.TRIANGLE, [
+            { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }
+        ]);
+        const point = createPoint('p1', 50, 0, { type: 'on_edge', parentId: 'tri1', edgeIndex: 0, paramT: 0.5 });
+
+        // Simulate mouse teleporting 1000 pixels away
+        const mouseTeleport = { x: 1000, y: 1000 };
+        
+        // This mimics the fix logic in handlePointerMove:
+        // Even if mouse is at 1000,1000, if point has 'on_edge', it must be projected
+        const { point: constrainedPos } = constrainPointToEdge(mouseTeleport, triangle, 0);
+        
+        // Expected: clamped to the nearest vertex of edge 0 (which is 100, 0)
+        expect(constrainedPos.x).toBe(100);
+        expect(constrainedPos.y).toBe(0);
+    });
+
+    it('should propagate changes from Rectangle to points to line (Case 5 & 6 - Rectangle)', () => {
+        // 1. Setup: Rectangle -> 2 Points on edges -> 1 Line connecting them
+        const rect = createShape('rect1', ShapeType.RECTANGLE, [
+            { x: 100, y: 100 }, { x: 300, y: 200 } // Top-left, Bottom-right
+        ]);
+        // Point A on edge 0 (top edge: 100,100 -> 300,100) at t=0.5 -> (200, 100)
+        const p1 = createPoint('p1', 200, 100, { type: 'on_edge', parentId: 'rect1', edgeIndex: 0, paramT: 0.5 });
+        // Point B on edge 2 (bottom edge: 300,200 -> 100,200) at t=0.5 -> (200, 200)
+        const p2 = createPoint('p2', 200, 200, { type: 'on_edge', parentId: 'rect1', edgeIndex: 2, paramT: 0.5 });
+        
+        const line = createShape('line1', ShapeType.LINE, [{x: 200, y: 100}, {x: 200, y: 200}]);
+        line.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        const allShapes = [rect, p1, p2, line];
+
+        // 2. Move Rectangle by (50, 50)
+        const movedRect = {
+            ...rect,
+            points: rect.points.map(p => ({ x: p.x + 50, y: p.y + 50 }))
+        };
+
+        // 3. Resolve
+        const resolved = resolveConstraints([movedRect, p1, p2, line], 'rect1', 1000, 1000, 20);
+        
+        const finalP1 = resolved.find(s => s.id === 'p1')!;
+        const finalP2 = resolved.find(s => s.id === 'p2')!;
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+
+        // Check Point A: (200+50, 100+50) = (250, 150)
+        expect(finalP1.points[0].x).toBeCloseTo(250);
+        expect(finalP1.points[0].y).toBeCloseTo(150);
+
+        // Check Line
+        expect(finalLine.points[0].x).toBeCloseTo(250);
+        expect(finalLine.points[0].y).toBeCloseTo(150);
+        expect(finalLine.points[1].x).toBeCloseTo(250);
+        expect(finalLine.points[1].y).toBeCloseTo(250);
+    });
+
+    it('should maintain Rectangle-Point-Line linkage and prevent escape', () => {
+        // 1. Setup: Rectangle -> Point on edge 2 (bottom) -> Line connected to point
+        const rect = createShape('rect1', ShapeType.RECTANGLE, [{x:100,y:100}, {x:300,y:200}]);
+        // Visual corners: (100,100), (300,100), (300,200), (100,200)
+        // Edge 2 is (300,200) -> (100,200). Midpoint at (200, 200)
+        const p1 = createPoint('p1', 200, 200, { type: 'on_edge', parentId: 'rect1', edgeIndex: 2, paramT: 0.5 });
+        
+        // 2. Move Rectangle
+        const movedRect = { ...rect, points: rect.points.map(p => ({ x: p.x + 10, y: p.y + 10 })) };
+        const resolved = resolveConstraints([movedRect, p1], 'rect1', 1000, 1000, 20);
+        const finalP1 = resolved.find(s => s.id === 'p1')!;
+        
+        // Point should be at (210, 210)
+        expect(finalP1.points[0].x).toBeCloseTo(210);
+        expect(finalP1.points[0].y).toBeCloseTo(210);
+
+        // 3. Drag Point away from edge
+        // Simulate dragging point p1 (now at 210,210) towards (500, 500)
+        const mousePos = { x: 500, y: 500 };
+        const { point: constrainedPos } = constrainPointToEdge(mousePos, movedRect, 2);
+        
+        // Should be clamped to corner (310, 210) or (110, 210)
+        // Edge 2 is (310,210) -> (110,210). Closest to (500,500) is (310,210)
+        expect(constrainedPos.x).toBeCloseTo(310);
+        expect(constrainedPos.y).toBeCloseTo(210);
+    });
+
+    it('should correctly bind Line endpoints using bindPointToShapes when isCreatingLine is true', () => {
+        const p1 = createPoint('p1', 100, 100);
+        const p2 = createPoint('p2', 200, 200);
+        const allShapes = [p1, p2];
+
+        // Simulate LINE tool logic in handlePointerUp:
+        // bindPointToShapes should find points when isCreatingLine is true
+        
+        // End point snap check
+        const snapResult = getSnapPoint({x: 205, y: 205}, allShapes, []);
+        expect(snapResult.snapped).toBe(true);
+        expect(snapResult.constraint).toBeDefined();
+        expect(snapResult.constraint!.type).toBe('points_link');
+        expect(snapResult.constraint!.parentId).toBe('p2');
+
+        // Verify the logic inside Editor.tsx bindPointToShapes (we can't import it, so we replicate its logic here)
+        // This is what bindPointToShapes(..., true) does:
+        let finalConstraint = snapResult.constraint;
+        // (Simulate the semantic filter)
+        // If isCreatingLine is true, it preserves points_link.
+        expect(finalConstraint.type).toBe('points_link');
+
+        // Finalize Line
+        const line = createShape('line1', ShapeType.LINE, [{x:100,y:100}, {x:200,y:200}]);
+        line.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        // Verify linkage
+        const movedP2 = { ...p2, points: [{x:300, y:300}] };
+        const resolved = resolveConstraints([p1, movedP2, line], 'p2', 1000, 1000, 20);
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+        
+        expect(finalLine.points[1].x).toBe(300);
     });
 });

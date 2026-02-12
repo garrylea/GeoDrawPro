@@ -863,6 +863,22 @@ export const getSnapPoint = (
     for (const shape of shapes) {
         if (excludeIds.includes(shape.id)) continue;
         
+        // POINT PRIORITY: We check points first and with a slightly larger tolerance or preference
+        if (shape.type === ShapeType.POINT) {
+            const p = shape.points[0];
+            const d = distance(pos, p);
+            // Points get a "priority boost" - we treat them as being closer than they are
+            const effectiveDist = d * 0.8; 
+            if (d < 15 && effectiveDist < closestDist) {
+                snapPt = p;
+                closestDist = effectiveDist;
+                snapped = true;
+                snapType = 'endpoint';
+                constraint = { type: 'points_link', parentId: shape.id };
+                continue; // Move to next shape
+            }
+        }
+
         // Add Center Point Snapping for closed shapes
         if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(shape.type)) {
             const center = getShapeCenter(shape.points, shape.type);

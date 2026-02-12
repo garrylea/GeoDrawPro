@@ -536,7 +536,6 @@ export function Editor() {
   };
 
   const updateTransientVisuals = (state: TransientState | null) => {
-    // Safety: Ensure overlay is in cache and valid (React re-renders can replace the DOM node)
     let overlay = domCacheRef.current.get('selection-overlay-group');
     if (!overlay || !overlay.isConnected) {
         overlay = document.getElementById('selection-overlay-group') || undefined;
@@ -549,53 +548,81 @@ export function Editor() {
              if (shape && shape.rotation) {
                  const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
                  el.setAttribute('transform', `rotate(${shape.rotation} ${center.x} ${center.y})`);
-             } else if (id === 'selection-overlay-group') {
-                 // Restore overlay transform
-                 if (selectedIds.size === 1) {
-                     const singleId = Array.from(selectedIds)[0];
-                     const s = shapesRef.current.find(s => s.id === singleId);
-                     if (s && s.rotation) {
-                         const center = getShapeCenter(s.points, s.type, s.fontSize, s.text);
-                         el.setAttribute('transform', `rotate(${s.rotation} ${center.x} ${center.y})`);
-                     } else {
-                         el.setAttribute('transform', '');
-                     }
-                 } else {
-                     el.setAttribute('transform', '');
-                 }
              } else {
                  el.setAttribute('transform', ''); 
+             }
+             // Reset elastic line changes
+             if (shape?.type === ShapeType.LINE) {
+                 const line = el.querySelector('line');
+                 if (line) {
+                     line.setAttribute('x1', shape.points[0].x.toString());
+                     line.setAttribute('y1', shape.points[0].y.toString());
+                     line.setAttribute('x2', shape.points[1].x.toString());
+                     line.setAttribute('y2', shape.points[1].y.toString());
+                 }
              }
         });
         return;
     }
     const { dx, dy, rotation, rotationCenter: pivot, scale, scaleCenter } = state;
     
-    // Apply transform to all cached elements (selected + dependents)
-    domCacheRef.current.forEach((el, id) => {
-        // Only apply transient transform if it's a tracked shape (in initialShapeStateRef) or the overlay
+    domCacheRef.current.forEach((cachedEl, id) => {
         const isTracked = initialShapeStateRef.current.has(id) || id === 'selection-overlay-group';
         if (!isTracked) return;
 
+        let el = cachedEl;
+        if (!el.isConnected) {
+            const liveEl = id === 'selection-overlay-group' 
+                ? document.getElementById('selection-overlay-group') 
+                : svgRef.current?.querySelector(`g[data-shape-id="${id}"]`);
+            if (liveEl) {
+                domCacheRef.current.set(id, liveEl);
+                el = liveEl;
+            } else {
+                return;
+            }
+        }
+
+        const shape = shapesRef.current.find(s => s.id === id);
+        if (shape?.type === ShapeType.LINE) {
+            console.log(`[Transient] Processing Line ${id}, isDependent? ${!selectedIds.has(id)}`);
+        }
+        
+        // --- RIGID BODY SYNC LOGIC ---
+        // If we are moving a group (e.g. Triangle), and this shape is a dependent (Point/Line),
+        // we should just apply the SAME global translation.
+        // We only use 'Elastic' logic if the driver ITSELF is one of the linked parents.
+        const isDirectlySelected = selectedIds.has(id);
+        const isElasticTarget = shape?.type === ShapeType.LINE && 
+                               shape.constraint?.type === 'points_link' && 
+                               (shape.constraint.parents || [shape.constraint.parentId!]).some(pid => pid && selectedIds.has(pid));
+
+        if (isElasticTarget && !isDirectlySelected) {
+            const line = el.querySelector('line');
+            if (line) {
+                const pids = shape!.constraint!.parents || [shape!.constraint!.parentId!];
+                pids.forEach((pid, idx) => {
+                    if (!pid) return;
+                    if (selectedIds.has(pid)) {
+                        const originalPt = shape!.points[idx];
+                        line.setAttribute(`x${idx+1}`, (originalPt.x + (dx || 0)).toString());
+                        line.setAttribute(`y${idx+1}`, (originalPt.y + (dy || 0)).toString());
+                    }
+                });
+            }
+            return; 
+        }
+
+        // For everything else (Triangle, or Point/Line being moved AS A DEPENDENT), 
+        // use rigid translation.
         let finalTransform = '';
         if (rotation && pivot) { finalTransform += `rotate(${rotation} ${pivot.x} ${pivot.y}) `; }
         if (dx || dy) { finalTransform += `translate(${dx || 0} ${dy || 0}) `; }
         
-        const shape = shapesRef.current.find(s => s.id === id);
         if (shape) {
              const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
              if (shape.rotation) { finalTransform += `rotate(${shape.rotation} ${center.x} ${center.y}) `; }
              if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
-        } else if (id === 'selection-overlay-group') {
-             if (selectedIds.size === 1) {
-                 const singleId = Array.from(selectedIds)[0];
-                 const s = shapesRef.current.find(s => s.id === singleId);
-                 if (s && s.rotation) {
-                     const center = getShapeCenter(s.points, s.type, s.fontSize, s.text);
-                     finalTransform += `rotate(${s.rotation} ${center.x} ${center.y}) `;
-                 }
-                 if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
-             } else if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
         }
         el.setAttribute('transform', finalTransform.trim());
     });
@@ -606,6 +633,7 @@ export function Editor() {
     initialShapeStateRef.current.clear();
     
     const targetIds = idsOverride || selectedIds;
+    console.log(`[DomCache] Refreshing for targets: ${Array.from(targetIds).join(', ')}`);
     
     // 1. Add target shapes
     if (tool === ToolType.SELECT || tool === ToolType.RULER || tool === ToolType.PROTRACTOR) {
@@ -618,6 +646,7 @@ export function Editor() {
         
         // 2. Add dependent shapes (recursive)
         const dependents = getDependents(shapesRef.current, targetIds);
+        console.log(`[DomCache] Found ${dependents.length} dependents: ${dependents.map(d=>d.id).join(', ')}`);
         dependents.forEach(s => {
              const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
              if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }
@@ -628,13 +657,31 @@ export function Editor() {
     }
   };
 
-  // Unified logic to determine if a point should be bound to a shape's edge
-  const bindPointToShapes = (pos: Point, excludeIds: string[] = []): { point: Point, constraint?: Constraint } => {
+  // Unified logic to determine if a point should be bound to a shape's edge or another point
+  const bindPointToShapes = (pos: Point, excludeIds: string[] = [], isCreatingLine: boolean = false): { point: Point, constraint?: Constraint } => {
     const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
     const snapResult = getSnapPoint(pos, shapesRef.current.filter(s => !excludeIds.includes(s.id)), [], gridSnapConfig);
+    
+    let finalConstraint = snapResult.constraint;
+    
+    // --- SEMANTIC CONSTRAINT FILTERING ---
+    if (isCreatingLine) {
+        // LINES: Must prioritize linking to existing POINTS (points_link)
+        // Robustness Fallback: If near a POINT, force points_link
+        if (!finalConstraint || finalConstraint.type !== 'points_link') {
+            const nearPoint = shapesRef.current.find(s => s.type === ShapeType.POINT && !excludeIds.includes(s.id) && distance(pos, s.points[0]) < 10);
+            if (nearPoint) finalConstraint = { type: 'points_link', parentId: nearPoint.id };
+        }
+    } else {
+        // POINTS: Must NEVER link to another POINT. They only link to EDGES or PATHS.
+        if (finalConstraint?.type === 'points_link') {
+            finalConstraint = undefined; // Reject point-to-point binding
+        }
+    }
+
     return {
       point: snapResult.snapped ? snapResult.point : pos,
-      constraint: snapResult.constraint
+      constraint: finalConstraint
     };
   };
 
@@ -656,7 +703,7 @@ export function Editor() {
     
     // Use the unified binder for initial position and constraint. 
     // Exclude activeShapeId if we are finishing a multi-click shape (like a LINE).
-    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : []);
+    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : [], tool === ToolType.LINE);
 
     dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
@@ -875,36 +922,34 @@ export function Editor() {
              const draggingShape = shapesRef.current.find(s => s.id === singleSelId);
              if (!draggingShape) return;
 
-             // 1. If already on edge, project and update visually (transient)
+             let newPos = pos;
+             let newConstraint = snapResult.constraint;
+
+             // 1. Logic for points ALREADY on edges (Stable sliding)
+             // CRITICAL: We prioritize the existing edge constraint over the snap result
              if (draggingShape.constraint && draggingShape.constraint.type === 'on_edge') {
                   const parent = shapesRef.current.find(s => s.id === draggingShape.constraint!.parentId);
                   if (parent && draggingShape.constraint.edgeIndex !== undefined) {
-                       const { point: constrainedPos } = constrainPointToEdge(pos, parent, draggingShape.constraint.edgeIndex);
-                       const dx = constrainedPos.x - draggingShape.points[0].x;
-                       const dy = constrainedPos.y - draggingShape.points[0].y;
-                       transientStateRef.current = { dx, dy };
-                       updateTransientVisuals(transientStateRef.current);
-                       return; 
+                       // Use rawPos (mouse) for projection to allow smooth sliding even if snapResult is different
+                       const { point: constrainedPos, t } = constrainPointToEdge(rawPos, parent, draggingShape.constraint.edgeIndex);
+                       newPos = constrainedPos;
+                       newConstraint = { ...draggingShape.constraint, paramT: t };
                   }
              }
 
-             // 2. Free movement (with snapping detection for visuals)
-             const dx = rawPos.x - dragStartPos!.x;
-             const dy = rawPos.y - dragStartPos!.y;
+             // 2. Hybrid Drive: Update REAL state immediately for point dragging
+             // This ensures perfect edge locking and real-time line stretching via resolveConstraints
+             setShapes(prev => {
+                 const next = prev.map(s => s.id === singleSelId ? { ...s, points: [newPos], constraint: newConstraint } : s);
+                 // Propagate to lines/markers immediately
+                 return resolveConstraints(next, singleSelId, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+             });
              
-             // Check if we should snap visually
-             const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
-             const snapResult = getSnapPoint(pos, shapesRef.current.filter(s => s.id !== singleSelId), [], gridSnapConfig);
-             
-             if (snapResult.snapped) {
-                 const sdx = snapResult.point.x - draggingShape.points[0].x;
-                 const sdy = snapResult.point.y - draggingShape.points[0].y;
-                 transientStateRef.current = { dx: sdx, dy: sdy };
-             } else {
-                 transientStateRef.current = { dx, dy };
+             // Ensure any transient leftovers are cleared
+             if (transientStateRef.current) {
+                 transientStateRef.current = null;
+                 updateTransientVisuals(null);
              }
-             
-             updateTransientVisuals(transientStateRef.current);
              return; 
         }
         const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; 
@@ -1008,9 +1053,11 @@ export function Editor() {
                                       const { point: constrainedPos, t } = constrainPointToEdge(moved.points[0], parent, s.constraint.edgeIndex);
                                       return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramT: t } };
                                   }
+                              } else {
+                                  // Only attempt NEW binding if it wasn't already constrained to an edge
+                                  const { point: finalPos, constraint } = bindPointToShapes(moved.points[0], [s.id], false);
+                                  return { ...moved, points: [finalPos], constraint };
                               }
-                              const { point: finalPos, constraint } = bindPointToShapes(moved.points[0], [s.id]);
-                              return { ...moved, points: [finalPos], constraint };
                           }
                           return moved;
                       }
@@ -1024,9 +1071,12 @@ export function Editor() {
                   });
               }
               
-              // 2. CRITICAL: Recursively resolve ALL constraints starting from the selected items.
-              // This is the source of truth for the Shape -> Point -> Line chain.
+              // 2. CRITICAL: Recursively resolve ALL constraints.
               let finalShapes = updatedShapes;
+              
+              // We must resolve starting from each moved item.
+              // If a Point was moved, it will trigger Line update.
+              // If a Triangle was moved, it will trigger Point update, which then triggers Line update.
               selectedIds.forEach(id => {
                   finalShapes = resolveConstraints(finalShapes, id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
               });
@@ -1039,7 +1089,31 @@ export function Editor() {
       }
 
       if (tool === ToolType.COMPASS) { if (compassPreviewPath) { saveHistory(); const center = compassState.center!; const radius = distance(center, compassState.radiusPoint!); const startAngle = compassState.startAngle!; const endAngle = startAngle + compassState.accumulatedRotation; const arcPoints: Point[] = []; const stepCount = 40; const step = (endAngle - startAngle) / stepCount; for(let i=0; i<=stepCount; i++) { const rad = ((startAngle + step * i) * Math.PI) / 180; arcPoints.push({ x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) }); } setShapes(prev => [...prev, { id: generateId(), type: ShapeType.PATH, points: arcPoints, pathData: compassPreviewPath, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0, isConstruction: true }]); setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null); } return; }
-      if (activeShapeId && tool === ToolType.LINE) { if (dragStartPos && distance(dragStartPos, rawPos) > 5) { setActiveShapeId(null); } setDragStartPos(null); return; }
+      if (activeShapeId && tool === ToolType.LINE) { 
+          if (dragStartPos && distance(dragStartPos, rawPos) > 5) { 
+              // Fix: Explicitly pass true for isCreatingLine to allow point linking
+              const { point: finalEndPos, constraint: endC } = bindPointToShapes(rawPos, [activeShapeId], true);
+              const startC = activeLineConstraints[0];
+              const startPointId = (startC?.type === 'points_link') ? startC.parentId : null;
+              const endPointId = (endC?.type === 'points_link') ? endC.parentId : null;
+
+              setShapes(prev => prev.map(s => {
+                  if (s.id === activeShapeId) {
+                      const updated: Shape = { ...s, points: [s.points[0], finalEndPos] };
+                      if (startPointId || endPointId) {
+                          updated.constraint = { type: 'points_link', parents: [startPointId || null, endPointId || null] };
+                      }
+                      return updated;
+                  }
+                  return s;
+              }));
+              setSelectedIds(new Set([activeShapeId]));
+              setActiveShapeId(null); 
+              setActiveLineConstraints([]);
+          } 
+          setDragStartPos(null); 
+          return; 
+      }
       setDragStartPos(null);
       
       if (activeShapeId && tool === ToolType.FREEHAND && smartSketchMode) { const shape = shapes.find(s => s.id === activeShapeId); if (shape && shape.points.length > 5) { const recognized = recognizeFreehandShape(shape.points); if (recognized) { let labels: string[] | undefined = undefined; if (autoLabelMode && recognized.type !== ShapeType.LINE) { labels = getNextLabels(recognized.type === ShapeType.TRIANGLE ? 3 : 4); } setShapes((prev: Shape[]) => prev.map((s: Shape) => s.id === activeShapeId ? { ...s, type: recognized.type, points: recognized.points, labels, usePressure: false } : s)); } } }
@@ -1052,7 +1126,8 @@ export function Editor() {
               else if (tool === ToolType.TRIANGLE) { const sizePx = 2 * pixelsPerUnit; setShapes((prev: Shape[]) => prev.map((sh: Shape) => sh.id === activeShapeId ? { ...sh, points: [{ x: cx, y: cy - sizePx/2 }, { x: cx + sizePx/2, y: cy + sizePx/2 }, { x: cx - sizePx/2, y: cy + sizePx/2 }] } : sh)); } 
               else if (tool === ToolType.CIRCLE || tool === ToolType.ELLIPSE) { const wHalf = (tool === ToolType.CIRCLE) ? 50 : 75, hHalf = 50; setShapes((prev: Shape[]) => prev.map((sh: Shape) => sh.id === activeShapeId ? { ...sh, points: [{ x: cx - wHalf, y: cy - hHalf }, { x: cx + wHalf, y: cy + hHalf }] } : sh)); } 
           }
-          if (tool !== ToolType.FREEHAND) setSelectedIds(new Set([activeShapeId])); setActiveShapeId(null);
+          if (tool !== ToolType.FREEHAND) setSelectedIds(new Set([activeShapeId])); 
+          setActiveShapeId(null);
       }
   };
 
