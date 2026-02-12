@@ -1255,10 +1255,9 @@ export function Editor() {
                                         if (s.type === ShapeType.RULER) {
                                             const p0 = s.points[0], p1 = s.points[1];
                                             const minX = Math.min(p0.x, p1.x), maxX = Math.max(p0.x, p1.x);
-                                            const minY = Math.min(p0.y, p1.y), maxY = Math.max(p0.y, p1.y);
-                                            const height = maxY - minY;
-                                            if (pivotIndex === 0) center = { x: minX, y: minY + height / 2 };
-                                            else if (pivotIndex === 1) center = { x: maxX, y: minY + height / 2 };
+                                            const minY = Math.min(p0.y, p1.y);
+                                            if (pivotIndex === 0) center = { x: minX, y: minY };
+                                            else if (pivotIndex === 1) center = { x: maxX, y: minY };
                                         } else {
                                             center = getRotatedCorners(s)[pivotIndex as number]; 
                                         }

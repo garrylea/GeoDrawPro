@@ -158,8 +158,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   } else {
       let px = 0, py = 0;
       if (type === ShapeType.RULER) {
-          if (pivotIndex === 0) { px = minX; py = minY + height / 2; }
-          else if (pivotIndex === 1) { px = maxX; py = minY + height / 2; }
+          if (pivotIndex === 0) { px = minX; py = minY; }
+          else if (pivotIndex === 1) { px = maxX; py = minY; }
       } else if (showBoundingBox) {
           const corners = [
             { x: minX, y: minY }, { x: maxX, y: minY }, 
@@ -266,9 +266,9 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
 
       if (type === ShapeType.RULER) {
           candidates = [
-              { x: minX, y: minY + height / 2 },
+              { x: minX, y: minY }, // Top Left
               center,
-              { x: maxX, y: minY + height / 2 }
+              { x: maxX, y: minY }  // Top Right
           ];
           indices = [0, 'center', 1];
       } else if (showBoundingBox) {

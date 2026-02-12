@@ -1,4 +1,5 @@
 import React from 'react';
+import katex from 'katex';
 import { Shape, ShapeType, Point, ToolType } from '../types';
 import { getShapeCenter, getSmoothSvgPath, getVariableWidthPath } from '../utils/mathUtils';
 
@@ -200,7 +201,41 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
         element = <circle cx={p0.x} cy={p0.y} r={Math.max(4, strokeWidth * 2)} fill={stroke} stroke={isSelected ? '#3b82f6' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
         break;
     case ShapeType.TEXT:
-        element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
+        const isLatex = text?.startsWith('$') && text?.endsWith('$');
+        if (isLatex && text) {
+            const formula = text.slice(1, -1);
+            try {
+                const html = katex.renderToString(formula, { throwOnError: false });
+                const fs = fontSize || 16;
+                // Estimate dimensions for foreignObject
+                const estWidth = Math.max(40, text.length * fs * 0.8);
+                const estHeight = fs * 2.5;
+                
+                element = (
+                    <foreignObject 
+                        x={p0.x} 
+                        y={p0.y - fs * 0.8} 
+                        width={estWidth} 
+                        height={estHeight}
+                        style={{ overflow: 'visible' }}
+                    >
+                        <div 
+                            style={{ 
+                                color: stroke, 
+                                fontSize: `${fs}px`,
+                                whiteSpace: 'nowrap',
+                                display: 'inline-block'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: html }}
+                        />
+                    </foreignObject>
+                );
+            } catch (err) {
+                element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
+            }
+        } else {
+            element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
+        }
         break;
     case ShapeType.IMAGE:
         if (!imageUrl) return null;
