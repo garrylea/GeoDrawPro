@@ -865,11 +865,10 @@ export const getSnapPoint = (
     for (const shape of shapes) {
         if (excludeIds.includes(shape.id)) continue;
         
-        // POINT PRIORITY: We check points first and with a slightly larger tolerance or preference
+        // 1. POINT PRIORITY: We check points first
         if (shape.type === ShapeType.POINT) {
             const p = shape.points[0];
             const d = distance(pos, p);
-            // Points get a "priority boost" - we treat them as being closer than they are
             const effectiveDist = d * 0.8; 
             if (d < 15 && effectiveDist < closestDist) {
                 snapPt = p;
@@ -877,35 +876,50 @@ export const getSnapPoint = (
                 snapped = true;
                 snapType = 'endpoint';
                 constraint = { type: 'points_link', parentId: shape.id };
-                continue; // Move to next shape
+                continue; 
             }
         }
 
-        // Add Center Point Snapping for closed shapes
-        if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(shape.type)) {
+        // 2. SPECIALIZED CIRCULAR LOGIC (Center + Perimeter)
+        if (shape.type === ShapeType.CIRCLE || shape.type === ShapeType.ELLIPSE) {
             const center = getShapeCenter(shape.points, shape.type);
-            const d = distance(pos, center);
-            if (d < closestDist) {
+            
+            // Check Center first
+            const dCenter = distance(pos, center);
+            if (dCenter < closestDist && dCenter < 15) {
                 snapPt = center;
-                closestDist = d;
+                closestDist = dCenter;
                 snapped = true;
                 snapType = 'center';
+                constraint = undefined;
             }
-        }
 
-        // PERIMETER SNAPPING: Circle & Ellipse
-        if (shape.type === ShapeType.CIRCLE) {
-            const center = getShapeCenter(shape.points, shape.type);
-            const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
-            const d = distance(pos, center);
-            if (Math.abs(d - radius) < 15) {
-                const angle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
+            // Then check Perimeter
+            if (shape.type === ShapeType.CIRCLE) {
+                const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
+                const d = distance(pos, center);
+                if (Math.abs(d - radius) < 25) {
+                    const angle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
+                    const rad = (angle * Math.PI) / 180;
+                    const projected = { x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) };
+                    if (distance(pos, projected) < closestDist) {
+                        snapPt = projected;
+                        closestDist = distance(pos, projected);
+                        snapped = true;
+                        snapType = 'on_edge';
+                        constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
+                    }
+                }
+            } else { // Ellipse
+                const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
+                const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
+                let localPos = pos;
+                if (shape.rotation) localPos = rotatePoint(pos, center, -shape.rotation);
+                const angle = Math.atan2(localPos.y - center.y, localPos.x - center.x) * (180 / Math.PI);
                 const rad = (angle * Math.PI) / 180;
-                const projected = {
-                    x: center.x + radius * Math.cos(rad),
-                    y: center.y + radius * Math.sin(rad)
-                };
-                if (distance(pos, projected) < closestDist) {
+                let projected = { x: center.x + rx * Math.cos(rad), y: center.y + ry * Math.sin(rad) };
+                if (shape.rotation) projected = rotatePoint(projected, center, shape.rotation);
+                if (distance(pos, projected) < 25 && distance(pos, projected) < closestDist) {
                     snapPt = projected;
                     closestDist = distance(pos, projected);
                     snapped = true;
@@ -913,25 +927,19 @@ export const getSnapPoint = (
                     constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
                 }
             }
-            continue; // CRITICAL: Skip vertex/edge logic for circles
-        } else if (shape.type === ShapeType.ELLIPSE) {
+            continue; // ALWAYS exit for circular shapes
+        }
+
+        // 3. POLYGON/RECTANGLE LOGIC
+        if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(shape.type)) {
             const center = getShapeCenter(shape.points, shape.type);
-            const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
-            const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
-            let localPos = pos;
-            if (shape.rotation) localPos = rotatePoint(pos, center, -shape.rotation);
-            const angle = Math.atan2(localPos.y - center.y, localPos.x - center.x) * (180 / Math.PI);
-            const rad = (angle * Math.PI) / 180;
-            let projected = { x: center.x + rx * Math.cos(rad), y: center.y + ry * Math.sin(rad) };
-            if (shape.rotation) projected = rotatePoint(projected, center, shape.rotation);
-            if (distance(pos, projected) < 15 && distance(pos, projected) < closestDist) {
-                snapPt = projected;
-                closestDist = distance(pos, projected);
+            const d = distance(pos, center);
+            if (d < closestDist && d < 15) {
+                snapPt = center;
+                closestDist = d;
                 snapped = true;
-                snapType = 'on_edge';
-                constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
+                snapType = 'center';
             }
-            continue; // CRITICAL: Skip vertex/edge logic for ellipses
         }
 
         if (shape.type === ShapeType.FUNCTION_GRAPH) {

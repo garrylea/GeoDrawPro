@@ -675,4 +675,25 @@ describe('Constraint System', () => {
         expect(finalP1.points[0].x).toBeCloseTo(250);
         expect(finalP1.points[0].y).toBeCloseTo(200);
     });
+
+    it('STRESS: Circle snapping must ONLY produce on_path constraints, NEVER on_edge', () => {
+        // Circle center (150, 150), Radius 50. 
+        const circle = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
+        
+        // 1. Test point near the perimeter (115, 115)
+        // distance to center (150,150) is ~49.5px. Radius is 50px. 
+        // Difference ~0.5px, well within 25px tolerance.
+        const snapResult = getSnapPoint({x: 115, y: 115}, [circle]);
+        
+        expect(snapResult.snapped).toBe(true);
+        // CRITICAL: Must be on_path
+        expect(snapResult.constraint).toBeDefined();
+        expect(snapResult.constraint!.type).toBe('on_path');
+        expect(snapResult.constraint!.parentId).toBe('c1');
+        
+        // 2. Test another point near a bounding box edge (150, 105)
+        const snapResult2 = getSnapPoint({x: 150, y: 105}, [circle]);
+        expect(snapResult2.constraint!.type).toBe('on_path');
+        expect(snapResult2.constraint!.paramAngle).toBeDefined();
+    });
 });
