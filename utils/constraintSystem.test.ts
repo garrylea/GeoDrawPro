@@ -401,4 +401,59 @@ describe('Constraint System', () => {
         const updatedP1 = calculateMovedShape(point1, dx, dy, 20, drivingPoints, 1000, 1000);
         expect(updatedP1.points[0].x).toBe(150);
     });
+
+    it('should propagate changes from shape to points to line (Case 5 & 6)', () => {
+        // 1. Setup: Triangle -> 2 Points on edges -> 1 Line connecting them
+        const triangle = createShape('tri1', ShapeType.TRIANGLE, [
+            { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }
+        ]);
+        const p1 = createPoint('p1', 50, 0, { type: 'on_edge', parentId: 'tri1', edgeIndex: 0, paramT: 0.5 });
+        const p2 = createPoint('p2', 0, 50, { type: 'on_edge', parentId: 'tri1', edgeIndex: 2, paramT: 0.5 });
+        
+        const connectingLine = createShape('line1', ShapeType.LINE, [
+            { x: 50, y: 0 }, { x: 0, y: 50 }
+        ]);
+        connectingLine.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        // 2. Move Triangle by (10, 20)
+        const movedTriangle = {
+            ...triangle,
+            points: triangle.points.map(p => ({ x: p.x + 10, y: p.y + 20 }))
+        };
+
+        // 3. Resolve constraints recursively
+        const resolved = resolveConstraints([movedTriangle, p1, p2, connectingLine], 'tri1', 1000, 1000, 20);
+        
+        const finalP1 = resolved.find(s => s.id === 'p1')!;
+        const finalP2 = resolved.find(s => s.id === 'p2')!;
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+
+        // Points should have moved
+        expect(finalP1.points[0].x).toBeCloseTo(60);
+        expect(finalP1.points[0].y).toBeCloseTo(20);
+        expect(finalP2.points[0].x).toBeCloseTo(10);
+        expect(finalP2.points[0].y).toBeCloseTo(70);
+
+        // Line endpoints should match points exactly
+        expect(finalLine.points[0].x).toBeCloseTo(60);
+        expect(finalLine.points[0].y).toBeCloseTo(20);
+        expect(finalLine.points[1].x).toBeCloseTo(10);
+        expect(finalLine.points[1].y).toBeCloseTo(70);
+    });
+
+    it('should update line when only one connected point moves (Case 6)', () => {
+        const p1 = createPoint('p1', 100, 100);
+        const p2 = createPoint('p2', 200, 200);
+        const line = createShape('line1', ShapeType.LINE, [{x: 100, y: 100}, {x: 200, y: 200}]);
+        line.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        // Move ONLY p1
+        const movedP1 = { ...p1, points: [{ x: 150, y: 100 }] };
+        
+        const resolved = resolveConstraints([movedP1, p2, line], 'p1', 1000, 1000, 20);
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+
+        expect(finalLine.points[0].x).toBeCloseTo(150);
+        expect(finalLine.points[1].x).toBeCloseTo(200); // p2 remains unchanged
+    });
 });

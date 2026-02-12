@@ -71,6 +71,7 @@ export function Editor() {
   const [dragStartPos, setDragStartPos] = useState<Point | null>(null); 
   const [dragHandleIndex, setDragHandleIndex] = useState<number | null>(null); 
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
+  const [activeLineConstraints, setActiveLineConstraints] = useState<(Constraint | undefined)[]>([]);
   const [snapIndicator, setSnapIndicator] = useState<(Point & { type?: 'endpoint' | 'midpoint' | 'center' | 'on_edge' }) | null>(null);
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
   const cursorPosRef = useRef<Point | null>(null);
@@ -660,8 +661,26 @@ export function Editor() {
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
     
     if (tool === ToolType.LINE) {
-        if (activeShapeId) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); setActiveShapeId(null); setDragStartPos(null); return; } 
-        else { saveHistory(); const id = generateId(); const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setActiveShapeId(id); setDragStartPos(rawPos); return; }
+        if (activeShapeId) { 
+            const finalConstraint = [activeLineConstraints[0], currentConstraint];
+            setShapes(prev => prev.map(s => {
+                if (s.id === activeShapeId) {
+                    const updated: Shape = { ...s, points: [s.points[0], pos] };
+                    if (finalConstraint.some(c => !!c)) {
+                        updated.constraint = { type: 'points_link', parents: finalConstraint.map(c => c?.parentId || null) as string[] };
+                    }
+                    return updated;
+                }
+                return s;
+            })); 
+            setActiveShapeId(null); setActiveLineConstraints([]); setDragStartPos(null); return; 
+        } 
+        else { 
+            saveHistory(); const id = generateId(); 
+            const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; 
+            setShapes(prev => [...prev, newShape]); 
+            setActiveShapeId(id); setActiveLineConstraints([currentConstraint, undefined]); setDragStartPos(rawPos); return; 
+        }
     }
     if (tool === ToolType.ERASER) { 
         saveHistory(); setIsDragging(true); 
@@ -731,7 +750,21 @@ export function Editor() {
     const pos = snapResult.point;
 
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
-    if (activeShapeId && tool === ToolType.LINE) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); }
+    if (activeShapeId && tool === ToolType.LINE) { 
+        setShapes(prev => prev.map(s => {
+            if (s.id === activeShapeId) {
+                const updated: Shape = { ...s, points: [s.points[0], pos] };
+                const currentFinalConstraint = [activeLineConstraints[0], snapResult.constraint];
+                if (currentFinalConstraint.some(c => !!c)) {
+                    updated.constraint = { type: 'points_link', parents: currentFinalConstraint.map(c => c?.parentId || null) as string[] };
+                } else {
+                    updated.constraint = undefined;
+                }
+                return updated;
+            }
+            return s;
+        })); 
+    }
     if (tool === ToolType.COMPASS && compassState.radiusPoint) { const center = compassState.center!; const radius = distance(center, compassState.radiusPoint); const currentMouseAngle = getAngleDegrees(center, rawPos); let delta = currentMouseAngle - compassState.lastMouseAngle; if (delta > 180) delta -= 360; if (delta < -180) delta += 360; const newAccumulated = compassState.accumulatedRotation + delta; setCompassState(prev => ({ ...prev, lastMouseAngle: currentMouseAngle, accumulatedRotation: newAccumulated })); const startAngle = compassState.startAngle!; const endAngle = startAngle + newAccumulated; setCompassPreviewPath(getAngleArcPath(center, null, null, radius, startAngle, endAngle)); return; }
     if (tool === ToolType.ERASER && isDragging) { const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 12); if (hit && hit.type !== ShapeType.IMAGE) setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); return; }
     if (tool === ToolType.SELECT && selectionStartRef.current && isDragging && selectionRectRef.current) { const start = selectionStartRef.current; const current = rawPos; const x = Math.min(start.x, current.x); const y = Math.min(start.y, current.y); const w = Math.abs(current.x - start.x); const h = Math.abs(current.y - start.y); selectionRectRef.current.setAttribute('x', x.toString()); selectionRectRef.current.setAttribute('y', y.toString()); selectionRectRef.current.setAttribute('width', w.toString()); selectionRectRef.current.setAttribute('height', h.toString()); return; }

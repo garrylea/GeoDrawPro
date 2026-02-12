@@ -909,6 +909,8 @@ export const getSnapPoint = (
                     // NEW: Even if it is an endpoint, if it is a polygon/line, bind it to the segment starting at this index (paramT=0)
                     if ([ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.LINE].includes(shape.type)) {
                          constraint = { type: 'on_edge', parentId: shape.id, edgeIndex: j, paramT: 0 };
+                    } else if (shape.type === ShapeType.POINT) {
+                         constraint = { type: 'points_link', parentId: shape.id };
                     } else {
                          constraint = undefined; 
                     }
