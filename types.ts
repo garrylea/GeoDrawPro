@@ -62,10 +62,12 @@ export interface MarkerConfig {
 }
 
 export interface Constraint {
-    type: 'on_path' | 'intersection';
-    parentId?: string; // For on_path
+    type: 'on_path' | 'on_edge' | 'intersection';
+    parentId?: string; // For on_path and on_edge
     parents?: string[]; // For intersection (two shape IDs)
-    paramX?: number; 
+    paramX?: number; // For function graphs (x-coordinate)
+    edgeIndex?: number; // For polygons/lines (index of start vertex)
+    paramT?: number; // 0.0 to 1.0 along the edge
 }
 
 export interface Shape {

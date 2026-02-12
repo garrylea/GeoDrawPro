@@ -7,6 +7,7 @@
     "dev": "vite",
     "server": "node server/index.js",
     "dev:all": "concurrently -k \"npm run server\" \"npm run dev\"",
+    "test": "vitest run",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
@@ -54,19 +55,19 @@
     }
   },
   "dependencies": {
+    "@google/genai": "^1.33.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "@google/genai": "^1.33.0",
     "lucide-react": "^0.395.0",
+    "pdfjs-dist": "^4.0.379",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "pdfjs-dist": "^4.0.379"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/node": "^20.14.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/node": "^20.14.2",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
@@ -77,6 +78,7 @@
     "tailwindcss": "^3.4.4",
     "typescript": "^5.4.5",
     "vite": "^5.3.1",
+    "vitest": "^4.0.18",
     "wait-on": "^7.2.0"
   }
 }

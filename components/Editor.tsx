@@ -19,6 +19,7 @@ import {
   fitShapesToViewport, sanitizeLoadedShapes,
   solveTriangleASA, snapToRuler
 } from '../utils/mathUtils';
+import { resolveConstraints, constrainPointToEdge, getDependents } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape } from '../utils/shapeOperations';
 import { Plus, Loader2 } from 'lucide-react';
 // Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
@@ -70,7 +71,7 @@ export function Editor() {
   const [dragStartPos, setDragStartPos] = useState<Point | null>(null); 
   const [dragHandleIndex, setDragHandleIndex] = useState<number | null>(null); 
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
-  const [snapIndicator, setSnapIndicator] = useState<(Point & { type?: 'endpoint' | 'midpoint' | 'center' }) | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<(Point & { type?: 'endpoint' | 'midpoint' | 'center' | 'on_edge' }) | null>(null);
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
   const cursorPosRef = useRef<Point | null>(null);
   
@@ -93,7 +94,6 @@ export function Editor() {
   const dragHistorySaved = useRef(false);
 
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
-  const [hoveredConstraint, setHoveredConstraint] = useState<Constraint | null>(null);
   
   const [pivotIndex, setPivotIndex] = useState<number | 'center'>('center');
   const [rotationCenter, setRotationCenter] = useState<Point | null>(null);
@@ -509,7 +509,7 @@ export function Editor() {
             : (tool === ToolType.SELECT && isDragging && selectedIds.size > 0 ? Array.from(selectedIds) : []);
 
         const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
-        const { point, snapped, constraint, type } = getSnapPoint(raw, shapes, excludeIds, gridSnapConfig);
+        const { point, snapped, type } = getSnapPoint(raw, shapes, excludeIds, gridSnapConfig);
         
         if (!snapped && hoveredShapeId) {
             const shape = shapes.find(s => s.id === hoveredShapeId);
@@ -517,12 +517,12 @@ export function Editor() {
                 const mp = screenToMath(raw, canvasSize.width, svgHeight, pixelsPerUnit, originY);
                 const my = evaluateQuadratic(mp.x, shape.formulaParams, shape.functionForm, shape.functionType || 'quadratic');
                 const sp = mathToScreen({ x: mp.x, y: my }, canvasSize.width, svgHeight, pixelsPerUnit, originY);
-                if (Math.abs(sp.y - raw.y) < 20) { setSnapIndicator({ ...sp, type: 'midpoint' }); setHoveredConstraint({ type: 'on_path', parentId: hoveredShapeId, paramX: mp.x }); return { ...sp, p: pressure }; }
+                if (Math.abs(sp.y - raw.y) < 20) { setSnapIndicator({ ...sp, type: 'midpoint' }); return { ...sp, p: pressure }; }
             }
         }
-        setSnapIndicator(snapped ? { ...point, type } : null); setHoveredConstraint(constraint || null); return { ...point, p: pressure };
+        setSnapIndicator(snapped ? { ...point, type } : null); return { ...point, p: pressure };
     }
-    setSnapIndicator(null); setHoveredConstraint(null); return raw;
+    setSnapIndicator(null); return raw;
   };
 
   const handleToolChange = (newTool: ToolType) => {
@@ -569,10 +569,17 @@ export function Editor() {
         return;
     }
     const { dx, dy, rotation, rotationCenter: pivot, scale, scaleCenter } = state;
+    
+    // Apply transform to all cached elements (selected + dependents)
     domCacheRef.current.forEach((el, id) => {
+        // Only apply transient transform if it's a tracked shape (in initialShapeStateRef) or the overlay
+        const isTracked = initialShapeStateRef.current.has(id) || id === 'selection-overlay-group';
+        if (!isTracked) return;
+
         let finalTransform = '';
         if (rotation && pivot) { finalTransform += `rotate(${rotation} ${pivot.x} ${pivot.y}) `; }
         if (dx || dy) { finalTransform += `translate(${dx || 0} ${dy || 0}) `; }
+        
         const shape = shapesRef.current.find(s => s.id === id);
         if (shape) {
              const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
@@ -593,19 +600,41 @@ export function Editor() {
     });
   };
 
-  const refreshDomCache = () => {
+  const refreshDomCache = (idsOverride?: Set<string>) => {
     domCacheRef.current.clear();
     initialShapeStateRef.current.clear();
+    
+    const targetIds = idsOverride || selectedIds;
+    
+    // 1. Add target shapes
     if (tool === ToolType.SELECT || tool === ToolType.RULER || tool === ToolType.PROTRACTOR) {
-        shapes.forEach(s => {
-            if (selectedIds.has(s.id)) {
+        shapesRef.current.forEach(s => {
+            if (targetIds.has(s.id)) {
                  const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
                  if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }
             }
         });
+        
+        // 2. Add dependent shapes (recursive)
+        const dependents = getDependents(shapesRef.current, targetIds);
+        dependents.forEach(s => {
+             const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
+             if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }
+        });
+
         const overlay = document.getElementById('selection-overlay-group');
         if (overlay) domCacheRef.current.set('selection-overlay-group', overlay);
     }
+  };
+
+  // Unified logic to determine if a point should be bound to a shape's edge
+  const bindPointToShapes = (pos: Point, excludeIds: string[] = []): { point: Point, constraint?: Constraint } => {
+    const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
+    const snapResult = getSnapPoint(pos, shapesRef.current.filter(s => !excludeIds.includes(s.id)), [], gridSnapConfig);
+    return {
+      point: snapResult.snapped ? snapResult.point : pos,
+      constraint: snapResult.constraint
+    };
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -617,11 +646,19 @@ export function Editor() {
         return; 
     }
     if (textEditing || angleEditing) { if (textEditing) finishTextEditing(); return; }
-    const pos = getMousePos(e, true); const rawPos = getMousePos(e, false); dragHistorySaved.current = false;
+    
+    const rect = svgRef.current?.getBoundingClientRect();
+    const rawPos = { 
+        x: (e.clientX - (rect?.left || 0)) / zoom, 
+        y: (e.clientY - (rect?.top || 0)) / zoom 
+    };
+    
+    // Use the unified binder for initial position and constraint
+    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos);
+
+    dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
     
-    refreshDomCache();
-
     if (tool === ToolType.LINE) {
         if (activeShapeId) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); setActiveShapeId(null); setDragStartPos(null); return; } 
         else { saveHistory(); const id = generateId(); const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setActiveShapeId(id); setDragStartPos(rawPos); return; }
@@ -632,70 +669,67 @@ export function Editor() {
         if (hit && hit.type !== ShapeType.IMAGE) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; 
     }
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { const startAngle = getAngleDegrees(compassState.center, pos); setCompassState({ ...compassState, radiusPoint: pos, startAngle: startAngle, lastMouseAngle: startAngle, accumulatedRotation: 0 }); } return; }
-    if (tool === ToolType.RULER) { const existingRuler = shapes.find(s => s.type === ShapeType.RULER); if (existingRuler) { setSelectedIds(new Set([existingRuler.id])); setDragStartPos(rawPos); setIsDragging(true); return; } saveHistory(); const id = generateId(); const width = 400, height = 40; const center = pos; const newShape: Shape = { id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT); return; }
+    if (tool === ToolType.RULER) { const existingRuler = shapes.find(s => s.type === ShapeType.RULER); if (existingRuler) { setSelectedIds(new Set([existingRuler.id])); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([existingRuler.id])); return; } saveHistory(); const id = generateId(); const width = 400, height = 40; const center = pos; const newShape: Shape = { id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT); return; }
     if (pickingMirrorMode) { const line = shapes.find(s => (s.type === ShapeType.LINE || s.type === ShapeType.FREEHAND) && distance(pos, getClosestPointOnShape(pos, s)) < 10); if (line) handleFold(line.id); return; }
     if (tool === ToolType.FUNCTION || tool === ToolType.LINEAR_FUNCTION) { 
         const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY);
         if (hit && hit.type === ShapeType.FUNCTION_GRAPH) {
-            setTool(ToolType.SELECT);
-            setSelectedIds(new Set([hit.id]));
-            setActiveShapeId(null);
-            setDragStartPos(rawPos);
-            setIsDragging(true);
-            return;
+            setTool(ToolType.SELECT); setSelectedIds(new Set([hit.id])); setActiveShapeId(null); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([hit.id])); return;
         }
-        saveHistory(); 
-        const id = generateId(); 
-        const isLinear = tool === ToolType.LINEAR_FUNCTION; 
-        const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; 
-        const fType = isLinear ? 'linear' : 'quadratic'; 
-        const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY); 
-        const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; 
-        setShapes(prev => [...prev, newShape]); 
-        setSelectedIds(new Set([id])); 
-        return; 
+        saveHistory(); const id = generateId(); const isLinear = tool === ToolType.LINEAR_FUNCTION; const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; const fType = isLinear ? 'linear' : 'quadratic'; const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY); const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); return; 
     }
     if (tool === ToolType.SELECT) { 
         let hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY); 
-        
-        // Background Penetration Logic: 
-        // If background is locked and we hit an image, only select it if clicking near the edge.
-        // This allows drawing selection boxes OVER the PDF without moving it.
         if (hit && hit.type === ShapeType.IMAGE && lockBackground) {
-            const corners = getRotatedCorners(hit);
-            const distToEdge = distance(rawPos, getClosestPointOnShape(rawPos, { ...hit, points: corners, type: ShapeType.POLYGON }));
-            if (distToEdge > 15) {
-                hit = null; // Penetrate through the image
-            }
+            const corners = getRotatedCorners(hit); const distToEdge = distance(rawPos, getClosestPointOnShape(rawPos, { ...hit, points: corners, type: ShapeType.POLYGON })); if (distToEdge > 15) hit = null;
         }
 
         if (hit) { 
-            const el = svgRef.current?.querySelector(`g[data-shape-id="${hit.id}"]`);
-            if (el) { domCacheRef.current.set(hit.id, el); initialShapeStateRef.current.set(hit.id, hit); }
-            if (e.altKey) { saveHistory(); const newId = generateId(); const clonedShape = { ...hit, id: newId }; setShapes(prev => [...prev, clonedShape]); setSelectedIds(new Set([newId])); setDragStartPos(rawPos); setIsDragging(true); return; } 
-            if (e.shiftKey || e.ctrlKey) { const newSel = new Set(selectedIds); if (newSel.has(hit.id)) { newSel.delete(hit.id); } else { newSel.add(hit.id); } setSelectedIds(newSel); setDragStartPos(rawPos); setIsDragging(true); return; }
-            if (selectedIds.has(hit.id)) { setDragStartPos(rawPos); setIsDragging(true); } else { setSelectedIds(new Set([hit.id])); setDragStartPos(rawPos); setIsDragging(true); } return; 
+            let newSelection: Set<string>;
+            if (e.shiftKey || e.ctrlKey) { newSelection = new Set(selectedIds); if (newSelection.has(hit.id)) newSelection.delete(hit.id); else newSelection.add(hit.id); } 
+            else if (selectedIds.has(hit.id)) { newSelection = selectedIds; } 
+            else { newSelection = new Set([hit.id]); }
+            
+            setSelectedIds(newSelection);
+            setDragStartPos(rawPos);
+            setIsDragging(true);
+            refreshDomCache(newSelection);
+            return; 
         } 
-        if (!e.shiftKey && !e.ctrlKey) { setSelectedIds(new Set()); } 
+        if (!e.shiftKey && !e.ctrlKey) setSelectedIds(new Set());
         selectionStartRef.current = rawPos; shapeBoundsCache.current.clear();
         shapes.forEach(s => { const corners = getRotatedCorners(s); if (corners.length === 0) return; let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; corners.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }); shapeBoundsCache.current.set(s.id, { minX: minX - 2, minY: minY - 2, maxX: maxX + 2, maxY: maxY + 2 }); });
         if (selectionRectRef.current) { selectionRectRef.current.setAttribute('x', rawPos.x.toString()); selectionRectRef.current.setAttribute('y', rawPos.y.toString()); selectionRectRef.current.setAttribute('width', '0'); selectionRectRef.current.setAttribute('height', '0'); selectionRectRef.current.style.display = 'block'; }
         setIsDragging(true); return; 
     }
     saveHistory(); 
-    if (tool === ToolType.PROTRACTOR) { const existingProtractor = shapes.find(s => s.type === ShapeType.PROTRACTOR); if (existingProtractor) { setSelectedIds(new Set([existingProtractor.id])); setDragStartPos(rawPos); setIsDragging(true); return; } const id = generateId(); const newShape: Shape = { id, type: ShapeType.PROTRACTOR, points: [{ x: pos.x - 150, y: pos.y - 150 }, { x: pos.x + 150, y: pos.y }], fill: 'transparent', stroke: currentStyle.stroke, strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setDragStartPos(rawPos); setIsDragging(true); return; }
+    if (tool === ToolType.PROTRACTOR) { const existingProtractor = shapes.find(s => s.type === ShapeType.PROTRACTOR); if (existingProtractor) { setSelectedIds(new Set([existingProtractor.id])); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([existingProtractor.id])); return; } const id = generateId(); const newShape: Shape = { id, type: ShapeType.PROTRACTOR, points: [{ x: pos.x - 150, y: pos.y - 150 }, { x: pos.x + 150, y: pos.y }], fill: 'transparent', stroke: currentStyle.stroke, strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([id])); return; }
     if (tool === ToolType.TEXT) { e.preventDefault(); const id = generateId(); const newShape: Shape = { id, type: ShapeType.TEXT, points: [pos], text: '', fontSize: 16, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; setShapes(prev => [...prev, newShape]); setTextEditing({ id, x: pos.x, y: pos.y, text: '' }); setSelectedIds(new Set<string>([id])); return; }
     setDragStartPos(rawPos); setIsDragging(true); const id = generateId(); let points: Point[] = [pos, pos]; if (tool === ToolType.TRIANGLE) points = [pos, pos, pos]; if (tool === ToolType.POINT || tool === ToolType.FREEHAND) points = [pos];
     let labels: string[] | undefined = (autoLabelMode && tool !== ToolType.POINT && tool !== ToolType.FREEHAND) ? getNextLabels(tool === ToolType.TRIANGLE ? 3 : (tool === ToolType.RECTANGLE || tool === ToolType.SQUARE ? 4 : points.length)) : undefined;
     const newShape: Shape = { id, type: tool as unknown as ShapeType, points, labels, fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0, usePressure: tool === ToolType.FREEHAND && pressureEnabled };
-    if (tool === ToolType.POINT && hoveredConstraint) newShape.constraint = hoveredConstraint;
+    if (tool === ToolType.POINT && currentConstraint) newShape.constraint = currentConstraint;
     setShapes(prev => [...prev, newShape]); setActiveShapeId(id);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (isScrollingRef.current && containerRef.current && lastScrollPos.current) { const dx = e.clientX - lastScrollPos.current.x; const dy = e.clientY - lastScrollPos.current.y; containerRef.current.scrollLeft -= dx; containerRef.current.scrollTop -= dy; lastScrollPos.current = { x: e.clientX, y: e.clientY }; return; }
-    const pos = getMousePos(e, true); const rawPos = getMousePos(e, false); const prevRawPos = cursorPosRef.current || rawPos;
+    
+    const rect = svgRef.current?.getBoundingClientRect();
+    const rawPos = { 
+        x: (e.clientX - (rect?.left || 0)) / zoom, 
+        y: (e.clientY - (rect?.top || 0)) / zoom 
+    };
+    const prevRawPos = cursorPosRef.current || rawPos;
     cursorPosRef.current = rawPos;
+
+    // Snapping configuration for detecting constraints
+    const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
+    
+    // Detect snapping target (all shapes except current dragging selection)
+    const snapResult = getSnapPoint(rawPos, shapesRef.current.filter(s => !selectedIds.has(s.id)), [], gridSnapConfig);
+    const pos = snapResult.point;
+
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
     if (activeShapeId && tool === ToolType.LINE) { setShapes(prev => prev.map(s => s.id === activeShapeId ? { ...s, points: [s.points[0], pos] } : s)); }
     if (tool === ToolType.COMPASS && compassState.radiusPoint) { const center = compassState.center!; const radius = distance(center, compassState.radiusPoint); const currentMouseAngle = getAngleDegrees(center, rawPos); let delta = currentMouseAngle - compassState.lastMouseAngle; if (delta > 180) delta -= 360; if (delta < -180) delta += 360; const newAccumulated = compassState.accumulatedRotation + delta; setCompassState(prev => ({ ...prev, lastMouseAngle: currentMouseAngle, accumulatedRotation: newAccumulated })); const startAngle = compassState.startAngle!; const endAngle = startAngle + newAccumulated; setCompassPreviewPath(getAngleArcPath(center, null, null, radius, startAngle, endAngle)); return; }
@@ -726,11 +760,14 @@ export function Editor() {
         if (singleShape) {
             const snapshotShape = initialShapesArray.find(s => s.id === singleShape.id) || singleShape;
             const updatedShape = calculateResizedShape(snapshotShape, pos, dragHandleIndex, isShiftPressed);
-            setShapes(prev => prev.map(s => {
-                if (s.id === singleShape.id) return updatedShape;
-                if (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === singleShape.id) { return recalculateMarker(s, [updatedShape]) || s; }
-                return s;
-            }));
+            setShapes(prev => {
+                let nextShapes = prev.map(s => {
+                    if (s.id === singleShape.id) return updatedShape;
+                    if (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === singleShape.id) { return recalculateMarker(s, [updatedShape]) || s; }
+                    return s;
+                });
+                return resolveConstraints(nextShapes, singleShape.id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+            });
             return; 
         }
 
@@ -790,17 +827,39 @@ export function Editor() {
         const isPointDrag = singleSelId && shapesRef.current.find(s => s.id === singleSelId)?.type === ShapeType.POINT;
 
         if (isPointDrag) {
-             const dx = rawPos.x - prevRawPos.x; const dy = rawPos.y - prevRawPos.y;
-             if (dx !== 0 || dy !== 0) {
-                 setShapes((prev: Shape[]) => {
-                     const drivingShape = prev.find(s => s.id === singleSelId); if (!drivingShape) return prev;
-                     const drivingPoints = [drivingShape.points[0]];
-                     return prev.map(s => { 
-                         if (s.id === singleSelId) return calculateMovedShape(s, dx, dy, pixelsPerUnit, [], canvasSize.width, svgHeight, originY); 
-                         return calculateMovedShape(s, dx, dy, pixelsPerUnit, drivingPoints, canvasSize.width, svgHeight, originY); 
-                     });
-                 });
+             const draggingShape = shapesRef.current.find(s => s.id === singleSelId);
+             if (!draggingShape) return;
+
+             // 1. If already on edge, project and update visually (transient)
+             if (draggingShape.constraint && draggingShape.constraint.type === 'on_edge') {
+                  const parent = shapesRef.current.find(s => s.id === draggingShape.constraint!.parentId);
+                  if (parent && draggingShape.constraint.edgeIndex !== undefined) {
+                       const { point: constrainedPos } = constrainPointToEdge(pos, parent, draggingShape.constraint.edgeIndex);
+                       const dx = constrainedPos.x - draggingShape.points[0].x;
+                       const dy = constrainedPos.y - draggingShape.points[0].y;
+                       transientStateRef.current = { dx, dy };
+                       updateTransientVisuals(transientStateRef.current);
+                       return; 
+                  }
              }
+
+             // 2. Free movement (with snapping detection for visuals)
+             const dx = rawPos.x - dragStartPos!.x;
+             const dy = rawPos.y - dragStartPos!.y;
+             
+             // Check if we should snap visually
+             const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
+             const snapResult = getSnapPoint(pos, shapesRef.current.filter(s => s.id !== singleSelId), [], gridSnapConfig);
+             
+             if (snapResult.snapped) {
+                 const sdx = snapResult.point.x - draggingShape.points[0].x;
+                 const sdy = snapResult.point.y - draggingShape.points[0].y;
+                 transientStateRef.current = { dx: sdx, dy: sdy };
+             } else {
+                 transientStateRef.current = { dx, dy };
+             }
+             
+             updateTransientVisuals(transientStateRef.current);
              return; 
         }
         const dx = rawPos.x - dragStartPos.x, dy = rawPos.y - dragStartPos.y; 
@@ -813,10 +872,9 @@ export function Editor() {
       if (isScrollingRef.current) { 
           isScrollingRef.current = false; 
           lastScrollPos.current = null; 
-          try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch(e) {}
+          try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch(err) {}
           return; 
       }
-      if (isScrollingRef.current) { isScrollingRef.current = false; lastScrollPos.current = null; return; }
       const rawPos = getMousePos(e, false);
       
       if (tool === ToolType.SELECT && selectionStartRef.current && isDragging) {
@@ -848,7 +906,7 @@ export function Editor() {
                 const snapshot = snapshots.get(id);
                 if (snapshot) {
                     const updated = calculateResizedShape(snapshot, finalPos, dragHandleIndex!, isShiftPressed);
-                    return currentShapes.map((s) => {
+                    let nextShapes = currentShapes.map((s) => {
                         if (s.id === id) return updated;
                         // Update attached markers
                         if (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === id) { 
@@ -856,15 +914,22 @@ export function Editor() {
                         }
                         return s;
                     });
+                    return resolveConstraints(nextShapes, id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
                 }
              }
 
              // Group Selection (Box Resize) Logic
              const currentGroupBounds = selectedIds.size > 1 ? getSelectionBounds(currentShapes, selectedIds) : undefined; 
-             const resizedShapes = currentShapes.map((s) => { 
+             let resizedShapes = currentShapes.map((s) => { 
                  if (!selectedIds.has(s.id)) return s; 
                  return calculateResizedShape(s, finalPos, dragHandleIndex!, isShiftPressed, currentGroupBounds || undefined); 
              }); 
+             
+             // Resolve constraints for all resized shapes
+             selectedIds.forEach(id => {
+                 resizedShapes = resolveConstraints(resizedShapes, id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+             });
+             
              return resizedShapes.map((s) => (s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId && selectedIds.has(s.markerConfig.targets[0].shapeId)) ? (recalculateMarker(s, resizedShapes) || s) : s); 
           });
 
@@ -887,8 +952,27 @@ export function Editor() {
               if ((dx && dx !== 0) || (dy && dy !== 0)) {
                   const drivingPoints: Point[] = [];
                   prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
+                  
                   updatedShapes = prev.map((s: Shape) => {
-                      if (selectedIds.has(s.id)) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, [], canvasSize.width, svgHeight, originY); }
+                      if (selectedIds.has(s.id)) { 
+                          const moved = calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, [], canvasSize.width, svgHeight, originY);
+                          
+                          if (s.type === ShapeType.POINT) {
+                              // If point is ALREADY constrained to an edge, honor that constraint (Case 2: won't move outside)
+                              if (s.constraint && s.constraint.type === 'on_edge') {
+                                  const parent = prev.find(p => p.id === s.constraint!.parentId);
+                                  if (parent && s.constraint.edgeIndex !== undefined) {
+                                      // Project final mouse position (moved.points[0]) onto the parent edge
+                                      const { point: constrainedPos, t } = constrainPointToEdge(moved.points[0], parent, s.constraint.edgeIndex);
+                                      return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramT: t } };
+                                  }
+                              }
+                              // Otherwise, use unified binder to find NEW constraints
+                              const { point: finalPos, constraint } = bindPointToShapes(moved.points[0], [s.id]);
+                              return { ...moved, points: [finalPos], constraint };
+                          }
+                          return moved;
+                      }
                       if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, drivingPoints, canvasSize.width, svgHeight, originY); }
                       return s;
                   });
@@ -900,7 +984,14 @@ export function Editor() {
                       return calculateRotatedShape(s, delta, rotCenter, isShiftPressed);
                   });
               }
-              return updatedShapes.map((s: Shape) => (s.type === ShapeType.MARKER && s.markerConfig && selectedIds.has(s.markerConfig.targets[0].shapeId)) ? (recalculateMarker(s, updatedShapes) || s) : s);
+              
+              // NEW: Explicitly resolve constraints for everything that was moved
+              let finalShapes = updatedShapes;
+              selectedIds.forEach(id => {
+                  finalShapes = resolveConstraints(finalShapes, id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+              });
+
+              return finalShapes.map((s: Shape) => (s.type === ShapeType.MARKER && s.markerConfig && selectedIds.has(s.markerConfig.targets[0].shapeId)) ? (recalculateMarker(s, finalShapes) || s) : s);
           });
           updateTransientVisuals(null);
           transientStateRef.current = null;

@@ -839,12 +839,12 @@ export const getSnapPoint = (
     shapes: Shape[], 
     excludeIds: string[] = [], 
     gridConfig?: { width: number, height: number, ppu: number, originY?: number }
-): { point: Point, snapped: boolean, constraint?: Constraint, type?: 'endpoint' | 'midpoint' | 'center' } => {
+): { point: Point, snapped: boolean, constraint?: Constraint, type?: 'endpoint' | 'midpoint' | 'center' | 'on_edge' } => {
     let closestDist = 10; 
     let snapPt = pos;
     let snapped = false;
     let constraint: Constraint | undefined = undefined;
-    let snapType: 'endpoint' | 'midpoint' | 'center' | undefined = undefined;
+    let snapType: 'endpoint' | 'midpoint' | 'center' | 'on_edge' | undefined = undefined;
 
     if (gridConfig) {
         const { ppu } = gridConfig;
@@ -892,35 +892,60 @@ export const getSnapPoint = (
              continue;
         }
         
-        if (shape.points) {
+        // CRITICAL: Use visual points (rotated) for all geometric detection
+        const visualPoints = getRotatedCorners(shape);
+
+        if (visualPoints.length > 0) {
             // Vertices
-            for (const p of shape.points) {
+            for (let j = 0; j < visualPoints.length; j++) {
+                const p = visualPoints[j];
                 const d = distance(pos, p);
                 if (d < closestDist) {
                     snapPt = p;
                     closestDist = d;
                     snapped = true;
                     snapType = 'endpoint';
-                    constraint = undefined; 
+                    
+                    // NEW: Even if it is an endpoint, if it is a polygon/line, bind it to the segment starting at this index (paramT=0)
+                    if ([ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.LINE].includes(shape.type)) {
+                         constraint = { type: 'on_edge', parentId: shape.id, edgeIndex: j, paramT: 0 };
+                    } else {
+                         constraint = undefined; 
+                    }
                 }
             }
 
-            // Midpoints
-            if (shape.points.length >= 2) {
+            // Edges & Midpoints
+            if (visualPoints.length >= 2) {
                 const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(shape.type);
-                const segmentsCount = isClosed ? shape.points.length : shape.points.length - 1;
+                const segmentsCount = isClosed ? visualPoints.length : visualPoints.length - 1;
                 
                 for(let i = 0; i < segmentsCount; i++) {
-                    const p1 = shape.points[i];
-                    const p2 = shape.points[(i + 1) % shape.points.length];
-                    const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-                    const d = distance(pos, mid);
+                    const p1 = visualPoints[i];
+                    const p2 = visualPoints[(i + 1) % visualPoints.length];
+                    
+                    // Project point onto segment
+                    let t = getProjectionParameter(pos, p1, p2);
+                    t = Math.max(0, Math.min(1, t)); // Clamp to segment
+                    const projected = lerp(p1, p2, t);
+                    
+                    const d = distance(pos, projected);
+                    
                     if (d < closestDist) {
-                        snapPt = mid;
-                        closestDist = d;
-                        snapped = true;
-                        snapType = 'midpoint';
-                        constraint = { type: 'on_path', parentId: shape.id }; 
+                        // Check if it's close to midpoint
+                        if (Math.abs(t - 0.5) < 0.05) {
+                             snapPt = lerp(p1, p2, 0.5);
+                             closestDist = d;
+                             snapped = true;
+                             snapType = 'midpoint';
+                             constraint = { type: 'on_edge', parentId: shape.id, edgeIndex: i, paramT: 0.5 };
+                        } else {
+                             snapPt = projected;
+                             closestDist = d;
+                             snapped = true;
+                             snapType = 'on_edge';
+                             constraint = { type: 'on_edge', parentId: shape.id, edgeIndex: i, paramT: t };
+                        }
                     }
                 }
             }

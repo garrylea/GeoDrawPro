@@ -52,7 +52,6 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
     if ([ShapeType.FREEHAND, ShapeType.PATH, ShapeType.POINT, ShapeType.TEXT, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.FUNCTION_GRAPH, ShapeType.MARKER].includes(type)) return null;
 
     const dots: React.ReactNode[] = [];
-    const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(type);
 
     // 1. Center for Circle/Ellipse
     if (type === ShapeType.CIRCLE || type === ShapeType.ELLIPSE) {

@@ -2,7 +2,7 @@
 import { Shape, ShapeType, Point } from '../types';
 import { 
     isPointInShape, distance, getClosestPointOnShape, getRotatedCorners, 
-    rotatePoint, getShapeCenter, screenToMath, evaluateQuadratic, mathToScreen, generateQuadraticPath,
+    rotatePoint, getShapeCenter, generateQuadraticPath,
     vertexToStandard
 } from './mathUtils';
 
@@ -363,7 +363,9 @@ export const calculateMovedShape = (
         return { ...shape, formulaParams: params, pathData };
     }
 
-    if (drivingPoints.length > 0 && !shape.constraint) { 
+    if (drivingPoints.length > 0) { 
+        if (shape.constraint) return shape; // Constrained shapes don't get driven by points directly
+
         const linkedPoints = shape.points.map(p => 
             drivingPoints.some(dp => Math.abs(dp.x - p.x) < 5.0 && Math.abs(dp.y - p.y) < 5.0) 
             ? { x: p.x + dx, y: p.y + dy, p: p.p } 
@@ -375,6 +377,7 @@ export const calculateMovedShape = (
         return shape;
     }
 
+    // Only translate the whole shape if NOT using driving points
     return { 
         ...shape, 
         points: shape.points.map(p => ({ x: p.x + dx, y: p.y + dy, p: p.p })) 
