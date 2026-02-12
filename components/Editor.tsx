@@ -995,42 +995,37 @@ export function Editor() {
           setShapes((prev: Shape[]) => {
               let updatedShapes = prev;
               if ((dx && dx !== 0) || (dy && dy !== 0)) {
-                  const drivingPoints: Point[] = [];
-                  prev.forEach(s => { if (selectedIds.has(s.id) && s.type === ShapeType.POINT) drivingPoints.push(s.points[0]); });
-                  
+                  // 1. Move the shapes that were directly selected
                   updatedShapes = prev.map((s: Shape) => {
                       if (selectedIds.has(s.id)) { 
                           const moved = calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, [], canvasSize.width, svgHeight, originY);
                           
+                          // Handle special point binding on release (for free points)
                           if (s.type === ShapeType.POINT) {
-                              // If point is ALREADY constrained to an edge, honor that constraint (Case 2: won't move outside)
                               if (s.constraint && s.constraint.type === 'on_edge') {
                                   const parent = prev.find(p => p.id === s.constraint!.parentId);
                                   if (parent && s.constraint.edgeIndex !== undefined) {
-                                      // Project final mouse position (moved.points[0]) onto the parent edge
                                       const { point: constrainedPos, t } = constrainPointToEdge(moved.points[0], parent, s.constraint.edgeIndex);
                                       return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramT: t } };
                                   }
                               }
-                              // Otherwise, use unified binder to find NEW constraints
                               const { point: finalPos, constraint } = bindPointToShapes(moved.points[0], [s.id]);
                               return { ...moved, points: [finalPos], constraint };
                           }
                           return moved;
                       }
-                      if (drivingPoints.length > 0 && !s.constraint) { return calculateMovedShape(s, dx || 0, dy || 0, pixelsPerUnit, drivingPoints, canvasSize.width, svgHeight, originY); }
                       return s;
                   });
               }
               if (rotation && rotCenter) {
-                  const delta = rotation; 
                   updatedShapes = updatedShapes.map((s: Shape) => {
                       if (!selectedIds.has(s.id)) return s;
-                      return calculateRotatedShape(s, delta, rotCenter, isShiftPressed);
+                      return calculateRotatedShape(s, rotation, rotCenter, isShiftPressed);
                   });
               }
               
-              // NEW: Explicitly resolve constraints for everything that was moved
+              // 2. CRITICAL: Recursively resolve ALL constraints starting from the selected items.
+              // This is the source of truth for the Shape -> Point -> Line chain.
               let finalShapes = updatedShapes;
               selectedIds.forEach(id => {
                   finalShapes = resolveConstraints(finalShapes, id, canvasSize.width, svgHeight, pixelsPerUnit, originY);
