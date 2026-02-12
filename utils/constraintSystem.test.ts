@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveConstraints, constrainPointToEdge, getDependents } from './constraintSystem';
-import { getSnapPoint } from './mathUtils';
+import { getSnapPoint, getRotatedCorners } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
 
@@ -612,5 +612,23 @@ describe('Constraint System', () => {
         const finalLine = resolved.find(s => s.id === 'line1')!;
         
         expect(finalLine.points[1].x).toBe(300);
+    });
+
+    it('should correctly calculate visual corners for box-based shapes with rotation', () => {
+        // 1. Rectangle (100,100 to 200,200) rotated 90 degrees
+        const rect: Shape = createShape('r1', ShapeType.RECTANGLE, [{x:100,y:100}, {x:200,y:200}]);
+        rect.rotation = 90;
+        
+        const corners = getRotatedCorners(rect);
+        // Center is (150, 150). TL(100,100) rotated 90 around center becomes (200, 100)
+        expect(corners[0].x).toBeCloseTo(200);
+        expect(corners[0].y).toBeCloseTo(100);
+        
+        // 2. Circle (center logic)
+        const circle: Shape = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
+        circle.rotation = 45;
+        const cCorners = getRotatedCorners(circle);
+        expect(cCorners.length).toBe(4);
+        // Even for circles, we calculate 4 bounding box corners
     });
 });

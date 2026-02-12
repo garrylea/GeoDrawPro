@@ -584,10 +584,27 @@ export function Editor() {
         }
 
         const shape = shapesRef.current.find(s => s.id === id);
-        if (shape?.type === ShapeType.LINE) {
-            console.log(`[Transient] Processing Line ${id}, isDependent? ${!selectedIds.has(id)}`);
-        }
         
+        // --- SELECTION OVERLAY SPECIAL HANDLING ---
+        // If it's the overlay and we have a single selection, we must include the target shape's persistent rotation
+        if (id === 'selection-overlay-group' && selectedIds.size === 1) {
+            const singleId = Array.from(selectedIds)[0];
+            const targetShape = shapesRef.current.find(s => s.id === singleId);
+            if (targetShape) {
+                let finalTransform = '';
+                if (rotation && pivot) { finalTransform += `rotate(${rotation} ${pivot.x} ${pivot.y}) `; }
+                if (dx || dy) { finalTransform += `translate(${dx || 0} ${dy || 0}) `; }
+                
+                const center = getShapeCenter(targetShape.points, targetShape.type, targetShape.fontSize, targetShape.text);
+                if (targetShape.rotation) { finalTransform += `rotate(${targetShape.rotation} ${center.x} ${center.y}) `; }
+                
+                if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
+                
+                el.setAttribute('transform', finalTransform.trim());
+                return;
+            }
+        }
+
         // --- RIGID BODY SYNC LOGIC ---
         // If we are moving a group (e.g. Triangle), and this shape is a dependent (Point/Line),
         // we should just apply the SAME global translation.
@@ -633,7 +650,6 @@ export function Editor() {
     initialShapeStateRef.current.clear();
     
     const targetIds = idsOverride || selectedIds;
-    console.log(`[DomCache] Refreshing for targets: ${Array.from(targetIds).join(', ')}`);
     
     // 1. Add target shapes
     if (tool === ToolType.SELECT || tool === ToolType.RULER || tool === ToolType.PROTRACTOR) {
@@ -646,7 +662,6 @@ export function Editor() {
         
         // 2. Add dependent shapes (recursive)
         const dependents = getDependents(shapesRef.current, targetIds);
-        console.log(`[DomCache] Found ${dependents.length} dependents: ${dependents.map(d=>d.id).join(', ')}`);
         dependents.forEach(s => {
              const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
              if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }

@@ -32,6 +32,7 @@ export const resolveConstraints = (
     let updatedShapes = [...allShapes];
 
     for (const dependentStub of dependents) {
+        // CRITICAL: Always get the LATEST version of the dependent from our accumulating array.
         const currentDependent = updatedShapes.find(s => s.id === dependentStub.id);
         if (!currentDependent || !currentDependent.constraint) continue;
 
@@ -54,6 +55,18 @@ export const resolveConstraints = (
             }
         }
         
+        // --- CASE 2: Point on Function Graph ---
+        else if (type === 'on_path' && paramX !== undefined && parentId === modifiedShapeId) {
+             const parent = updatedShapes.find(s => s.id === parentId);
+             if (parent && parent.type === ShapeType.FUNCTION_GRAPH && parent.formulaParams) {
+                 const fType = parent.functionType || 'quadratic';
+                 const mx = paramX;
+                 const my = evaluateQuadratic(mx, parent.formulaParams, parent.functionForm, fType);
+                 const newPos = mathToScreen({ x: mx, y: my }, canvasWidth, canvasHeight, pixelsPerUnit, originY);
+                 nextShape = { ...currentDependent, points: [newPos] };
+             }
+        }
+
         // --- CASE 3: Line/Shape connected to dynamic Points ---
         else if (type === 'points_link') {
             const pids = parents || (parentId ? [parentId] : []);
