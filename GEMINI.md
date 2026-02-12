@@ -117,6 +117,7 @@
 9.  **Rigid Body vs. Elastic Race Conditions**: Optimized the visual engine to treat the entire dependency tree (Shape -> Point -> Line) as a single rigid body during group movement. This eliminates "lagging lines" where dependents would wait for the mouse release to catch up.
 10. **Circle Hit Detection Parity**: Fixed a regression where circles became unselectable. The hit detection logic was corrected to match the rendering engine's radius definition (`width / 2`), ensuring the "Hollow Selection" (edge-only click) works with pixel-perfect accuracy.
 11. **Freehand Tool Snapping Interference**: Disabled all snapping and constraint-binding for the `FREEHAND` tool. Previously, the global snap check caused 'stuttering' or jumping lines during sketches. Sketching now uses 100% raw pointer input for a natural feel.
+12. **Relative Phase Angles for Circular Constraints**: Fixed a bug where points on circles "jumped back" after rotating the parent. Switched from storing absolute world angles to relative phase angles (`worldAngle - parentRotation`). During redraw, the point position is reconstructed using `storedRelativeAngle + currentRotation`.
 **Lesson:** When building complex dependency systems in React, separate the **Mathematical Truth** (recursive coordinate resolution) from the **Visual Performance** (transient DOM transforms), and ensure the "Final Snap" on release perfectly reconciles both.
 
 

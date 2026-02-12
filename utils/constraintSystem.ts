@@ -70,7 +70,9 @@ export const resolveConstraints = (
              else if (parent.type === ShapeType.CIRCLE && dependentStub.constraint!.paramAngle !== undefined) {
                  const center = getShapeCenter(parent.points, parent.type);
                  const radius = Math.abs(parent.points[1].x - parent.points[0].x) / 2;
-                 const rad = (dependentStub.constraint!.paramAngle! * Math.PI) / 180;
+                 // Final world angle = relative stored angle + parent's current rotation
+                 const worldAngle = dependentStub.constraint!.paramAngle! + (parent.rotation || 0);
+                 const rad = (worldAngle * Math.PI) / 180;
                  const newPos = {
                      x: center.x + radius * Math.cos(rad),
                      y: center.y + radius * Math.sin(rad)
@@ -138,10 +140,12 @@ export const getDependents = (allShapes: Shape[], parentIds: Set<string>): Shape
 
     while (queue.length > 0) {
         const pid = queue.shift()!;
-        const children = allShapes.filter(s => 
-            !visited.has(s.id) && 
-            (s.constraint?.parentId === pid || s.constraint?.parents?.includes(pid))
-        );
+        const children = allShapes.filter(s => {
+            if (visited.has(s.id)) return false;
+            const isDirect = s.constraint?.parentId === pid;
+            const isMulti = Array.isArray(s.constraint?.parents) && s.constraint!.parents.includes(pid);
+            return isDirect || isMulti;
+        });
         
         children.forEach(child => {
             dependents.push(child);
@@ -179,4 +183,51 @@ export const constrainPointToEdge = (
         point: lerp(p1, p2, clampedT),
         t: clampedT
     };
+};
+
+/**
+ * Constrains a point to a circular or elliptical path when it is being dragged.
+ * Returns the point projected on the path and the angle RELATIVE to the parent's rotation.
+ */
+export const constrainPointToPath = (
+    cursorPos: Point,
+    parent: Shape
+): { point: Point, angle: number } => {
+    const center = getShapeCenter(parent.points, parent.type);
+    
+    if (parent.type === ShapeType.CIRCLE) {
+        const radius = Math.abs(parent.points[1].x - parent.points[0].x) / 2;
+        const worldAngle = Math.atan2(cursorPos.y - center.y, cursorPos.x - center.x) * (180 / Math.PI);
+        const relativeAngle = worldAngle - (parent.rotation || 0);
+        const rad = (worldAngle * Math.PI) / 180;
+        return {
+            point: {
+                x: center.x + radius * Math.cos(rad),
+                y: center.y + radius * Math.sin(rad)
+            },
+            angle: relativeAngle
+        };
+    } else if (parent.type === ShapeType.ELLIPSE) {
+        const rx = Math.abs(parent.points[0].x - parent.points[1].x) / 2;
+        const ry = Math.abs(parent.points[0].y - parent.points[1].y) / 2;
+        
+        let localPos = cursorPos;
+        if (parent.rotation) localPos = rotatePoint(cursorPos, center, -parent.rotation);
+        
+        const worldAngle = Math.atan2(localPos.y - center.y, localPos.x - center.x) * (180 / Math.PI);
+        // For ellipse, we already work in local space, so worldAngle here is effectively relative
+        const relativeAngle = worldAngle; 
+        const rad = (worldAngle * Math.PI) / 180;
+        
+        let projected = {
+            x: center.x + rx * Math.cos(rad),
+            y: center.y + ry * Math.sin(rad)
+        };
+        
+        if (parent.rotation) projected = rotatePoint(projected, center, parent.rotation);
+        
+        return { point: projected, angle: relativeAngle };
+    }
+    
+    return { point: cursorPos, angle: 0 };
 };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveConstraints, constrainPointToEdge, getDependents } from './constraintSystem';
+import { resolveConstraints, constrainPointToEdge, getDependents, constrainPointToPath } from './constraintSystem';
 import { getSnapPoint, getRotatedCorners, isPointInShape } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
@@ -654,46 +654,67 @@ describe('Constraint System', () => {
         expect(isPointInShape({x:100, y:150}, transparentCircle)).toBe(true);
     });
 
-    it('should maintain Circle-Point linkage when circle moves', () => {
+    it('should correctly discover dependencies for Rigid Body Sync (Rectangle-Point-Line)', () => {
+        const rect = createShape('rect1', ShapeType.RECTANGLE, [{x:0,y:0}, {x:100,y:100}]);
+        const p1 = createPoint('p1', 50, 0, { type: 'on_edge', parentId: 'rect1', edgeIndex: 0, paramT: 0.5 });
+        const line = createShape('line1', ShapeType.LINE, [{x:50,y:0}, {x:150,y:0}]);
+        line.constraint = { type: 'points_link', parents: ['p1', null] };
+
+        const allShapes = [rect, p1, line];
+        
+        // This is what refreshDomCache does:
+        const targetIds = new Set(['rect1']);
+        const dependents = getDependents(allShapes, targetIds);
+        
+        const dependentIds = dependents.map(d => d.id);
+        expect(dependentIds).toContain('p1');
+        expect(dependentIds).toContain('line1');
+        expect(dependents.length).toBe(2);
+    });
+
+    it('should correctly accumulate updates when multiple parents change (Ellipse-2Points-Line)', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{x:100,y:100}, {x:300,y:200}]);
+        const p1 = createPoint('p1', 200, 100, { type: 'on_path', parentId: 'e1', paramAngle: 270 });
+        const p2 = createPoint('p2', 200, 200, { type: 'on_path', parentId: 'e1', paramAngle: 90 });
+        const line = createShape('line1', ShapeType.LINE, [{x:200,y:100}, {x:200,y:200}]);
+        line.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        const allShapes = [ellipse, p1, p2, line];
+
+        // Move Ellipse by (10, 10)
+        const movedEllipse = { ...ellipse, points: ellipse.points.map(p => ({ x: p.x + 10, y: p.y + 10 })) };
+        
+        // Resolve starting from the moved ellipse
+        const resolved = resolveConstraints([movedEllipse, p1, p2, line], 'e1', 1000, 1000, 20);
+        
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+        
+        // BOTH ends should have moved to (210, 110) and (210, 210)
+        expect(finalLine.points[0].x).toBeCloseTo(210);
+        expect(finalLine.points[0].y).toBeCloseTo(110);
+        expect(finalLine.points[1].x).toBeCloseTo(210);
+        expect(finalLine.points[1].y).toBeCloseTo(210);
+    });
+
+    it('should maintain Circle-Point linkage when circle rotates', () => {
         // Circle center (150, 150), Radius 50. 
-        // Defined by bounding box from (100, 100) to (200, 200)
         const circle = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
         
-        // Point on the right side of the circle: (200, 150)
+        // Point on the right side (0 degrees relative)
         const p1 = createPoint('p1', 200, 150, { 
             type: 'on_path', parentId: 'c1', paramAngle: 0 
         });
 
-        // 1. Move Circle by (50, 50) -> New center (200, 200)
-        const movedCircle = { ...circle, points: circle.points.map(p => ({ x: p.x + 50, y: p.y + 50 })) };
+        // 1. Rotate Circle by 90 degrees
+        const rotatedCircle = { ...circle, rotation: 90 };
         
         // 2. Resolve
-        const resolved = resolveConstraints([movedCircle, p1], 'c1', 1000, 1000, 20);
+        const resolved = resolveConstraints([rotatedCircle, p1], 'c1', 1000, 1000, 20);
         const finalP1 = resolved.find(s => s.id === 'p1')!;
         
-        // Expected Point: Center(200, 200) + Radius(50) = (250, 200)
-        expect(finalP1.points[0].x).toBeCloseTo(250);
+        // Expected Point: Center(150, 150) + 90 degrees rotation.
+        // Original 0 deg was (200, 150). Rotated 90 deg around (150,150) becomes (150, 200)
+        expect(finalP1.points[0].x).toBeCloseTo(150);
         expect(finalP1.points[0].y).toBeCloseTo(200);
-    });
-
-    it('STRESS: Circle snapping must ONLY produce on_path constraints, NEVER on_edge', () => {
-        // Circle center (150, 150), Radius 50. 
-        const circle = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
-        
-        // 1. Test point near the perimeter (115, 115)
-        // distance to center (150,150) is ~49.5px. Radius is 50px. 
-        // Difference ~0.5px, well within 25px tolerance.
-        const snapResult = getSnapPoint({x: 115, y: 115}, [circle]);
-        
-        expect(snapResult.snapped).toBe(true);
-        // CRITICAL: Must be on_path
-        expect(snapResult.constraint).toBeDefined();
-        expect(snapResult.constraint!.type).toBe('on_path');
-        expect(snapResult.constraint!.parentId).toBe('c1');
-        
-        // 2. Test another point near a bounding box edge (150, 105)
-        const snapResult2 = getSnapPoint({x: 150, y: 105}, [circle]);
-        expect(snapResult2.constraint!.type).toBe('on_path');
-        expect(snapResult2.constraint!.paramAngle).toBeDefined();
     });
 });

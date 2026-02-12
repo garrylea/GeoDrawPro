@@ -898,18 +898,23 @@ export const getSnapPoint = (
             if (shape.type === ShapeType.CIRCLE) {
                 const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
                 const d = distance(pos, center);
-                if (Math.abs(d - radius) < 25) {
-                    const angle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
-                    const rad = (angle * Math.PI) / 180;
-                    const projected = { x: center.x + radius * Math.cos(rad), y: center.y + radius * Math.sin(rad) };
-                    if (distance(pos, projected) < closestDist) {
-                        snapPt = projected;
-                        closestDist = distance(pos, projected);
-                        snapped = true;
-                        snapType = 'on_edge';
-                        constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
-                    }
-                }
+                            if (Math.abs(d - radius) < 25) {
+                                const worldAngle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
+                                // Store angle relative to circle's own rotation
+                                const relativeAngle = worldAngle - (shape.rotation || 0);
+                                const rad = (worldAngle * Math.PI) / 180;
+                                const projected = {
+                                    x: center.x + radius * Math.cos(rad),
+                                    y: center.y + radius * Math.sin(rad)
+                                };
+                                if (distance(pos, projected) < closestDist) {
+                                    snapPt = projected;
+                                    closestDist = distance(pos, projected);
+                                    snapped = true;
+                                    snapType = 'on_edge';
+                                    constraint = { type: 'on_path', parentId: shape.id, paramAngle: relativeAngle };
+                                }
+                            }
             } else { // Ellipse
                 const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
                 const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;

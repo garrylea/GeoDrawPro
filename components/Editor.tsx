@@ -19,7 +19,7 @@ import {
   fitShapesToViewport, sanitizeLoadedShapes,
   solveTriangleASA, snapToRuler
 } from '../utils/mathUtils';
-import { resolveConstraints, constrainPointToEdge, getDependents } from '../utils/constraintSystem';
+import { resolveConstraints, constrainPointToEdge, getDependents, constrainPointToPath } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape } from '../utils/shapeOperations';
 import { Plus, Loader2 } from 'lucide-react';
 // Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
@@ -951,15 +951,20 @@ export function Editor() {
              let newPos = pos;
              let newConstraint = snapResult.constraint;
 
-             // 1. Logic for points ALREADY on edges (Stable sliding)
-             // CRITICAL: We prioritize the existing edge constraint over the snap result
-             if (draggingShape.constraint && draggingShape.constraint.type === 'on_edge') {
+             // 1. Logic for points ALREADY on edges or paths (Stable sliding)
+             // CRITICAL: We prioritize the existing constraint over the snap result
+             if (draggingShape.constraint) {
                   const parent = shapesRef.current.find(s => s.id === draggingShape.constraint!.parentId);
-                  if (parent && draggingShape.constraint.edgeIndex !== undefined) {
-                       // Use rawPos (mouse) for projection to allow smooth sliding even if snapResult is different
-                       const { point: constrainedPos, t } = constrainPointToEdge(rawPos, parent, draggingShape.constraint.edgeIndex);
-                       newPos = constrainedPos;
-                       newConstraint = { ...draggingShape.constraint, paramT: t };
+                  if (parent) {
+                      if (draggingShape.constraint.type === 'on_edge' && draggingShape.constraint.edgeIndex !== undefined) {
+                           const { point: constrainedPos, t } = constrainPointToEdge(rawPos, parent, draggingShape.constraint.edgeIndex);
+                           newPos = constrainedPos;
+                           newConstraint = { ...draggingShape.constraint, paramT: t };
+                      } else if (draggingShape.constraint.type === 'on_path' && (parent.type === ShapeType.CIRCLE || parent.type === ShapeType.ELLIPSE)) {
+                           const { point: constrainedPos, angle } = constrainPointToPath(rawPos, parent);
+                           newPos = constrainedPos;
+                           newConstraint = { ...draggingShape.constraint, paramAngle: angle };
+                      }
                   }
              }
 
@@ -1073,14 +1078,19 @@ export function Editor() {
                           
                           // Handle special point binding on release (for free points)
                           if (s.type === ShapeType.POINT) {
-                              if (s.constraint && s.constraint.type === 'on_edge') {
+                              if (s.constraint && (s.constraint.type === 'on_edge' || s.constraint.type === 'on_path')) {
                                   const parent = prev.find(p => p.id === s.constraint!.parentId);
-                                  if (parent && s.constraint.edgeIndex !== undefined) {
-                                      const { point: constrainedPos, t } = constrainPointToEdge(moved.points[0], parent, s.constraint.edgeIndex);
-                                      return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramT: t } };
+                                  if (parent) {
+                                      if (s.constraint.type === 'on_edge' && s.constraint.edgeIndex !== undefined) {
+                                          const { point: constrainedPos, t } = constrainPointToEdge(moved.points[0], parent, s.constraint.edgeIndex);
+                                          return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramT: t } };
+                                      } else if (s.constraint.type === 'on_path' && (parent.type === ShapeType.CIRCLE || parent.type === ShapeType.ELLIPSE)) {
+                                          const { point: constrainedPos, angle } = constrainPointToPath(moved.points[0], parent);
+                                          return { ...moved, points: [constrainedPos], constraint: { ...s.constraint!, paramAngle: angle } };
+                                      }
                                   }
                               } else {
-                                  // Only attempt NEW binding if it wasn't already constrained to an edge
+                                  // Only attempt NEW binding if it wasn't already constrained
                                   const { point: finalPos, constraint } = bindPointToShapes(moved.points[0], [s.id], false);
                                   return { ...moved, points: [finalPos], constraint };
                               }
