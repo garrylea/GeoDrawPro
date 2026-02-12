@@ -329,12 +329,14 @@ export const getRotatedCorners = (shape: Shape): Point[] => {
         if (type === ShapeType.TEXT) {
              x = points[0].x; y = points[0].y;
              const fs = fontSize || 16;
-             const isLatex = text?.startsWith('$') && text?.endsWith('$');
+             const hasLatexMarker = text?.startsWith('$') && text?.endsWith('$');
+             const hasLatexCommands = text?.includes('\\');
+             const isLatex = text && (hasLatexMarker || hasLatexCommands);
              
              if (isLatex) {
-                 w = Math.max(40, (text || '').length * fs * 0.9);
-                 h = fs * 2.0;
-                 y = y - fs * 0.8;
+                 w = Math.max(40, (text || '').length * fs * 1.0);
+                 h = fs * 2.5;
+                 y = y - fs * 0.9;
              } else {
                  w = Math.max(20, (text || '').length * fs * 0.8);
                  h = fs * 1.2; 

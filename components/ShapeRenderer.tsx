@@ -201,33 +201,49 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
         element = <circle cx={p0.x} cy={p0.y} r={Math.max(4, strokeWidth * 2)} fill={stroke} stroke={isSelected ? '#3b82f6' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
         break;
     case ShapeType.TEXT:
-        const isLatex = text?.startsWith('$') && text?.endsWith('$');
-        if (isLatex && text) {
-            const formula = text.slice(1, -1);
+        const hasLatexMarker = text?.startsWith('$') && text?.endsWith('$');
+        const hasLatexCommands = text?.includes('\\');
+        const isLatex = text && (hasLatexMarker || hasLatexCommands);
+        
+        if (isLatex) {
+            let formula = text;
+            if (hasLatexMarker) formula = text.slice(1, -1);
+            
             try {
-                const html = katex.renderToString(formula, { throwOnError: false });
+                // Force HTML output only to prevent double rendering
+                const html = katex.renderToString(formula, { 
+                    throwOnError: false,
+                    output: 'html',
+                    displayMode: false
+                });
                 const fs = fontSize || 16;
-                // Estimate dimensions for foreignObject
-                const estWidth = Math.max(40, text.length * fs * 0.8);
-                const estHeight = fs * 2.5;
+                // Generous width for formulas, height scales with content
+                const estWidth = Math.max(100, text.length * fs * 1.2);
+                const estHeight = fs * 4;
                 
                 element = (
                     <foreignObject 
                         x={p0.x} 
-                        y={p0.y - fs * 0.8} 
+                        y={p0.y - fs * 0.9} 
                         width={estWidth} 
                         height={estHeight}
-                        style={{ overflow: 'visible' }}
+                        style={{ overflow: 'visible', pointerEvents: 'none' }}
                     >
                         <div 
+                            className="katex-render-container" 
                             style={{ 
                                 color: stroke, 
-                                fontSize: `${fs}px`,
-                                whiteSpace: 'nowrap',
-                                display: 'inline-block'
+                                userSelect: 'none',
+                                display: 'inline-block',
+                                minWidth: '100px',
+                                minHeight: '50px'
                             }}
-                            dangerouslySetInnerHTML={{ __html: html }}
-                        />
+                        >
+                            {/* Force displayMode true for fractions to look better, but keep inline for normal text integration if needed */}
+                            <div className="katex">
+                                <span className="katex-html" dangerouslySetInnerHTML={{ __html: html }} />
+                            </div>
+                        </div>
                     </foreignObject>
                 );
             } catch (err) {

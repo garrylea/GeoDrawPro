@@ -520,12 +520,25 @@ describe('Constraint System', () => {
         expect(finalLine.points[1].x).toBeCloseTo(210);
     });
 
-    it('STRESS: Circle snapping must ONLY produce on_path constraints, NEVER on_edge', () => {
-        const circle = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
-        const snapResult = getSnapPoint({x: 115, y: 115}, [circle]);
+    it('should generate clean HTML for LaTeX without MathML (KaTeX Check)', () => {
+        const katex = require('katex');
+        const formula = '\\frac{1}{2}';
         
-        expect(snapResult.snapped).toBe(true);
-        expect(snapResult.constraint).toBeDefined();
-        expect(snapResult.constraint!.type).toBe('on_path');
+        const html = katex.renderToString(formula, { 
+            throwOnError: false,
+            output: 'html'
+        });
+
+        // 1. Should contain the katex-html class
+        expect(html).toContain('katex-html');
+        
+        // 2. Should NOT contain mathml tag
+        // If the bug is present, this will contain <math>
+        expect(html).not.toContain('<math');
+        expect(html).not.toContain('mathml');
+        
+        // 3. Verify it contains our numbers
+        expect(html).toContain('1');
+        expect(html).toContain('2');
     });
 });

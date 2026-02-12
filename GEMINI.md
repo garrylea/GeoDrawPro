@@ -118,10 +118,22 @@
 10. **Circle Hit Detection Parity**: Fixed a regression where circles became unselectable. The hit detection logic was corrected to match the rendering engine's radius definition (`width / 2`), ensuring the "Hollow Selection" (edge-only click) works with pixel-perfect accuracy.
 11. **Freehand Tool Snapping Interference**: Disabled all snapping and constraint-binding for the `FREEHAND` tool. Previously, the global snap check caused 'stuttering' or jumping lines during sketches. Sketching now uses 100% raw pointer input for a natural feel.
 12. **Relative Phase Angles for Circular Constraints**: Fixed a bug where points on circles "jumped back" after rotating the parent. Switched from storing absolute world angles to relative phase angles (`worldAngle - parentRotation`). During redraw, the point position is reconstructed using `storedRelativeAngle + currentRotation`.
-13. **LaTeX Math Support**: Integrated KaTeX for high-quality mathematical typesetting. Any text wrapped in `$` (e.g. `$\alpha^2 + \beta^2 = \gamma^2$`) is automatically rendered as a LaTeX formula.
+13. **LaTeX Math Support**: Integrated KaTeX for high-quality mathematical typesetting.
     - **Implementation**: Uses SVG `<foreignObject>` to embed HTML-based KaTeX output.
-    - **UX**: Expanded the symbol picker with common LaTeX commands like `\frac{}{}` and `\sqrt{}` to assist users.
+    - **Double Rendering Fix**: Forced `output: 'html'` in KaTeX settings to prevent the "Double Text" (MathML + HTML) bug.
+    - **Reliable Styling**: Moved KaTeX CSS import to the application entry point (`index.tsx`) to ensure styles correctly penetrate SVG `foreignObject` containers.
+    - **Smart Detection**: Automatically detects LaTeX commands (starting with `\`) even without `$` delimiters for better UX.
+14. **Ruler Rotation Pivot Optimization**: Improved the Ruler's usability by updating its rotation anchors.
+    - **New Pivots**: User can now toggle between **Top-Left**, **Center**, and **Top-Right** corners (using Alt/Option key).
+    - **Mathematical Precision**: Updated the rotation center calculation to align perfectly with the visual vertices, allowing precise alignment with other geometric elements.
+15. **Smart Background Penetration**: Solved the issue where a locked PDF background would block interaction with underlying shapes (like Text or Points).
+    - **Consolidated Logic**: Extracted a `getHittableShapes` helper that filters out the center of locked images during hit testing.
+    - **Deep Selection**: Allows tools like the Select tool, Eraser, and Double-click to "see through" the background and interact with annotations hidden beneath it.
+16. **Robust Multi-Level Dependency Propagation**: Fixed issues where connecting lines would "lag" or "jump back" after moving parent shapes.
+    - **Accumulated Updates**: Fixed a recursive loop bug where updating a shape with multiple parents (e.g., a line with two moving points) would use stale data. The system now always fetches the latest state within the resolver loop.
+    - **Complete Discovery**: Updated `getDependents` to correctly scan both `parentId` and the `parents` array, ensuring all linked elements are correctly cached for visual transforms.
 **Lesson:** When building complex dependency systems in React, separate the **Mathematical Truth** (recursive coordinate resolution) from the **Visual Performance** (transient DOM transforms), and ensure the "Final Snap" on release perfectly reconciles both.
+
 
 
 
