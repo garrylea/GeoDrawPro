@@ -295,6 +295,7 @@ export const getShapeCenter = (points: Point[], type?: ShapeType, fontSize?: num
             y: (points[0].y + points[1].y + points[2].y) / 3
         };
     }
+    // Default for polygons, rectangles, squares, circles, ellipses
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     points.forEach(p => {
         if (p.x < minX) minX = p.x;
@@ -892,6 +893,54 @@ export const getSnapPoint = (
             }
         }
 
+        // PERIMETER SNAPPING: Circle & Ellipse
+        if (shape.type === ShapeType.CIRCLE) {
+            const center = getShapeCenter(shape.points, shape.type);
+            const radius = distance(shape.points[0], shape.points[1]) / 2;
+            const d = distance(pos, center);
+            if (Math.abs(d - radius) < 15) {
+                const angle = Math.atan2(pos.y - center.y, pos.x - center.x) * (180 / Math.PI);
+                const rad = (angle * Math.PI) / 180;
+                const projected = {
+                    x: center.x + radius * Math.cos(rad),
+                    y: center.y + radius * Math.sin(rad)
+                };
+                if (distance(pos, projected) < closestDist) {
+                    snapPt = projected;
+                    closestDist = distance(pos, projected);
+                    snapped = true;
+                    snapType = 'on_edge';
+                    constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
+                }
+            }
+        } else if (shape.type === ShapeType.ELLIPSE) {
+            const center = getShapeCenter(shape.points, shape.type);
+            const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
+            const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
+            
+            // Transform pos to local unrotated space
+            let localPos = pos;
+            if (shape.rotation) localPos = rotatePoint(pos, center, -shape.rotation);
+            
+            const angle = Math.atan2(localPos.y - center.y, localPos.x - center.x) * (180 / Math.PI);
+            const rad = (angle * Math.PI) / 180;
+            let projected = {
+                x: center.x + rx * Math.cos(rad),
+                y: center.y + ry * Math.sin(rad)
+            };
+            
+            // Transform back to world space
+            if (shape.rotation) projected = rotatePoint(projected, center, shape.rotation);
+            
+            if (distance(pos, projected) < 15 && distance(pos, projected) < closestDist) {
+                snapPt = projected;
+                closestDist = distance(pos, projected);
+                snapped = true;
+                snapType = 'on_edge';
+                constraint = { type: 'on_path', parentId: shape.id, paramAngle: angle };
+            }
+        }
+
         if (shape.type === ShapeType.FUNCTION_GRAPH) {
              if (shape.formulaParams && gridConfig) {
                  const originY = gridConfig.originY ?? (gridConfig.height / 2);
@@ -936,7 +985,7 @@ export const getSnapPoint = (
 
             // Edges & Midpoints
             if (visualPoints.length >= 2) {
-                const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE].includes(shape.type);
+                const isClosed = [ShapeType.POLYGON, ShapeType.TRIANGLE, ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE].includes(shape.type);
                 const segmentsCount = isClosed ? visualPoints.length : visualPoints.length - 1;
                 
                 for(let i = 0; i < segmentsCount; i++) {

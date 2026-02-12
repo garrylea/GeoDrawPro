@@ -66,6 +66,7 @@ export interface Constraint {
     parentId?: string; // For on_path and on_edge
     parents?: string[]; // For intersection AND points_link (multiple parents)
     paramX?: number; // For function graphs (x-coordinate)
+    paramAngle?: number; // For circles/ellipses (degrees)
     edgeIndex?: number; // For polygons/lines (index of start vertex)
     paramT?: number; // 0.0 to 1.0 along the edge
 }

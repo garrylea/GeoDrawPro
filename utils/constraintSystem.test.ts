@@ -653,4 +653,26 @@ describe('Constraint System', () => {
         // Edge should still be TRUE
         expect(isPointInShape({x:100, y:150}, transparentCircle)).toBe(true);
     });
+
+    it('should maintain Circle-Point linkage when circle moves', () => {
+        // Circle center (150, 150), Radius 50. 
+        // Defined by bounding box from (100, 100) to (200, 200)
+        const circle = createShape('c1', ShapeType.CIRCLE, [{x:100,y:100}, {x:200,y:200}]);
+        
+        // Point on the right side of the circle: (200, 150)
+        const p1 = createPoint('p1', 200, 150, { 
+            type: 'on_path', parentId: 'c1', paramAngle: 0 
+        });
+
+        // 1. Move Circle by (50, 50) -> New center (200, 200)
+        const movedCircle = { ...circle, points: circle.points.map(p => ({ x: p.x + 50, y: p.y + 50 })) };
+        
+        // 2. Resolve
+        const resolved = resolveConstraints([movedCircle, p1], 'c1', 1000, 1000, 20);
+        const finalP1 = resolved.find(s => s.id === 'p1')!;
+        
+        // Expected Point: Center(200, 200) + Radius(50) = (250, 200)
+        expect(finalP1.points[0].x).toBeCloseTo(250);
+        expect(finalP1.points[0].y).toBeCloseTo(200);
+    });
 });

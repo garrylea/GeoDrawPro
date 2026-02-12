@@ -1,5 +1,5 @@
 import { Shape, ShapeType, Point } from '../types';
-import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners } from './mathUtils';
+import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners, getShapeCenter, distance, rotatePoint } from './mathUtils';
 
 /**
  * Updates all shapes that depend on the modified shape.
@@ -55,14 +55,43 @@ export const resolveConstraints = (
             }
         }
         
-        // --- CASE 2: Point on Function Graph ---
-        else if (type === 'on_path' && paramX !== undefined && parentId === modifiedShapeId) {
+        // --- CASE 2: Point on Path (Function Graph, Circle, Ellipse) ---
+        else if (type === 'on_path' && parentId === modifiedShapeId) {
              const parent = updatedShapes.find(s => s.id === parentId);
-             if (parent && parent.type === ShapeType.FUNCTION_GRAPH && parent.formulaParams) {
+             if (!parent) continue;
+
+             if (parent.type === ShapeType.FUNCTION_GRAPH && parent.formulaParams && paramX !== undefined) {
                  const fType = parent.functionType || 'quadratic';
                  const mx = paramX;
                  const my = evaluateQuadratic(mx, parent.formulaParams, parent.functionForm, fType);
                  const newPos = mathToScreen({ x: mx, y: my }, canvasWidth, canvasHeight, pixelsPerUnit, originY);
+                 nextShape = { ...currentDependent, points: [newPos] };
+             }
+             else if (parent.type === ShapeType.CIRCLE && dependentStub.constraint!.paramAngle !== undefined) {
+                 const center = getShapeCenter(parent.points, parent.type);
+                 const radius = Math.abs(parent.points[1].x - parent.points[0].x) / 2;
+                 const rad = (dependentStub.constraint!.paramAngle! * Math.PI) / 180;
+                 const newPos = {
+                     x: center.x + radius * Math.cos(rad),
+                     y: center.y + radius * Math.sin(rad)
+                 };
+                 nextShape = { ...currentDependent, points: [newPos] };
+             }
+             else if (parent.type === ShapeType.ELLIPSE && dependentStub.constraint!.paramAngle !== undefined) {
+                 const center = getShapeCenter(parent.points, parent.type);
+                 const rx = Math.abs(parent.points[0].x - parent.points[1].x) / 2;
+                 const ry = Math.abs(parent.points[0].y - parent.points[1].y) / 2;
+                 const rad = (dependentStub.constraint!.paramAngle! * Math.PI) / 180;
+                 
+                 // Initial unrotated position
+                 let newPos = {
+                     x: center.x + rx * Math.cos(rad),
+                     y: center.y + ry * Math.sin(rad)
+                 };
+                 // Apply parent rotation if exists
+                 if (parent.rotation) {
+                     newPos = rotatePoint(newPos, center, parent.rotation);
+                 }
                  nextShape = { ...currentDependent, points: [newPos] };
              }
         }
