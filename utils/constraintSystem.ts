@@ -1,5 +1,5 @@
 import { Shape, ShapeType, Point } from '../types';
-import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners, getShapeCenter, distance, rotatePoint } from './mathUtils';
+import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners, getShapeCenter, rotatePoint } from './mathUtils';
 
 /**
  * Updates all shapes that depend on the modified shape.

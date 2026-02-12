@@ -285,7 +285,8 @@ export const getShapeCenter = (points: Point[], type?: ShapeType, fontSize?: num
     if (!points || points.length === 0) return { x: 0, y: 0 };
     if (type === ShapeType.TEXT) {
         const fs = fontSize || 16;
-        const w = (text || '').length * fs * 0.6;
+        // Unified with getRotatedCorners: 0.8 factor
+        const w = (text || '').length * fs * 0.8;
         const h = fs;
         return { x: points[0].x + w/2, y: points[0].y + h/2 };
     }

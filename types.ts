@@ -64,7 +64,7 @@ export interface MarkerConfig {
 export interface Constraint {
     type: 'on_path' | 'on_edge' | 'intersection' | 'points_link';
     parentId?: string; // For on_path and on_edge
-    parents?: string[]; // For intersection AND points_link (multiple parents)
+    parents?: (string | null)[]; // For intersection AND points_link (multiple parents)
     paramX?: number; // For function graphs (x-coordinate)
     paramAngle?: number; // For circles/ellipses (degrees)
     edgeIndex?: number; // For polygons/lines (index of start vertex)

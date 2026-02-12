@@ -19,7 +19,7 @@ export const getHitShape = (
     hitTolerance?: number
 ): Shape | null => {
     const preFiltered = shapesList.filter(s => {
-        if ([ShapeType.POINT, ShapeType.MARKER, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.FUNCTION_GRAPH].includes(s.type)) return true;
+        if ([ShapeType.POINT, ShapeType.MARKER, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.FUNCTION_GRAPH, ShapeType.TEXT].includes(s.type)) return true;
         
         // FIX: Use getRotatedCorners to calculate the actual visual Axis-Aligned Bounding Box (AABB)
         // This solves the issue where Text shapes (defined by 1 point) or Rotated shapes

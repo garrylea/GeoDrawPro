@@ -435,7 +435,9 @@ export function Editor() {
 
   const handleDoubleClick = (e: React.MouseEvent) => {
       const pos = getMousePos(e, false);
-      let hit = getHitShape(pos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+      
+      const hittableShapes = getHittableShapes(pos);
+      let hit = getHitShape(pos, hittableShapes, canvasSize.width, svgHeight, pixelsPerUnit, originY);
       if (!hit) {
           const target = e.target as Element;
           const group = target.closest('g[data-shape-id]');
@@ -700,6 +702,18 @@ export function Editor() {
     };
   };
 
+  // Reusable helper to filter out background images when 'lock background' is on and clicking in the center
+  const getHittableShapes = (p: Point) => {
+      return shapes.filter(s => {
+          if (s.type === ShapeType.IMAGE && lockBackground) {
+              const corners = getRotatedCorners(s);
+              const distToEdge = distance(p, getClosestPointOnShape(p, { ...s, points: corners, type: ShapeType.POLYGON }));
+              return distToEdge <= 15; // Only hittable if near edge
+          }
+          return true;
+      });
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button === 2) { 
         isScrollingRef.current = true; 
@@ -761,24 +775,21 @@ export function Editor() {
     }
     if (tool === ToolType.ERASER) { 
         saveHistory(); setIsDragging(true); 
-        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY, 12); 
+        const hit = getHitShape(rawPos, getHittableShapes(rawPos), canvasSize.width, svgHeight, pixelsPerUnit, originY, 12); 
         if (hit && hit.type !== ShapeType.IMAGE) { setShapes(prev => prev.filter(s => (s.id !== hit.id && !(s.constraint?.parentId === hit.id) && !(s.type === ShapeType.MARKER && s.markerConfig?.targets[0].shapeId === hit.id)))); } return; 
     }
     if (tool === ToolType.COMPASS) { if (!compassState.center) { setCompassState({ ...compassState, center: pos }); } else { const startAngle = getAngleDegrees(compassState.center, pos); setCompassState({ ...compassState, radiusPoint: pos, startAngle: startAngle, lastMouseAngle: startAngle, accumulatedRotation: 0 }); } return; }
     if (tool === ToolType.RULER) { const existingRuler = shapes.find(s => s.type === ShapeType.RULER); if (existingRuler) { setSelectedIds(new Set([existingRuler.id])); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([existingRuler.id])); return; } saveHistory(); const id = generateId(); const width = 400, height = 40; const center = pos; const newShape: Shape = { id, type: ShapeType.RULER, points: [{ x: center.x - width/2, y: center.y - height/2 }, { x: center.x + width/2, y: center.y + height/2 }], fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT); return; }
     if (pickingMirrorMode) { const line = shapes.find(s => (s.type === ShapeType.LINE || s.type === ShapeType.FREEHAND) && distance(pos, getClosestPointOnShape(pos, s)) < 10); if (line) handleFold(line.id); return; }
     if (tool === ToolType.FUNCTION || tool === ToolType.LINEAR_FUNCTION) { 
-        const hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY);
+        const hit = getHitShape(rawPos, getHittableShapes(rawPos), canvasSize.width, svgHeight, pixelsPerUnit, originY);
         if (hit && hit.type === ShapeType.FUNCTION_GRAPH) {
             setTool(ToolType.SELECT); setSelectedIds(new Set([hit.id])); setActiveShapeId(null); setDragStartPos(rawPos); setIsDragging(true); refreshDomCache(new Set([hit.id])); return;
         }
         saveHistory(); const id = generateId(); const isLinear = tool === ToolType.LINEAR_FUNCTION; const params = isLinear ? { k: 1, b: 0 } : { a: 1, b: 0, c: 0, h: 0, k: 0 }; const fType = isLinear ? 'linear' : 'quadratic'; const pathData = generateQuadraticPath(params, 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY); const newShape: Shape = { id, type: ShapeType.FUNCTION_GRAPH, points: [], formulaParams: params, functionForm: 'standard', functionType: fType, pathData, fill: 'none', stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, rotation: 0 }; setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); return; 
     }
     if (tool === ToolType.SELECT) { 
-        let hit = getHitShape(rawPos, shapes, canvasSize.width, svgHeight, pixelsPerUnit, originY); 
-        if (hit && hit.type === ShapeType.IMAGE && lockBackground) {
-            const corners = getRotatedCorners(hit); const distToEdge = distance(rawPos, getClosestPointOnShape(rawPos, { ...hit, points: corners, type: ShapeType.POLYGON })); if (distToEdge > 15) hit = null;
-        }
+        const hit = getHitShape(rawPos, getHittableShapes(rawPos), canvasSize.width, svgHeight, pixelsPerUnit, originY); 
 
         if (hit) { 
             let newSelection: Set<string>;
@@ -816,7 +827,6 @@ export function Editor() {
         x: (e.clientX - (rect?.left || 0)) / zoom, 
         y: (e.clientY - (rect?.top || 0)) / zoom 
     };
-    const prevRawPos = cursorPosRef.current || rawPos;
     cursorPosRef.current = rawPos;
 
     // Snapping configuration for detecting constraints
