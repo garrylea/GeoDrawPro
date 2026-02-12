@@ -11,8 +11,12 @@ export const resolveConstraints = (
     canvasWidth: number,
     canvasHeight: number,
     pixelsPerUnit: number,
-    originY?: number
+    originY?: number,
+    depth: number = 0
 ): Shape[] => {
+    // Prevent infinite recursion in case of accidental cycles
+    if (depth > 10) return allShapes;
+
     // 1. Find direct dependents (search parentId OR parents array)
     const dependents = allShapes.filter(s => 
         s.constraint?.parentId === modifiedShapeId || 
@@ -74,7 +78,7 @@ export const resolveConstraints = (
             });
 
             if (changed) {
-                nextShape = { ...dependent, points: newPoints };
+                nextShape = { ...dependent, points: newPoints, rotation: 0 };
             }
         }
 
@@ -83,7 +87,7 @@ export const resolveConstraints = (
             updatedShapes = updatedShapes.map(s => s.id === dependent.id ? nextShape! : s);
             
             // RECURSION: Propagate changes to shapes depending on this shape
-            updatedShapes = resolveConstraints(updatedShapes, dependent.id, canvasWidth, canvasHeight, pixelsPerUnit, originY);
+            updatedShapes = resolveConstraints(updatedShapes, dependent.id, canvasWidth, canvasHeight, pixelsPerUnit, originY, depth + 1);
         }
     }
 

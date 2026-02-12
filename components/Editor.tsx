@@ -654,20 +654,27 @@ export function Editor() {
         y: (e.clientY - (rect?.top || 0)) / zoom 
     };
     
-    // Use the unified binder for initial position and constraint
-    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos);
+    // Use the unified binder for initial position and constraint. 
+    // Exclude activeShapeId if we are finishing a multi-click shape (like a LINE).
+    const { point: pos, constraint: currentConstraint } = bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : []);
 
     dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
     
     if (tool === ToolType.LINE) {
         if (activeShapeId) { 
-            const finalConstraint = [activeLineConstraints[0], currentConstraint];
+            // Only establish points_link if we snapped to a POINT shape
+            const startC = activeLineConstraints[0];
+            const endC = currentConstraint;
+            
+            const startPointId = (startC?.type === 'points_link') ? startC.parentId : null;
+            const endPointId = (endC?.type === 'points_link') ? endC.parentId : null;
+
             setShapes(prev => prev.map(s => {
                 if (s.id === activeShapeId) {
                     const updated: Shape = { ...s, points: [s.points[0], pos] };
-                    if (finalConstraint.some(c => !!c)) {
-                        updated.constraint = { type: 'points_link', parents: finalConstraint.map(c => c?.parentId || null) as string[] };
+                    if (startPointId || endPointId) {
+                        updated.constraint = { type: 'points_link', parents: [startPointId || null, endPointId || null] };
                     }
                     return updated;
                 }
@@ -679,7 +686,10 @@ export function Editor() {
             saveHistory(); const id = generateId(); 
             const newShape: Shape = { id, type: ShapeType.LINE, points: [pos, pos], fill: currentStyle.fill, stroke: currentStyle.stroke, strokeWidth: currentStyle.strokeWidth, strokeType: currentStyle.strokeType, rotation: 0 }; 
             setShapes(prev => [...prev, newShape]); 
-            setActiveShapeId(id); setActiveLineConstraints([currentConstraint, undefined]); setDragStartPos(rawPos); return; 
+            
+            // Only capture constraint if it's a point link
+            const startC = currentConstraint?.type === 'points_link' ? currentConstraint : undefined;
+            setActiveShapeId(id); setActiveLineConstraints([startC, undefined]); setDragStartPos(rawPos); return; 
         }
     }
     if (tool === ToolType.ERASER) { 
@@ -745,8 +755,8 @@ export function Editor() {
     // Snapping configuration for detecting constraints
     const gridSnapConfig = (axisConfig.visible && axisConfig.showGrid) ? { width: canvasSize.width, height: svgHeight, ppu: pixelsPerUnit } : undefined;
     
-    // Detect snapping target (all shapes except current dragging selection)
-    const snapResult = getSnapPoint(rawPos, shapesRef.current.filter(s => !selectedIds.has(s.id)), [], gridSnapConfig);
+    // Detect snapping target (all shapes except current dragging selection and the active shape being drawn)
+    const snapResult = getSnapPoint(rawPos, shapesRef.current.filter(s => !selectedIds.has(s.id) && s.id !== activeShapeId), [], gridSnapConfig);
     const pos = snapResult.point;
 
     if (tool !== ToolType.SELECT) { setCursorPos(rawPos); }
@@ -754,9 +764,11 @@ export function Editor() {
         setShapes(prev => prev.map(s => {
             if (s.id === activeShapeId) {
                 const updated: Shape = { ...s, points: [s.points[0], pos] };
-                const currentFinalConstraint = [activeLineConstraints[0], snapResult.constraint];
-                if (currentFinalConstraint.some(c => !!c)) {
-                    updated.constraint = { type: 'points_link', parents: currentFinalConstraint.map(c => c?.parentId || null) as string[] };
+                const startPointId = (activeLineConstraints[0]?.type === 'points_link') ? activeLineConstraints[0].parentId : null;
+                const endPointId = (snapResult.constraint?.type === 'points_link') ? snapResult.constraint.parentId : null;
+
+                if (startPointId || endPointId) {
+                    updated.constraint = { type: 'points_link', parents: [startPointId || null, endPointId || null] };
                 } else {
                     updated.constraint = undefined;
                 }

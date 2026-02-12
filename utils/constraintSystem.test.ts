@@ -456,4 +456,43 @@ describe('Constraint System', () => {
         expect(finalLine.points[0].x).toBeCloseTo(150);
         expect(finalLine.points[1].x).toBeCloseTo(200); // p2 remains unchanged
     });
+
+    it('should maintain line connection when parent shape is rotated (Case 7 + 5 combo)', () => {
+        // 1. Setup: Triangle -> 2 Points on edges -> 1 Line connecting them
+        const triangle = createShape('tri1', ShapeType.TRIANGLE, [
+            { x: 100, y: 100 }, { x: 300, y: 100 }, { x: 200, y: 300 }
+        ]);
+        // Point A at midpoint of top edge (200, 100)
+        const p1 = createPoint('p1', 200, 100, { type: 'on_edge', parentId: 'tri1', edgeIndex: 0, paramT: 0.5 });
+        // Point B at midpoint of right edge (250, 200)
+        const p2 = createPoint('p2', 250, 200, { type: 'on_edge', parentId: 'tri1', edgeIndex: 1, paramT: 0.5 });
+        
+        const line = createShape('line1', ShapeType.LINE, [{x: 200, y: 100}, {x: 250, y: 200}]);
+        line.constraint = { type: 'points_link', parents: ['p1', 'p2'] };
+
+        // 2. Rotate Triangle 90 degrees around center (200, 166.6)
+        // For simplicity in test, we just set rotation property as the app does
+        const rotatedTriangle = { ...triangle, rotation: 90 };
+
+        // 3. Resolve
+        const resolved = resolveConstraints([rotatedTriangle, p1, p2, line], 'tri1', 1000, 1000, 20);
+        
+        const finalP1 = resolved.find(s => s.id === 'p1')!;
+        const finalP2 = resolved.find(s => s.id === 'p2')!;
+        const finalLine = resolved.find(s => s.id === 'line1')!;
+
+        // Points should have rotated with the triangle
+        // The midpoint of edge 0 (visual) should be calculated by getRotatedCorners
+        expect(finalP1.points[0].x).not.toBe(200); 
+        expect(finalP1.points[0].y).not.toBe(100);
+
+        // Line should match updated points
+        expect(finalLine.points[0].x).toBe(finalP1.points[0].x);
+        expect(finalLine.points[0].y).toBe(finalP1.points[0].y);
+        expect(finalLine.points[1].x).toBe(finalP2.points[0].x);
+        expect(finalLine.points[1].y).toBe(finalP2.points[0].y);
+        
+        // Ensure points array is still length 2 (didn't disappear or collapse)
+        expect(finalLine.points.length).toBe(2);
+    });
 });
