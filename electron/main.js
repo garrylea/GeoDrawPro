@@ -1,5 +1,4 @@
-
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, desktopCapturer, screen, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, desktopCapturer, screen, protocol, Menu } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
@@ -7,7 +6,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // Global references
-let mainWindow = null;
+let mainWindows = new Set(); // Support multiple windows
 let snippetWindow = null;
 let solverWindow = null; 
 let currentScreenshotBuffer = null;
@@ -18,42 +17,25 @@ app.on('will-finish-launching', () => {
     app.on('open-file', (event, path) => {
         event.preventDefault();
         fileToOpen = path;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-             mainWindow.webContents.send('OPEN_FILE_FROM_OS', path);
-             if (mainWindow.isMinimized()) mainWindow.restore();
-             mainWindow.focus();
+        const activeWindow = Array.from(mainWindows)[0];
+        if (activeWindow && !activeWindow.isDestroyed()) {
+             activeWindow.webContents.send('OPEN_FILE_FROM_OS', path);
+             if (activeWindow.isMinimized()) activeWindow.restore();
+             activeWindow.focus();
+        } else {
+            createWindow(path);
         }
     });
 });
 
-// Single Instance Lock
-const gotTheLock = app.requestSingleInstanceLock();
+// Single Instance Lock REMOVED to allow multiple instances
 
-if (!gotTheLock) {
-    app.quit();
-} else {
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
-        // Someone tried to run a second instance, we should focus our window.
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.focus();
-            
-            // Windows: File path is usually the last argument
-            const filePath = commandLine.find(arg => arg.endsWith('.geo') || arg.endsWith('.json'));
-            if (filePath) {
-                 mainWindow.webContents.send('OPEN_FILE_FROM_OS', filePath);
-            }
-        }
-    });
-}
-
-
-// Logging helper to print to Terminal AND Renderer Console
-function log(msg) {
+// Logging helper
+function log(msg, window) {
     const text = `[MainProcess] ${msg}`;
-    console.log(text); // Terminal
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('MAIN_PROCESS_LOG', text); // Renderer DevTools
+    console.log(text); 
+    if (window && !window.isDestroyed()) {
+        window.webContents.send('MAIN_PROCESS_LOG', text); 
     }
 }
 
@@ -69,14 +51,24 @@ app.whenReady().then(() => {
         }
         return new Response('No image data', { status: 404 });
     });
+
+    // Create Dock Menu for macOS
+    if (process.platform === 'darwin') {
+        const dockMenu = Menu.buildFromTemplate([
+            {
+                label: 'New Window',
+                click() { createWindow(); }
+            }
+        ]);
+        app.dock.setMenu(dockMenu);
+    }
 });
 
-function createWindow() {
+function createWindow(existingFilePath = null) {
   const isDev = !app.isPackaged;
-  // Use PNG for BrowserWindow icon (compatible across platforms)
   const iconPath = path.join(__dirname, '..', 'public', 'icon.png');
 
-  mainWindow = new BrowserWindow({
+  let win = new BrowserWindow({
     width: 1400,
     height: 1000,
     title: "GeoDraw Pro",
@@ -90,69 +82,59 @@ function createWindow() {
     },
   });
 
-  // State flags
-  mainWindow.forceClose = false;
-  mainWindow.isCloseCheckPending = false;
+  mainWindows.add(win);
+
+  // State flags per window
+  win.forceClose = false;
+  win.isCloseCheckPending = false;
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    win.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+  win.once('ready-to-show', () => {
+    win.maximize(); // Fill the screen (excluding OS bars)
+    win.show();
     if (process.platform === 'darwin') {
       app.dock.show();
-      app.focus({ steal: true });
     }
-    mainWindow.focus();
+    win.focus();
 
-    // Handle initial file open (macOS)
-    if (fileToOpen) {
-        mainWindow.webContents.send('OPEN_FILE_FROM_OS', fileToOpen);
-        fileToOpen = null;
+    const fileToUse = existingFilePath || fileToOpen;
+    if (fileToUse) {
+        win.webContents.send('OPEN_FILE_FROM_OS', fileToUse);
+        if (!existingFilePath) fileToOpen = null;
     } 
-    // Handle initial file open (Windows/Linux)
     else if (process.platform !== 'darwin' && process.argv.length >= 2) {
         const filePath = process.argv.find(arg => arg.endsWith('.geo') || arg.endsWith('.json'));
         if (filePath) {
-            mainWindow.webContents.send('OPEN_FILE_FROM_OS', filePath);
+            win.webContents.send('OPEN_FILE_FROM_OS', filePath);
         }
     }
   });
 
-  // --- CLOSE EVENT INTERCEPTION ---
-  mainWindow.on('close', (e) => {
-    log(`'close' event triggered. forceClose=${mainWindow.forceClose}, checkPending=${mainWindow.isCloseCheckPending}`);
+  win.on('close', (e) => {
+    log(`'close' event triggered. forceClose=${win.forceClose}, checkPending=${win.isCloseCheckPending}`, win);
     
-    // 1. If we are forced to close (e.g. after Save), allow it.
-    if (mainWindow.forceClose) {
-        log('forceClose is TRUE. Allowing close.');
-        return; 
-    }
+    if (win.forceClose) return; 
     
-    // 2. Prevent default close to check for unsaved changes
     e.preventDefault();
-    log('Default close prevented. Checking unsaved changes...');
+    if (win.isCloseCheckPending) return;
 
-    // 3. Avoid duplicate checks
-    if (mainWindow.isCloseCheckPending) {
-        log('Check is already pending. Ignoring.');
-        return;
+    win.isCloseCheckPending = true;
+    win.webContents.send('CHECK_UNSAVED');
+  });
+
+  win.on('closed', () => {
+    mainWindows.delete(win);
+    if (mainWindows.size === 0) {
+        app.quit();
     }
-
-    // 4. Send check to Renderer
-    mainWindow.isCloseCheckPending = true;
-    log('Sending CHECK_UNSAVED to renderer...');
-    mainWindow.webContents.send('CHECK_UNSAVED');
   });
 
-  mainWindow.on('closed', () => {
-    log('Window closed.');
-    mainWindow = null;
-    app.quit();
-  });
+  return win;
 }
 
 function createSnippetWindow() {
@@ -250,7 +232,8 @@ app.on('ready', () => {
         if (!snippetWindow || snippetWindow.isDestroyed()) createSnippetWindow();
         if (snippetWindow.isVisible()) {
             snippetWindow.hide();
-            if (mainWindow) mainWindow.focus();
+            const activeWin = Array.from(mainWindows)[0];
+            if (activeWin) activeWin.focus();
             return;
         }
         const display = screen.getPrimaryDisplay();
@@ -294,16 +277,15 @@ app.on('will-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
     app.quit();
-  }
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) {
+  if (mainWindows.size === 0) {
     createWindow();
   } else {
-    mainWindow.show();
+    const activeWin = Array.from(mainWindows)[0];
+    if (activeWin) activeWin.show();
   }
 });
 
@@ -339,7 +321,6 @@ function createIco(pngIcons) {
 }
 
 function createIcns(pngIcons) {
-    // Map size to ICNS type identifiers
     const ICNS_TYPES = {
         16: 'icp4', 32: 'icp5', 64: 'icp6', 128: 'ic07', 
         256: 'ic08', 512: 'ic09', 1024: 'ic10'
@@ -371,7 +352,8 @@ function createIcns(pngIcons) {
 // --- IPC Handlers ---
 
 ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
-    if (!mainWindow) return { success: false };
+    const senderWin = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWin) return { success: false };
 
     const pngIcons = icons.map(icon => ({
         size: icon.size,
@@ -379,7 +361,7 @@ ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
     }));
 
     const extension = format;
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await dialog.showSaveDialog(senderWin, {
         title: `Export ${format.toUpperCase()} Icon`,
         defaultPath: `app-icon.${extension}`,
         filters: [{ name: `${format.toUpperCase()} Icon`, extensions: [extension] }]
@@ -394,7 +376,6 @@ ipcMain.handle('EXPORT_APP_ICON', async (event, { format, icons }) => {
         } else if (format === 'icns') {
             outputBuffer = createIcns(pngIcons);
         } else if (format === 'png') {
-            // For Linux/Generic PNG, just save the first (and likely only) buffer
             outputBuffer = pngIcons[0].buffer;
         } else {
             throw new Error("Unsupported format");
@@ -416,7 +397,8 @@ ipcMain.on('CLOSE_SNIPPET', () => {
     if (snippetWindow) {
         snippetWindow.hide();
         currentScreenshotBuffer = null; 
-        if (mainWindow) mainWindow.focus();
+        const activeWin = Array.from(mainWindows)[0];
+        if (activeWin) activeWin.focus();
     }
 });
 
@@ -425,22 +407,17 @@ ipcMain.on('OPEN_SOLVER', () => { createSolverWindow(); });
 // --- UNSAVED CHANGES LOGIC ---
 
 ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
-    if (!mainWindow) return;
+    const senderWin = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWin) return;
 
-    log(`UNSAVED_CHECK_RESULT received. isDirty=${isDirty}`);
-
-    // If no changes, standard close
     if (!isDirty) {
-        log('No changes. Force closing.');
-        mainWindow.forceClose = true;
-        mainWindow.isCloseCheckPending = false; 
-        mainWindow.close();
+        senderWin.forceClose = true;
+        senderWin.isCloseCheckPending = false; 
+        senderWin.close();
         return;
     }
 
-    // Show Dialog
-    log('Showing Dialog...');
-    const choice = await dialog.showMessageBox(mainWindow, {
+    const choice = await dialog.showMessageBox(senderWin, {
         type: 'question',
         buttons: ['Save', "Don't Save", 'Cancel'],
         title: 'Unsaved Changes',
@@ -449,40 +426,24 @@ ipcMain.on('UNSAVED_CHECK_RESULT', async (event, isDirty) => {
         cancelId: 2
     });
     
-    log(`Dialog User Choice: ${choice.response} (0=Save, 1=Don't, 2=Cancel)`);
-
-    // Reset pending flag
-    mainWindow.isCloseCheckPending = false;
+    senderWin.isCloseCheckPending = false;
 
     if (choice.response === 0) { 
-        // === SAVE ===
-        log('User chose SAVE. Sending ACTION_SAVE.');
-        mainWindow.webContents.send('ACTION_SAVE');
-        // We wait for SAVE_COMPLETE
+        senderWin.webContents.send('ACTION_SAVE');
     } 
     else if (choice.response === 1) { 
-        // === DON'T SAVE ===
-        log('User chose DON\'T SAVE. DESTROYING WINDOW.');
-        // Using destroy() bypasses the close event loop completely
-        mainWindow.destroy();
+        senderWin.destroy();
     } 
-    else { 
-        // === CANCEL ===
-        log('User chose CANCEL. Staying in app.');
-        // Do nothing. Window stays open.
-    }
 });
 
 ipcMain.on('SAVE_COMPLETE', (event) => {
-    if (!mainWindow) return;
-    log('SAVE_COMPLETE received. Destroying window.');
-    // Using destroy() ensures we exit without triggering any more checks
-    mainWindow.destroy();
+    const senderWin = BrowserWindow.fromWebContents(event.sender);
+    if (senderWin) senderWin.destroy();
 });
 
 ipcMain.handle('save-dialog', async (event, data) => {
-  if (!mainWindow) return { success: false };
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+  const senderWin = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(senderWin, {
     title: 'Save Project',
     defaultPath: 'project.geo',
     filters: [{ name: 'GeoDraw Project', extensions: ['geo', 'json'] }]
@@ -497,8 +458,8 @@ ipcMain.handle('save-dialog', async (event, data) => {
 });
 
 ipcMain.handle('open-dialog', async (event) => {
-  if (!mainWindow) return { canceled: true };
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+  const senderWin = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(senderWin, {
     title: 'Open Project',
     properties: ['openFile'],
     filters: [{ name: 'GeoDraw Project', extensions: ['geo', 'json'] }]
