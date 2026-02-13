@@ -103,10 +103,10 @@ export function Editor() {
 
   const [pickingMirrorMode, setPickingMirrorMode] = useState(false);
   const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
-  const [autoLabelMode, setAutoLabelMode] = useState(true); 
-  const [smartSketchMode, setSmartSketchMode] = useState(true);
+  const [autoLabelMode, setAutoLabelMode] = useState(false); 
+  const [smartSketchMode, setSmartSketchMode] = useState(false);
   const [lockBackground, setLockBackground] = useState(true);
-  const [pressureEnabled, _setPressureEnabled] = useState(true); 
+  const [pressureEnabled, _setPressureEnabled] = useState(false); 
   const setPressureEnabled = (val: boolean) => {
       _setPressureEnabled(val);
       if (selectedIds.size > 0) {
