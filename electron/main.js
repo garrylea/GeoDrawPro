@@ -14,16 +14,18 @@ let fileToOpen = null;
 
 // Handle File Association (macOS)
 app.on('will-finish-launching', () => {
-    app.on('open-file', (event, path) => {
+    app.on('open-file', (event, filePath) => {
         event.preventDefault();
-        fileToOpen = path;
         const activeWindow = Array.from(mainWindows)[0];
         if (activeWindow && !activeWindow.isDestroyed()) {
-             activeWindow.webContents.send('OPEN_FILE_FROM_OS', path);
+             activeWindow.webContents.send('OPEN_FILE_FROM_OS', filePath);
              if (activeWindow.isMinimized()) activeWindow.restore();
              activeWindow.focus();
+        } else if (app.isReady()) {
+            createWindow(filePath);
         } else {
-            createWindow(path);
+            // Launching from a file: open-file arrives before ready, so defer to the ready handler.
+            fileToOpen = filePath;
         }
     });
 });
