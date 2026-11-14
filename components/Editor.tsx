@@ -8,7 +8,7 @@ import { CompassOverlay } from './ConstructionTools';
 import { TopBar } from './TopBar';
 import { Sidebar } from './Sidebar';
 import { PropertiesPanel } from './PropertiesPanel';
-import { loadProject, saveProject, isElectron } from '../utils/exportUtils';
+import { loadProject, saveProject, getLocalFilePath, isElectron } from '../utils/exportUtils';
 import { 
   getSnapPoint, distance, getShapeCenter, 
   getRotatedCorners, rotatePoint, reflectPointAcrossLine, 
@@ -54,6 +54,7 @@ export function Editor() {
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(isDirty);
   const shapesRef = useRef(shapes);
+  const currentFilePathRef = useRef<string | null>(null);
 
   useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
   useEffect(() => { shapesRef.current = shapes; }, [shapes]);
@@ -197,34 +198,39 @@ export function Editor() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  const handleSave = async () => {
-      const success = await saveProject(shapes, 'project');
-      if (success) { 
-          setIsDirty(false); 
-          setSaveMessage('文件保存成功！');
+  const persistProject = useCallback(async (shapesToSave: Shape[], saveAs = false) => {
+      const { success, filePath } = await saveProject(shapesToSave, { filePath: currentFilePathRef.current, saveAs });
+      if (success) {
+          if (filePath) currentFilePathRef.current = filePath;
+          setIsDirty(false);
+          const name = filePath ? filePath.split(/[\\/]/).pop() : null;
+          setSaveMessage(name ? `已保存：${name}` : '文件保存成功！');
           setTimeout(() => setSaveMessage(null), 3000);
       }
       return success;
-  };
+  }, []);
+
+  const handleSave = () => persistProject(shapes);
+  const handleSaveAs = () => persistProject(shapes, true);
 
   useEffect(() => {
       if (isElectron()) {
           const { ipcRenderer } = (window as any).require('electron');
           const handleCheckUnsaved = () => { ipcRenderer.send('UNSAVED_CHECK_RESULT', isDirtyRef.current); };
-          const handleActionSave = async () => { const success = await saveProject(shapesRef.current, 'project'); if (success) { setIsDirty(false); ipcRenderer.send('SAVE_COMPLETE'); } };
+          const handleActionSave = async () => { const success = await persistProject(shapesRef.current); if (success) ipcRenderer.send('SAVE_COMPLETE'); };
           const handleMainLog = (_: any, msg: string) => { console.log(msg); };
 
           ipcRenderer.on('CHECK_UNSAVED', handleCheckUnsaved);
           ipcRenderer.on('ACTION_SAVE', handleActionSave);
           ipcRenderer.on('MAIN_PROCESS_LOG', handleMainLog);
 
-          return () => { 
-            ipcRenderer.removeListener('CHECK_UNSAVED', handleCheckUnsaved); 
+          return () => {
+            ipcRenderer.removeListener('CHECK_UNSAVED', handleCheckUnsaved);
             ipcRenderer.removeListener('ACTION_SAVE', handleActionSave);
             ipcRenderer.removeListener('MAIN_PROCESS_LOG', handleMainLog);
           };
       }
-  }, []); 
+  }, [persistProject]);
 
   useEffect(() => {
     const updateCanvasHeight = () => {
@@ -327,7 +333,8 @@ export function Editor() {
                   fill: 'none',
                   stroke: 'transparent',
                   strokeWidth: 0,
-                  rotation: 0
+                  rotation: 0,
+                  isBackground: true
               };
               newShapes.push(newShape);
           }
@@ -702,13 +709,12 @@ export function Editor() {
     };
   };
 
-  // Reusable helper to filter out background images when 'lock background' is on and clicking in the center
   const getHittableShapes = (p: Point) => {
       return shapes.filter(s => {
-          if (s.type === ShapeType.IMAGE && lockBackground) {
+          if (s.type === ShapeType.IMAGE && s.isBackground && lockBackground) {
               const corners = getRotatedCorners(s);
               const distToEdge = distance(p, getClosestPointOnShape(p, { ...s, points: corners, type: ShapeType.POLYGON }));
-              return distToEdge <= 15; // Only hittable if near edge
+              return distToEdge <= 15;
           }
           return true;
       });
@@ -1179,22 +1185,23 @@ export function Editor() {
 
   const handleFitToViewport = useCallback(() => { setShapes((prev: Shape[]) => fitShapesToViewport(prev, canvasSize.width, canvasSize.height)); }, [canvasSize.width, canvasSize.height]);
   
-  const handleFileLoad = useCallback((content: string) => { 
-      try { 
-          const loadedShapes = JSON.parse(content); 
-          if (Array.isArray(loadedShapes)) { 
-              saveHistory(); 
-              const shapesArray = loadedShapes as any[]; 
-              const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray); 
-              let maxY = 0; 
-              sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } }); 
-              const requiredPages = Math.ceil(maxY / pageHeight); 
-              setPageCount(Math.max(1, requiredPages)); 
-              setShapes(sanitized); 
-              setSelectedIds(new Set()); 
-              setIsDirty(false); 
-          } 
-      } catch(e) { console.error("Load Failed", e); } 
+  const handleFileLoad = useCallback((content: string, filePath: string | null = null) => {
+      try {
+          const loadedShapes = JSON.parse(content);
+          if (Array.isArray(loadedShapes)) {
+              saveHistory();
+              const shapesArray = loadedShapes as any[];
+              const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray);
+              let maxY = 0;
+              sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } });
+              const requiredPages = Math.ceil(maxY / pageHeight);
+              setPageCount(Math.max(1, requiredPages));
+              setShapes(sanitized);
+              setSelectedIds(new Set());
+              setIsDirty(false);
+              currentFilePathRef.current = filePath;
+          }
+      } catch(e) { console.error("Load Failed", e); }
   }, [saveHistory, pageHeight]);
 
   useEffect(() => {
@@ -1206,7 +1213,7 @@ export function Editor() {
                 // Check if file exists
                 if (fs.existsSync(filePath)) {
                     const data = fs.readFileSync(filePath, 'utf-8');
-                    handleFileLoad(data);
+                    handleFileLoad(data, filePath);
                 }
             } catch (e) {
                 console.error("Failed to load file from OS:", e);
@@ -1223,11 +1230,11 @@ export function Editor() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden select-none">
-        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} zoom={zoom} onZoomChange={handleZoomChange} />
+        <TopBar shapes={shapes} selectedIds={selectedIds} svgRef={svgRef} fileInputRef={fileInputRef} undo={undo} deleteSelected={deleteSelected} clearAll={clearAll} onSave={handleSave} onSaveAs={handleSaveAs} zoom={zoom} onZoomChange={handleZoomChange} />
         <div className="flex flex-1 overflow-hidden relative">
             <Sidebar activeTool={tool} onToolChange={handleToolChange} />
             <div className="flex-1 relative flex flex-col min-w-0 bg-slate-50">
-                <div className={`flex-1 bg-white relative overflow-x-auto overflow-y-auto custom-scrollbar ${tool === ToolType.ERASER ? 'cursor-eraser' : (tool === ToolType.SELECT ? 'cursor-default' : 'cursor-crosshair')}`} ref={containerRef} onDragOver={(e) => {e.preventDefault(); e.dataTransfer.dropEffect = 'copy';}} onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.type === 'application/pdf') { processPdfFile(file); } else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); } else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); } }}>
+                <div className={`flex-1 bg-white relative overflow-x-auto overflow-y-auto custom-scrollbar ${tool === ToolType.ERASER ? 'cursor-eraser' : tool === ToolType.FREEHAND ? 'cursor-pen' : (tool === ToolType.SELECT ? 'cursor-default' : 'cursor-crosshair')}`} ref={containerRef} onDragOver={(e) => {e.preventDefault(); e.dataTransfer.dropEffect = 'copy';}} onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.type === 'application/pdf') { processPdfFile(file); } else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); } else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); } }}>
                     <svg ref={svgRef} className="mx-auto touch-none block shadow-sm bg-white" style={{ width: canvasSize.width, height: svgHeight, transform: `scale(${zoom})`, transformOrigin: 'top center' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onDoubleClick={handleDoubleClick} onContextMenu={(e) => e.preventDefault()}>
                         <AxisLayer config={axisConfig} width={canvasSize.width} height={svgHeight} pixelsPerUnit={pixelsPerUnit} overrideOrigin={{ x: canvasSize.width / 2, y: originY }} pageCount={pageCount} pageHeight={pageHeight} />
                         {pageCount > 1 && Array.from({ length: pageCount - 1 }).map((_, i) => ( <g key={`page-break-${i}`} opacity="0.4"> <line x1={0} y1={(i + 1) * pageHeight} x2={canvasSize.width} y2={(i + 1) * pageHeight} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8,8" /> <text x={10} y={(i + 1) * pageHeight - 5} fontSize={10} fill="#94a3b8" fontFamily="sans-serif">Page {i + 1} End</text> </g> ))}
@@ -1314,8 +1321,8 @@ export function Editor() {
                 } else if (file.type.startsWith('image/')) {
                     processImageFile(file);
                 } else { 
-                    const loaded = await loadProject(file); 
-                    handleFileLoad(JSON.stringify(loaded)); 
+                    const loaded = await loadProject(file);
+                    handleFileLoad(JSON.stringify(loaded), getLocalFilePath(file));
                 } 
                 e.target.value = ''; 
             } 

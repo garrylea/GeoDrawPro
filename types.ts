@@ -107,6 +107,7 @@ export interface Shape {
   
   isConstruction?: boolean;
   imageUrl?: string;
+  isBackground?: boolean;
 }
 
 export interface AxisConfig {

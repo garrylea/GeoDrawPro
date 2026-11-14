@@ -287,35 +287,46 @@ export const exportAppIcon = async (svgSource: SVGSVGElement | string, format: '
     }
 };
 
-export const saveProject = async (shapes: Shape[], filename: string): Promise<boolean> => {
+export const saveProject = async (
+    shapes: Shape[],
+    { filePath, saveAs = false }: { filePath?: string | null; saveAs?: boolean } = {}
+): Promise<{ success: boolean; filePath?: string }> => {
     const data = JSON.stringify(shapes, null, 2);
 
     if (isElectron()) {
         try {
             const { ipcRenderer } = (window as any).require('electron');
-            const result = await ipcRenderer.invoke('save-dialog', data);
+            const result = filePath && !saveAs
+                ? await ipcRenderer.invoke('save-file', data, filePath)
+                : await ipcRenderer.invoke('save-dialog', data, filePath || undefined);
             if (!result.success) {
                 if (result.error) alert('Failed to save project: ' + result.error);
-                return false;
+                return { success: false };
             }
-            return true;
+            return { success: true, filePath: result.filePath };
         } catch (e) {
             console.error('Electron Save Error:', e);
             alert('An error occurred while saving.');
-            return false;
+            return { success: false };
         }
     } else {
         const blob = new Blob([data], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `${filename}.geo`;
+        link.download = 'project.geo';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        return true;
+        return { success: true };
     }
+};
+
+export const getLocalFilePath = (file: File): string | null => {
+    if (!isElectron()) return null;
+    const { webUtils } = (window as any).require('electron');
+    return webUtils.getPathForFile(file) || null;
 };
 
 export const loadProject = (file?: File): Promise<Shape[]> => {

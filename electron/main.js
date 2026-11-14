@@ -441,11 +441,21 @@ ipcMain.on('SAVE_COMPLETE', (event) => {
     if (senderWin) senderWin.destroy();
 });
 
-ipcMain.handle('save-dialog', async (event, data) => {
+ipcMain.handle('save-file', async (event, data, filePath) => {
+  if (!filePath) return { success: false, error: 'No file path' };
+  try {
+    fs.writeFileSync(filePath, data);
+    return { success: true, filePath };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-dialog', async (event, data, defaultPath) => {
   const senderWin = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePath } = await dialog.showSaveDialog(senderWin, {
     title: 'Save Project',
-    defaultPath: 'project.geo',
+    defaultPath: defaultPath || 'project.geo',
     filters: [{ name: 'GeoDraw Project', extensions: ['geo', 'json'] }]
   });
   if (canceled || !filePath) return { success: false };

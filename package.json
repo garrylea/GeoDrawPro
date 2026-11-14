@@ -43,7 +43,9 @@
     "mac": {
       "target": "dmg",
       "icon": "icon.icns",
-      "identity": null
+      "identity": "Apple Development: lc0060305@yeah.net (3JQ4RRVRD7)",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "win": {
       "target": "nsis",
