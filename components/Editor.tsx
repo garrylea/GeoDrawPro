@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint } from '../types';
 import { DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from '../constants';
 import { AxisLayer } from './AxisLayer';
@@ -13,7 +13,7 @@ import {
   getSnapPoint, distance,
   getRotatedCorners,
   getAngleDegrees, getAngleArcPath, recognizeFreehandShape,
-  recalculateMarker, getClosestPointOnShape, getPixelsPerUnit,
+  recalculateMarker, getClosestPointOnShape,
   evaluateQuadratic, mathToScreen, screenToMath,
   generateQuadraticPath, getPolygonAngles,
   fitShapesToViewport, sanitizeLoadedShapes,
@@ -27,6 +27,8 @@ import { applyAngleEdit, getAngleEditAnchor } from '../utils/angleEditing';
 import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType } from '../utils/markerEditing';
 import { reflectShapesAcrossLine } from '../utils/mirror';
 import { useTransientTransforms } from '../hooks/useTransientTransforms';
+import { useDocument } from '../hooks/useDocument';
+import { useViewport, LOGICAL_CANVAS_WIDTH } from '../hooks/useViewport';
 import { Plus, Loader2 } from 'lucide-react';
 // Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
@@ -34,36 +36,7 @@ import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker';
 
 export function Editor() {
-  const [shapes, setShapes] = useState<Shape[]>([]);
-  const [history, setHistory] = useState<Shape[][]>([]);
-  const [selectedIds, _setSelectedIds] = useState<Set<string>>(new Set<string>());
-  const setSelectedIds = (ids: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-      _setSelectedIds(prev => {
-          const next = typeof ids === 'function' ? ids(prev) : ids;
-          if (next.size === 1) {
-              const id = Array.from(next)[0];
-              const s = shapesRef.current.find(shape => shape.id === id);
-              if (s && s.type === ShapeType.RULER) {
-                  setPivotIndex(0); // Default to Start for Ruler
-              } else {
-                  setPivotIndex('center');
-              }
-          } else {
-              setPivotIndex('center');
-          }
-          return next;
-      });
-  };
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
-  const [clipboard, setClipboard] = useState<Shape[]>([]);
-  
-  const [isDirty, setIsDirty] = useState(false);
-  const isDirtyRef = useRef(isDirty);
-  const shapesRef = useRef(shapes);
-  const currentFilePathRef = useRef<string | null>(null);
-
-  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
-  useEffect(() => { shapesRef.current = shapes; }, [shapes]);
 
   const [currentStyle, setCurrentStyle] = useState<{
       fill: string; stroke: string; strokeWidth: number; strokeType: 'solid' | 'dashed' | 'dotted'
@@ -88,7 +61,6 @@ export function Editor() {
 
   const isScrollingRef = useRef(false);
   const lastScrollPos = useRef<{x: number, y: number} | null>(null);
-  const zoomFocusPointRef = useRef<{x: number, y: number} | null>(null);
   
   const selectionRectRef = useRef<SVGRectElement>(null);
   const selectionStartRef = useRef<Point | null>(null);
@@ -102,6 +74,16 @@ export function Editor() {
   const [rotationCenter, setRotationCenter] = useState<Point | null>(null);
   const [isAltPressed, setIsAltPressed] = useState(false);
   const [isShiftPressed, setIsShiftPressed] = useState(false);
+
+  const {
+      shapes, setShapes, shapesRef, saveHistory, undo, history, selectedIds, setSelectedIds,
+      deleteSelected, clearAll, clipboard, setClipboard, isDirty, setIsDirty, isDirtyRef, currentFilePathRef
+  } = useDocument({ setPivotIndex, setActiveShapeId });
+
+  const {
+      zoom, handleZoomChange, canvasSize, pageHeight, setPageHeight, pageCount, setPageCount,
+      containerRef, originY, svgHeight, pixelsPerUnit
+  } = useViewport({ setShapes, ticks: axisConfig.ticks });
 
   const [pickingMirrorMode, setPickingMirrorMode] = useState(false);
   const [markingAnglesMode, setMarkingAnglesMode] = useState(false);
@@ -136,22 +118,9 @@ export function Editor() {
   const { transientStateRef, domCacheRef, initialShapeStateRef, updateTransientVisuals, refreshDomCache } =
       useTransientTransforms({ shapesRef, selectedIds, svgRef, tool });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  const containerRef = useRef<HTMLDivElement>(null);
-  
-  // PAGE_HEIGHT is now a state to allow it to match imported PDF proportions
-  const [pageHeight, setPageHeight] = useState(1400); 
-  const [pageCount, setPageCount] = useState(1);
+
   const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  // LOGICAL_CANVAS_WIDTH is fixed for coordinate stability
-  const LOGICAL_CANVAS_WIDTH = 1600;
-  const [canvasSize, setCanvasSize] = useState({ width: LOGICAL_CANVAS_WIDTH, height: window.innerHeight });
-  const [zoom, setZoom] = useState(1);
-
-  const originY = pageHeight / 2;
-  const svgHeight = Math.max(canvasSize.height, pageCount * pageHeight);
-  const pixelsPerUnit = getPixelsPerUnit(canvasSize.width, canvasSize.height, axisConfig.ticks);
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
   // Initialize PDF worker locally for offline/Electron support
@@ -162,36 +131,6 @@ export function Editor() {
         console.error("Failed to initialize PDF worker:", e);
     }
   }, []);
-
-  useLayoutEffect(() => {
-    if (zoomFocusPointRef.current && containerRef.current) {
-        const { x, y } = zoomFocusPointRef.current;
-        const { clientWidth, clientHeight } = containerRef.current;
-        const newScrollLeft = x * zoom - clientWidth / 2;
-        const newScrollTop = y * zoom - clientHeight / 2;
-        containerRef.current.scrollLeft = newScrollLeft;
-        containerRef.current.scrollTop = newScrollTop;
-        zoomFocusPointRef.current = null;
-    }
-  }, [zoom]);
-
-  const handleZoomChange = (newZoom: number) => {
-      if (Math.abs(newZoom - zoom) < 0.001) return;
-      const container = containerRef.current;
-      if (container) {
-          const { scrollLeft, scrollTop, clientWidth, clientHeight } = container;
-          // Calculate center relative to unscaled content
-          const centerX = (scrollLeft + clientWidth / 2) / zoom;
-          const centerY = (scrollTop + clientHeight / 2) / zoom;
-          zoomFocusPointRef.current = { x: centerX, y: centerY };
-      }
-      setZoom(newZoom);
-  };
-  
-  const saveHistory = useCallback(() => {
-      setHistory(prev => [...prev, shapes]);
-      setIsDirty(true);
-  }, [shapes]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -234,26 +173,6 @@ export function Editor() {
           };
       }
   }, [persistProject]);
-
-  useEffect(() => {
-    const updateCanvasHeight = () => {
-        setCanvasSize(prev => ({ ...prev, height: window.innerHeight }));
-    };
-    updateCanvasHeight();
-    window.addEventListener('resize', updateCanvasHeight);
-    return () => window.removeEventListener('resize', updateCanvasHeight);
-  }, []);
-
-  useEffect(() => {
-      setShapes(prev => prev.map(s => {
-          if (s.type === ShapeType.FUNCTION_GRAPH && s.formulaParams) {
-              const fType = s.functionType || 'quadratic';
-              const newPath = generateQuadraticPath(s.formulaParams, s.functionForm || 'standard', canvasSize.width, svgHeight, pixelsPerUnit, fType, originY);
-              return { ...s, pathData: newPath };
-          }
-          return s;
-      }));
-  }, [canvasSize.width, svgHeight, axisConfig.ticks, pixelsPerUnit, originY]);
 
   const processImageFile = useCallback((file: File, position?: Point) => {
       const reader = new FileReader();
@@ -365,14 +284,6 @@ export function Editor() {
       return () => window.removeEventListener('paste', handlePaste);
   }, [processImageFile, clipboard, saveHistory]);
 
-  const undo = () => { if (history.length === 0) return; const previousState = history[history.length - 1]; setHistory(prev => prev.slice(0, -1)); setShapes(previousState); setSelectedIds(new Set<string>()); setActiveShapeId(null); setIsDirty(true); };
-
-  const deleteSelected = () => {
-      if (selectedIds.size === 0) return; saveHistory(); const idsToDelete = new Set<string>(Array.from(selectedIds) as string[]);
-      setShapes(prev => removeShapesWithDependents(prev, idsToDelete)); setSelectedIds(new Set<string>());
-  };
-
-  const clearAll = () => { saveHistory(); setShapes([]); setHistory([]); setSelectedIds(new Set()); };
   const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
 
   const handleFold = (lineId: string) => {
