@@ -8,7 +8,7 @@ import { CompassOverlay } from './ConstructionTools';
 import { TopBar } from './TopBar';
 import { Sidebar } from './Sidebar';
 import { PropertiesPanel } from './PropertiesPanel';
-import { loadProject, saveProject, getLocalFilePath, isElectron } from '../utils/exportUtils';
+import { loadProject, getLocalFilePath } from '../utils/exportUtils';
 import {
   getSnapPoint, distance,
   getRotatedCorners,
@@ -16,24 +16,22 @@ import {
   recalculateMarker, getClosestPointOnShape,
   evaluateQuadratic, mathToScreen, screenToMath,
   generateQuadraticPath, getPolygonAngles,
-  fitShapesToViewport, sanitizeLoadedShapes,
+  fitShapesToViewport,
   snapToRuler
 } from '../utils/mathUtils';
 import { resolveConstraints, constrainPointToEdge, constrainPointToPath, buildLinePointsLink } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape, removeShapesWithDependents } from '../utils/shapeOperations';
 import { getNextLabels } from '../utils/labeling';
-import { createToolShape, createTextShape, createRulerShape, createProtractorShape, createFunctionGraphShape, createArcShape, createImageShape, clickDefaultPoints } from '../utils/shapeFactory';
+import { createToolShape, createTextShape, createRulerShape, createProtractorShape, createFunctionGraphShape, createArcShape, clickDefaultPoints } from '../utils/shapeFactory';
 import { applyAngleEdit, getAngleEditAnchor } from '../utils/angleEditing';
 import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType } from '../utils/markerEditing';
 import { reflectShapesAcrossLine } from '../utils/mirror';
 import { useTransientTransforms } from '../hooks/useTransientTransforms';
 import { useDocument } from '../hooks/useDocument';
-import { useViewport, LOGICAL_CANVAS_WIDTH } from '../hooks/useViewport';
+import { useViewport } from '../hooks/useViewport';
+import { useProjectFiles } from '../hooks/useProjectFiles';
+import { useElectronBridge } from '../hooks/useElectronBridge';
 import { Plus, Loader2 } from 'lucide-react';
-// Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
-import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
-// @ts-ignore
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker';
 
 export function Editor() {
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
@@ -111,7 +109,6 @@ export function Editor() {
   const [angleEditing, setAngleEditing] = useState<{ id: string; index: number; x: number; y: number; value: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const angleInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const lastRotationMouseAngle = useRef<number>(0);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -119,170 +116,18 @@ export function Editor() {
       useTransientTransforms({ shapesRef, selectedIds, svgRef, tool });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
-  // Initialize PDF worker locally for offline/Electron support
-  useEffect(() => {
-    try {
-        pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
-    } catch (e) {
-        console.error("Failed to initialize PDF worker:", e);
-    }
-  }, []);
+  const {
+      loadingState, saveMessage, fileInputRef, persistProject, handleSave, handleSaveAs,
+      processImageFile, processPdfFile, handleFileLoad
+  } = useProjectFiles({
+      shapes, setShapes, setSelectedIds, setTool, saveHistory, clipboard, isDirty, setIsDirty,
+      currentFilePathRef, canvasWidth: canvasSize.width, originY, pageHeight, setPageHeight,
+      setPageCount, setLockBackground, cursorPosRef, generateId
+  });
 
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-        if (isDirty) { e.preventDefault(); e.returnValue = ''; }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
-
-  const persistProject = useCallback(async (shapesToSave: Shape[], saveAs = false) => {
-      const { success, filePath } = await saveProject(shapesToSave, { filePath: currentFilePathRef.current, saveAs });
-      if (success) {
-          if (filePath) currentFilePathRef.current = filePath;
-          setIsDirty(false);
-          const name = filePath ? filePath.split(/[\\/]/).pop() : null;
-          setSaveMessage(name ? `已保存：${name}` : '文件保存成功！');
-          setTimeout(() => setSaveMessage(null), 3000);
-      }
-      return success;
-  }, []);
-
-  const handleSave = () => persistProject(shapes);
-  const handleSaveAs = () => persistProject(shapes, true);
-
-  useEffect(() => {
-      if (isElectron()) {
-          const { ipcRenderer } = (window as any).require('electron');
-          const handleCheckUnsaved = () => { ipcRenderer.send('UNSAVED_CHECK_RESULT', isDirtyRef.current); };
-          const handleActionSave = async () => { const success = await persistProject(shapesRef.current); if (success) ipcRenderer.send('SAVE_COMPLETE'); };
-          const handleMainLog = (_: any, msg: string) => { console.log(msg); };
-
-          ipcRenderer.on('CHECK_UNSAVED', handleCheckUnsaved);
-          ipcRenderer.on('ACTION_SAVE', handleActionSave);
-          ipcRenderer.on('MAIN_PROCESS_LOG', handleMainLog);
-
-          return () => {
-            ipcRenderer.removeListener('CHECK_UNSAVED', handleCheckUnsaved);
-            ipcRenderer.removeListener('ACTION_SAVE', handleActionSave);
-            ipcRenderer.removeListener('MAIN_PROCESS_LOG', handleMainLog);
-          };
-      }
-  }, [persistProject]);
-
-  const processImageFile = useCallback((file: File, position?: Point) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-          const url = event.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-              saveHistory();
-              const id = generateId();
-              const width = img.width; const height = img.height; const maxDim = 300; let finalW = width; let finalH = height;
-              if (width > maxDim || height > maxDim) { const ratio = width / height; if (width > height) { finalW = maxDim; finalH = maxDim / ratio; } else { finalH = maxDim; finalW = maxDim * ratio; } }
-              const centerX = position ? position.x : canvasSize.width / 2; const centerY = position ? position.y : originY;
-              const newShape = createImageShape(id, [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}], url);
-              setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT);
-          }
-          img.src = url;
-      };
-      reader.readAsDataURL(file);
-  }, [canvasSize.width, originY, saveHistory]);
-
-  const processPdfFile = useCallback(async (file: File) => {
-      try {
-          setLoadingState({ active: true, message: 'Loading PDF...' });
-          const arrayBuffer = await file.arrayBuffer();
-          // Use the explicitly imported pdfjsLib
-          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-          const pdf = await loadingTask.promise;
-          const numPages = pdf.numPages;
-          const newShapes: Shape[] = [];
-          
-          for (let i = 1; i <= numPages; i++) {
-              setLoadingState({ active: true, message: `Processing page ${i} of ${numPages}...` });
-              // Yield to main thread to allow UI update
-              await new Promise(resolve => setTimeout(resolve, 0));
-
-              const page = await pdf.getPage(i);
-              // Use a higher scale for better resolution, can be adjusted
-              const scale = 2.0; 
-              const viewport = page.getViewport({ scale });
-              
-              const canvas = document.createElement('canvas');
-              const context = canvas.getContext('2d');
-              if (!context) continue;
-              
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-              
-              const renderContext = { canvasContext: context, viewport: viewport };
-              await page.render(renderContext).promise;
-              const imgUrl = canvas.toDataURL('image/png');
-              
-              const pageIndex = i - 1;
-              const centerX = LOGICAL_CANVAS_WIDTH / 2;
-              
-              // NEW: Fit to 80% of logical width while maintaining aspect ratio
-              const targetWidth = LOGICAL_CANVAS_WIDTH * 0.8;
-              const aspectRatio = viewport.height / viewport.width;
-              const displayWidth = targetWidth;
-              const displayHeight = targetWidth * aspectRatio;
-
-              // Synchronize editor page height with PDF page height on the first page
-              if (i === 1) {
-                  setPageHeight(displayHeight);
-              }
-
-              // Use the calculated displayHeight for consistent positioning
-              const pageTopY = pageIndex * displayHeight;
-              const pageCenterY = pageTopY + (displayHeight / 2);
-              
-              const shapeId = generateId();
-
-              const newShape = createImageShape(shapeId, [
-                  { x: centerX - displayWidth / 2, y: pageCenterY - displayHeight / 2 },
-                  { x: centerX + displayWidth / 2, y: pageCenterY + displayHeight / 2 }
-              ], imgUrl, { isBackground: true });
-              newShapes.push(newShape);
-          }
-          
-          saveHistory();
-          // Append new shapes (PDF pages) to existing shapes
-          setShapes(prev => [...prev, ...newShapes]);
-          // Ensure canvas is tall enough
-          setPageCount(prev => Math.max(prev, numPages));
-          setLockBackground(true);
-      } catch (err) {
-          console.error("Error processing PDF:", err);
-          alert("Failed to load PDF file.");
-      } finally {
-          setLoadingState({ active: false, message: '' });
-      }
-  }, [canvasSize.width, saveHistory]);
-
-  useEffect(() => {
-      const handlePaste = (e: ClipboardEvent) => {
-          let imageFound = false;
-          if (e.clipboardData?.items) {
-              for (let i = 0; i < e.clipboardData.items.length; i++) {
-                  const item = e.clipboardData.items[i];
-                  if (item.type.indexOf('image') !== -1) { const file = item.getAsFile(); if (file) { e.preventDefault(); processImageFile(file, cursorPosRef.current || undefined); imageFound = true; } }
-              }
-          }
-          if (!imageFound && clipboard.length > 0) {
-              e.preventDefault(); saveHistory(); const offset = 20; const newShapes: Shape[] = []; const newIds = new Set<string>();
-              clipboard.forEach(s => { const newId = generateId(); newIds.add(newId); const newShape = { ...s, id: newId }; if (newShape.points) newShape.points = newShape.points.map(p => ({ x: p.x + offset, y: p.y + offset, p: p.p })); delete newShape.constraint; delete newShape.markerConfig; newShapes.push(newShape); });
-              setShapes(prev => [...prev, ...newShapes]); setSelectedIds(newIds); setTool(ToolType.SELECT);
-          }
-      };
-      window.addEventListener('paste', handlePaste);
-      return () => window.removeEventListener('paste', handlePaste);
-  }, [processImageFile, clipboard, saveHistory]);
+  useElectronBridge({ persistProject, handleFileLoad, isDirtyRef, shapesRef });
 
   const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
 
@@ -904,46 +749,6 @@ export function Editor() {
 
   const handleFitToViewport = useCallback(() => { setShapes((prev: Shape[]) => fitShapesToViewport(prev, canvasSize.width, canvasSize.height)); }, [canvasSize.width, canvasSize.height]);
   
-  const handleFileLoad = useCallback((content: string, filePath: string | null = null) => {
-      try {
-          const loadedShapes = JSON.parse(content);
-          if (Array.isArray(loadedShapes)) {
-              saveHistory();
-              const shapesArray = loadedShapes as any[];
-              const sanitized: Shape[] = sanitizeLoadedShapes(shapesArray);
-              let maxY = 0;
-              sanitized.forEach((s: Shape) => { if (s.points) { s.points.forEach((p: Point) => { if(p.y > maxY) maxY = p.y; }); } });
-              const requiredPages = Math.ceil(maxY / pageHeight);
-              setPageCount(Math.max(1, requiredPages));
-              setShapes(sanitized);
-              setSelectedIds(new Set());
-              setIsDirty(false);
-              currentFilePathRef.current = filePath;
-          }
-      } catch(e) { console.error("Load Failed", e); }
-  }, [saveHistory, pageHeight]);
-
-  useEffect(() => {
-    if (isElectron()) {
-        const { ipcRenderer } = (window as any).require('electron');
-        const handleOpenFileFromOS = (_: any, filePath: string) => {
-            try {
-                const fs = (window as any).require('fs');
-                // Check if file exists
-                if (fs.existsSync(filePath)) {
-                    const data = fs.readFileSync(filePath, 'utf-8');
-                    handleFileLoad(data, filePath);
-                }
-            } catch (e) {
-                console.error("Failed to load file from OS:", e);
-            }
-        };
-
-        ipcRenderer.on('OPEN_FILE_FROM_OS', handleOpenFileFromOS);
-        return () => { ipcRenderer.removeListener('OPEN_FILE_FROM_OS', handleOpenFileFromOS); };
-    }
-  }, [handleFileLoad]);
-
   const groupBounds = selectedIds.size > 1 ? getSelectionBounds(shapes, selectedIds) : null;
   const selectedShape = selectedIds.size === 1 ? shapes.find(s => selectedIds.has(s.id)) || null : null;
 
