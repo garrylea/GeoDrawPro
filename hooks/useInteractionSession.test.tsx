@@ -35,7 +35,6 @@ describe('useInteractionSession initial values', () => {
         expect(result.current.selectionRectRef.current).toBeNull();
         expect(result.current.selectionStartRef.current).toBeNull();
         expect(result.current.shapeBoundsCache.current).toEqual(new Map());
-        expect(result.current.dragHistorySaved.current).toBe(false);
         expect(result.current.lastRotationMouseAngle.current).toBe(0);
     });
 });
@@ -110,7 +109,6 @@ describe('useInteractionSession.resetSession', () => {
             result.current.isScrollingRef.current = true;
             result.current.lastScrollPos.current = { x: 5, y: 6 };
             result.current.shapeBoundsCache.current.set('s1', { minX: 0, minY: 0, maxX: 1, maxY: 1 });
-            result.current.dragHistorySaved.current = true;
             result.current.lastRotationMouseAngle.current = 90;
         });
         act(() => { result.current.resetSession(); });
@@ -128,7 +126,6 @@ describe('useInteractionSession.resetSession', () => {
         expect(result.current.isScrollingRef.current).toBe(true);
         expect(result.current.lastScrollPos.current).toEqual({ x: 5, y: 6 });
         expect(result.current.shapeBoundsCache.current.get('s1')).toEqual({ minX: 0, minY: 0, maxX: 1, maxY: 1 });
-        expect(result.current.dragHistorySaved.current).toBe(true);
         expect(result.current.lastRotationMouseAngle.current).toBe(90);
     });
 });

@@ -30,7 +30,6 @@ export interface UsePointerHandlersDeps {
     selectionRectRef: RefObject<SVGRectElement>;
     selectionStartRef: MutableRefObject<Point | null>;
     shapeBoundsCache: MutableRefObject<Map<string, { minX: number; minY: number; maxX: number; maxY: number }>>;
-    dragHistorySaved: MutableRefObject<boolean>;
     hoveredShapeId: string | null;
     setHoveredShapeId: Dispatch<SetStateAction<string | null>>;
     rotationCenter: Point | null;
@@ -93,7 +92,7 @@ export const usePointerHandlers = ({
     dragHandleIndex, setDragHandleIndex, activeShapeId, setActiveShapeId,
     activeLineConstraints, setActiveLineConstraints, setSnapIndicator, setCursorPos,
     cursorPosRef, lastHitTestTime, isScrollingRef, lastScrollPos,
-    selectionRectRef, selectionStartRef, shapeBoundsCache, dragHistorySaved,
+    selectionRectRef, selectionStartRef, shapeBoundsCache,
     hoveredShapeId, setHoveredShapeId, rotationCenter, isShiftPressed, isAltPressed,
     compassState, setCompassState, compassPreviewPath, setCompassPreviewPath, lastRotationMouseAngle,
     shapes, setShapes, shapesRef, saveHistory, selectedIds, setSelectedIds,
@@ -222,7 +221,6 @@ export const usePointerHandlers = ({
         ? bindPointToShapes(rawPos, activeShapeId ? [activeShapeId] : [], tool === ToolType.LINE)
         : { point: rawPos, constraint: undefined };
 
-    dragHistorySaved.current = false;
     if (tool !== ToolType.SELECT && tool !== ToolType.COMPASS && tool !== ToolType.ERASER && tool !== ToolType.RULER && !pickingMirrorMode && !markingAnglesMode) setSelectedIds(new Set());
     
     if (tool === ToolType.LINE) {

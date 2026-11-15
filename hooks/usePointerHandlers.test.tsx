@@ -67,7 +67,6 @@ const createHarness = (initial: Partial<Deps> = {}) => {
         lastScrollPos: { current: null as { x: number; y: number } | null },
         selectionStartRef: { current: null as Point | null },
         shapeBoundsCache: { current: new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>() },
-        dragHistorySaved: { current: false },
         lastRotationMouseAngle: { current: 0 },
         transientStateRef: { current: null as TransientState | null },
         domCacheRef: { current: new Map<string, Element>() },

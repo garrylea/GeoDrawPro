@@ -36,8 +36,6 @@ export const useInteractionSession = () => {
     const selectionStartRef = useRef<Point | null>(null);
     const shapeBoundsCache = useRef<Map<string, { minX: number, minY: number, maxX: number, maxY: number }>>(new Map());
 
-    const dragHistorySaved = useRef(false);
-
     const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
 
     const [pivotIndex, setPivotIndex] = useState<number | 'center'>('center');
@@ -64,7 +62,7 @@ export const useInteractionSession = () => {
         activeShapeId, setActiveShapeId, activeLineConstraints, setActiveLineConstraints,
         snapIndicator, setSnapIndicator, cursorPos, setCursorPos, cursorPosRef,
         lastHitTestTime, isScrollingRef, lastScrollPos,
-        selectionRectRef, selectionStartRef, shapeBoundsCache, dragHistorySaved,
+        selectionRectRef, selectionStartRef, shapeBoundsCache,
         hoveredShapeId, setHoveredShapeId, pivotIndex, setPivotIndex,
         rotationCenter, setRotationCenter, isAltPressed, setIsAltPressed,
         isShiftPressed, setIsShiftPressed,
