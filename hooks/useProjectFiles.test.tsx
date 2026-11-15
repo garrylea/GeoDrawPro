@@ -346,6 +346,18 @@ describe('useProjectFiles.processPdfFile', () => {
         expect(hook.result.current.loadingState).toEqual({ active: false, message: '' });
     });
 
+    it('leaves pageHeight untouched when no page rendered, but still commits the shell state', async () => {
+        vi.mocked(pdfjsLib.getDocument).mockReturnValue({
+            promise: Promise.resolve({ numPages: 0, getPage: vi.fn() }),
+        } as any);
+        const { hook, params } = setup();
+        await act(async () => { await hook.result.current.processPdfFile(pdfFile()); });
+        expect(params.setPageHeight).not.toHaveBeenCalled();
+        expect(params.saveHistory).toHaveBeenCalled();
+        expect(params.setLockBackground).toHaveBeenCalledWith(true);
+        expect(hook.result.current.loadingState).toEqual({ active: false, message: '' });
+    });
+
     it('alerts and clears the overlay when the PDF fails to load', async () => {
         vi.mocked(pdfjsLib.getDocument).mockReturnValue({ promise: Promise.reject(new Error('bad pdf')) } as any);
         const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
