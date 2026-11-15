@@ -57,6 +57,13 @@ describe('SelectionOverlay structure', () => {
         expect(rot.getAttribute('cy')).toBe('-30');
     });
 
+    it('shows a vertex handle but no rotation handle for a point', () => {
+        const { container } = setup(makeShape('pt', ShapeType.POINT, [{ x: 50, y: 50 }]));
+        expect(handles(container)).toHaveLength(1);
+        expect(container.querySelector('circle[style*="grab"]')).toBeNull();
+        expect(container.querySelector('line')).toBeNull();
+    });
+
     it('shows a blue center pivot by default', () => {
         const { container } = setup(rect);
         const pivot = container.querySelector('circle[fill="#3b82f6"]')!;

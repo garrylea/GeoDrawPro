@@ -307,14 +307,18 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
             />
         )}
         
-        {/* Rotate Handle */}
-        <line x1={minX + width/2} y1={minY} x2={rotHandlePos.x} y2={rotHandlePos.y} stroke={activeStroke} strokeWidth={1} />
-        <circle 
-            cx={rotHandlePos.x} cy={rotHandlePos.y} r={5} 
-            fill="rgba(255, 255, 255, 0.2)" stroke={activeStroke} strokeWidth={2} 
-            style={{ cursor: 'grab', pointerEvents: 'auto' }}
-            onPointerDown={onRotateStart}
-        />
+        {/* Rotate Handle — a point has no orientation, so it gets none */}
+        {type !== ShapeType.POINT && (
+            <>
+                <line x1={minX + width/2} y1={minY} x2={rotHandlePos.x} y2={rotHandlePos.y} stroke={activeStroke} strokeWidth={1} />
+                <circle
+                    cx={rotHandlePos.x} cy={rotHandlePos.y} r={5}
+                    fill="rgba(255, 255, 255, 0.2)" stroke={activeStroke} strokeWidth={2}
+                    style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                    onPointerDown={onRotateStart}
+                />
+            </>
+        )}
 
         {pivotEl}
         {renderHandles}
