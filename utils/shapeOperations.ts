@@ -1,10 +1,8 @@
 
 import { Shape, ShapeType, Point } from '../types';
-import {
-    isPointInShape, getRotatedCorners,
-    rotatePoint, getShapeCenter, generateQuadraticPath,
-    vertexToStandard
-} from './mathUtils';
+import { isPointInShape, getRotatedCorners, getShapeCenter } from './shapeGeometry';
+import { rotatePoint } from './vectorMath';
+import { generateQuadraticPath, vertexToStandard } from './quadraticFunction';
 
 /**
  * Determines which shape interacts with the cursor at a given position.
@@ -389,3 +387,51 @@ export const removeShapesWithDependents = (shapes: Shape[], ids: Set<string>): S
         if (s.type === ShapeType.MARKER && s.markerConfig && ids.has(s.markerConfig.targets[0].shapeId)) return false;
         return true;
     });
+
+export const fitShapesToViewport = (shapes: Shape[], width: number, height: number): Shape[] => {
+    if (shapes.length === 0) return shapes;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    shapes.forEach(s => {
+        s.points.forEach(p => {
+            minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        });
+    });
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+    if (contentW <= 0 || contentH <= 0) return shapes;
+    const padding = 50;
+    const scaleX = (width - padding * 2) / contentW;
+    const scaleY = (height - padding * 2) / contentH;
+    const scale = Math.min(scaleX, scaleY);
+    const contentCenterX = minX + contentW / 2;
+    const contentCenterY = minY + contentH / 2;
+    const viewportCenterX = width / 2;
+    const viewportCenterY = height / 2;
+    return shapes.map(s => ({
+        ...s,
+        points: s.points.map(p => ({
+            x: viewportCenterX + (p.x - contentCenterX) * scale,
+            y: viewportCenterY + (p.y - contentCenterY) * scale,
+            p: p.p
+        })),
+        fontSize: s.fontSize ? s.fontSize * scale : undefined,
+        strokeWidth: s.strokeWidth * scale
+    }));
+};
+
+export const sanitizeLoadedShapes = (shapes: any[]): Shape[] => {
+    return shapes.map(s => ({
+        ...s,
+        fill: s.fill || 'transparent',
+        stroke: s.stroke || '#000000',
+        strokeWidth: s.strokeWidth || 1,
+        strokeType: s.strokeType || 'solid',
+        rotation: s.rotation || 0,
+        points: s.points.map((p: any) => {
+            const x = Number(p.x);
+            const y = Number(p.y);
+            return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0, p: p.p };
+        })
+    }));
+};

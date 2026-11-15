@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType } from './markerEditing';
-import { Shape, ShapeType } from '../types';
+import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType, recalculateMarker } from './markerEditing';
+import { Shape, ShapeType, Point } from '../types';
 
 const make = (id: string, overrides: Partial<Shape> = {}): Shape => ({
     id, type: ShapeType.RECTANGLE, points: [{ x: 0, y: 0 }, { x: 100, y: 50 }],
@@ -16,6 +16,10 @@ const angleMarker = (id: string, type: 'angle_arc' | 'perpendicular' = 'angle_ar
     type: ShapeType.MARKER,
     points: [{ x: 0, y: 0 }],
     markerConfig: { type, targets: [{ shapeId: 'tri', pointIndices: [0, 1, 2] }] }
+});
+
+const createShape = (id: string, type: ShapeType, points: Point[], overrides: Partial<Shape> = {}): Shape => ({
+    id, type, points, fill: 'transparent', stroke: 'black', strokeWidth: 2, rotation: 0, ...overrides
 });
 
 describe('getRotationPivot', () => {
@@ -95,5 +99,53 @@ describe('toggleMarkerType', () => {
     it('returns the original marker when its target is missing', () => {
         const marker = angleMarker('m1');
         expect(toggleMarkerType(marker, [])).toBe(marker);
+    });
+});
+
+describe('recalculateMarker', () => {
+    const triangle = createShape('tri', ShapeType.TRIANGLE, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }]);
+    const marker = (type: 'angle_arc' | 'perpendicular', indices = [0, 1, 2]) =>
+        createShape('m1', ShapeType.MARKER, [{ x: 0, y: 0 }], {
+            markerConfig: { type, targets: [{ shapeId: 'tri', pointIndices: indices }] }
+        });
+
+    it('returns the marker unchanged without a config', () => {
+        const m = createShape('m1', ShapeType.MARKER, [{ x: 0, y: 0 }]);
+        expect(recalculateMarker(m, [triangle])).toBe(m);
+    });
+
+    it('returns null when the target shape is gone', () => {
+        expect(recalculateMarker(marker('angle_arc'), [])).toBeNull();
+    });
+
+    it('returns the marker unchanged with fewer than three indices', () => {
+        const m = marker('angle_arc', [0, 1]);
+        expect(recalculateMarker(m, [triangle])).toBe(m);
+    });
+
+    it('returns null when an indexed vertex does not exist', () => {
+        expect(recalculateMarker(marker('angle_arc', [0, 1, 5]), [triangle])).toBeNull();
+    });
+
+    it('rebuilds an angle arc at the middle vertex', () => {
+        const result = recalculateMarker(marker('angle_arc'), [triangle])!;
+        // p2 = (100,0); start = p2 + normalize(p1-p2)*20 = (80,0)
+        expect(result.points[0].x).toBeCloseTo(80);
+        expect(result.points[0].y).toBeCloseTo(0);
+        expect(result.pathData).toContain('A 20 20');
+    });
+
+    it('rebuilds a perpendicular mark with two line segments', () => {
+        const result = recalculateMarker(marker('perpendicular'), [triangle])!;
+        expect(result.points[0].x).toBeCloseTo(80);
+        expect(result.pathData!.startsWith('M 80 0 L')).toBe(true);
+        expect(result.pathData!.match(/L /g)).toHaveLength(2);
+    });
+
+    it('follows the target when it moves', () => {
+        const moved = { ...triangle, points: triangle.points.map(p => ({ x: p.x + 10, y: p.y })) };
+        const result = recalculateMarker(marker('angle_arc'), [moved])!;
+        expect(result.points[0].x).toBeCloseTo(90);
+        expect(result.points[0].y).toBeCloseTo(0);
     });
 });

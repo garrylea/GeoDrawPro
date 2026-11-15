@@ -1,5 +1,5 @@
 import { Shape, ShapeType, TransientState } from '../types';
-import { getShapeCenter } from './mathUtils';
+import { getShapeCenter } from './shapeGeometry';
 
 export interface SvgAttr {
     name: string;

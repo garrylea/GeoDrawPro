@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Point } from '../types';
-import { getAngleDegrees, distance } from '../utils/mathUtils';
+import { getAngleDegrees, distance } from '../utils/vectorMath';
 
 interface CompassOverlayProps {
     center: Point | null; // Needle position

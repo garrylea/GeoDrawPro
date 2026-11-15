@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, MutableRefObject, Dispatch, S
 import { Shape, Point, ToolType } from '../types';
 import { saveProject } from '../utils/exportUtils';
 import { createImageShape } from '../utils/shapeFactory';
-import { sanitizeLoadedShapes } from '../utils/mathUtils';
+import { sanitizeLoadedShapes } from '../utils/shapeOperations';
 import { LOGICAL_CANVAS_WIDTH } from './useViewport';
 import { initPdfWorker, renderPdfToShapes } from '../utils/pdfImport';
 

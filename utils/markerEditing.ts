@@ -1,5 +1,7 @@
 import { Shape, ShapeType, Point } from '../types';
-import { getShapeCenter, getRotatedCorners, recalculateMarker } from './mathUtils';
+import { normalize, sub, getAngleDegrees } from './vectorMath';
+import { getAngleArcPath } from './svgPaths';
+import { getShapeCenter, getRotatedCorners } from './shapeGeometry';
 
 export const getRotationPivot = (shape: Shape, pivotIndex: number | 'center'): Point => {
     let center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
@@ -41,3 +43,32 @@ export const toggleMarkerType = (marker: Shape, allShapes: Shape[]): Shape =>
         ...marker,
         markerConfig: { ...marker.markerConfig!, type: marker.markerConfig!.type === 'angle_arc' ? 'perpendicular' : 'angle_arc' }
     }, allShapes) || marker;
+
+export const recalculateMarker = (marker: Shape, allShapes: Shape[]): Shape | null => {
+    if (!marker.markerConfig) return marker;
+    const config = marker.markerConfig;
+    const target = allShapes.find(s => s.id === config.targets[0].shapeId);
+    if (!target) return null;
+    const indices = config.targets[0].pointIndices;
+    if (!indices || indices.length < 3) return marker;
+    const p1 = target.points[indices[0]];
+    const p2 = target.points[indices[1]]; 
+    const p3 = target.points[indices[2]];
+    if (!p1 || !p2 || !p3) return null;
+    const len = 20; 
+    const v1 = normalize(sub(p1, p2));
+    const v2 = normalize(sub(p3, p2));
+    const start = { x: p2.x + v1.x * len, y: p2.y + v1.y * len };
+    const end = { x: p2.x + v2.x * len, y: p2.y + v2.y * len };
+    
+    if (config.type === 'perpendicular') {
+        const mid = { x: start.x + v2.x * len, y: start.y + v2.y * len };
+        const path = `M ${start.x} ${start.y} L ${mid.x} ${mid.y} L ${end.x} ${end.y}`;
+        return { ...marker, points: [start], pathData: path };
+    } else {
+        const a1 = getAngleDegrees(p2, p1);
+        const a2 = getAngleDegrees(p2, p3);
+        const path = getAngleArcPath(p2, p1, p3, len, a1, a2);
+        return { ...marker, points: [start], pathData: path };
+    }
+};

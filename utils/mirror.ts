@@ -1,5 +1,6 @@
 import { Shape, ShapeType } from '../types';
-import { getShapeCenter, getAngleDegrees, reflectPointAcrossLine, rotatePoint } from './mathUtils';
+import { getShapeCenter } from './shapeGeometry';
+import { getAngleDegrees, reflectPointAcrossLine, rotatePoint } from './vectorMath';
 
 const RIGID_TYPES = [ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TEXT, ShapeType.IMAGE];
 

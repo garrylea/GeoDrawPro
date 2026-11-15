@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyAngleEdit, getAngleEditAnchor } from './angleEditing';
+import { applyAngleEdit, getAngleEditAnchor, solveTriangleASA } from './angleEditing';
 import { Shape, ShapeType, Point } from '../types';
 
 const make = (id: string, overrides: Partial<Shape> = {}): Shape => ({
@@ -92,5 +92,58 @@ describe('getAngleEditAnchor', () => {
     it('returns the vertex itself when it coincides with the center', () => {
         const degenerate = make('t1', { points: [{ x: 5, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 5 }] });
         expect(getAngleEditAnchor(degenerate, 0)).toEqual({ x: 5, y: 5 });
+    });
+});
+
+describe('solveTriangleASA', () => {
+    const angleAt = (vertex: Point, a: Point, b: Point): number => {
+        const v1 = { x: a.x - vertex.x, y: a.y - vertex.y };
+        const v2 = { x: b.x - vertex.x, y: b.y - vertex.y };
+        const cos = (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y));
+        return Math.acos(cos) * (180 / Math.PI);
+    };
+
+    it('solves an equilateral triangle on the same side as the current third point', () => {
+        const result = solveTriangleASA({ x: 0, y: 0 }, { x: 100, y: 0 }, 60, 60, { x: 50, y: 87 });
+        expect(result).not.toBeNull();
+        expect(result!.x).toBeCloseTo(50, 3);
+        expect(result!.y).toBeCloseTo(86.6025, 3);
+    });
+
+    it('mirrors the solution when the third point is on the opposite side', () => {
+        const result = solveTriangleASA({ x: 0, y: 0 }, { x: 100, y: 0 }, 60, 60, { x: 50, y: -87 });
+        expect(result).not.toBeNull();
+        expect(result!.x).toBeCloseTo(50, 3);
+        expect(result!.y).toBeCloseTo(-86.6025, 3);
+    });
+
+    it('solves a 90/45 right triangle', () => {
+        const result = solveTriangleASA({ x: 0, y: 0 }, { x: 100, y: 0 }, 90, 45, { x: 0, y: 100 });
+        expect(result).not.toBeNull();
+        expect(result!.x).toBeCloseTo(0, 3);
+        expect(result!.y).toBeCloseTo(100, 3);
+    });
+
+    it('solves a 60/30 triangle', () => {
+        const result = solveTriangleASA({ x: 0, y: 0 }, { x: 100, y: 0 }, 60, 30, { x: 25, y: 44 });
+        expect(result).not.toBeNull();
+        expect(result!.x).toBeCloseTo(25, 3);
+        expect(result!.y).toBeCloseTo(43.3013, 3);
+    });
+
+    it('recovers the third vertex when given the triangle own angles', () => {
+        const A = { x: 0, y: 0 }, B = { x: 100, y: 0 }, C = { x: 50, y: 80 };
+        const result = solveTriangleASA(A, B, angleAt(A, B, C), angleAt(B, A, C), C);
+        expect(result).not.toBeNull();
+        expect(result!.x).toBeCloseTo(50, 4);
+        expect(result!.y).toBeCloseTo(80, 4);
+    });
+
+    it('returns null when the two rays are parallel (angles sum to 180)', () => {
+        expect(solveTriangleASA({ x: 0, y: 0 }, { x: 100, y: 0 }, 90, 90, { x: 50, y: 50 })).toBeNull();
+    });
+
+    it('returns null when the two base vertices coincide', () => {
+        expect(solveTriangleASA({ x: 50, y: 50 }, { x: 50, y: 50 }, 60, 60, { x: 50, y: 100 })).toBeNull();
     });
 });

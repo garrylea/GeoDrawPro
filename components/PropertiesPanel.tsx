@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Shape, ShapeType, AxisConfig } from '../types';
 import { COLORS } from '../constants';
-import { recalculateMarker, generateQuadraticPath, standardToVertex, vertexToStandard } from '../utils/mathUtils';
+import { recalculateMarker } from '../utils/markerEditing';
+import { generateQuadraticPath, standardToVertex, vertexToStandard } from '../utils/quadraticFunction';
 import { 
   Radius, FunctionSquare, Grid3X3, Sparkles, CaseUpper, 
   Wand2, FoldHorizontal, Maximize, Minus, Plus, 

@@ -1,6 +1,6 @@
 import { useEffect, Dispatch, SetStateAction } from 'react';
 import { ToolType, Shape, ShapeType } from '../types';
-import { recalculateMarker } from '../utils/mathUtils';
+import { recalculateMarker } from '../utils/markerEditing';
 import { CompassState } from './useInteractionSession';
 
 interface UseKeyboardShortcutsDeps {

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     getHitShape, getSelectionBounds, calculateResizedShape,
-    calculateMovedShape, calculateRotatedShape, removeShapesWithDependents
+    calculateMovedShape, calculateRotatedShape, removeShapesWithDependents,
+    fitShapesToViewport, sanitizeLoadedShapes
 } from './shapeOperations';
-import { getRotatedCorners } from './mathUtils';
+import { getRotatedCorners } from './shapeGeometry';
 import { Shape, ShapeType, Point } from '../types';
 
 const createShape = (id: string, type: ShapeType, points: Point[], overrides: Partial<Shape> = {}): Shape => ({
@@ -427,5 +428,101 @@ describe('removeShapesWithDependents', () => {
     it('handles an empty id set and empty shapes', () => {
         expect(removeShapesWithDependents([rect], new Set())).toEqual([rect]);
         expect(removeShapesWithDependents([], new Set(['r1']))).toEqual([]);
+    });
+});
+
+describe('sanitizeLoadedShapes', () => {
+    it('fills in defaults and coerces string coordinates to numbers', () => {
+        const raw = [{ id: 'p1', type: 'POINT', points: [{ x: '10', y: '20', p: 0.7 }] }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result).toEqual([{
+            id: 'p1', type: 'POINT',
+            fill: 'transparent', stroke: '#000000', strokeWidth: 1, strokeType: 'solid', rotation: 0,
+            points: [{ x: 10, y: 20, p: 0.7 }]
+        }]);
+    });
+
+    it('preserves explicitly provided style values', () => {
+        const raw = [{
+            id: 'r1', type: 'RECTANGLE', points: [{ x: 0, y: 0 }],
+            fill: 'red', stroke: 'blue', strokeWidth: 3, strokeType: 'dashed', rotation: 45
+        }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].fill).toBe('red');
+        expect(result[0].stroke).toBe('blue');
+        expect(result[0].strokeWidth).toBe(3);
+        expect(result[0].strokeType).toBe('dashed');
+        expect(result[0].rotation).toBe(45);
+    });
+
+    it('keeps extra fields such as text and formula params', () => {
+        const raw = [{ id: 't1', type: 'TEXT', points: [{ x: 1, y: 2 }], text: 'hi', fontSize: 18 }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].text).toBe('hi');
+        expect(result[0].fontSize).toBe(18);
+    });
+
+    it('returns an empty array unchanged', () => {
+        expect(sanitizeLoadedShapes([])).toEqual([]);
+    });
+
+    it('coerces non-numeric coordinates to 0 instead of NaN', () => {
+        const invalidValues = ['abc', undefined, null, NaN, Infinity, -Infinity, {}];
+        for (const v of invalidValues) {
+            const raw = [{ id: 'p1', type: 'POINT', points: [{ x: v, y: v }] }];
+            const result = sanitizeLoadedShapes(raw);
+            expect(result[0].points[0]).toEqual({ x: 0, y: 0 });
+        }
+    });
+
+    it('keeps valid points and pressure when a sibling point is invalid', () => {
+        const raw = [{
+            id: 'l1', type: 'LINE',
+            points: [{ x: 10, y: 20, p: 0.5 }, { x: 'oops', y: 30, p: 0.9 }]
+        }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].points).toEqual([
+            { x: 10, y: 20, p: 0.5 },
+            { x: 0, y: 30, p: 0.9 }
+        ]);
+    });
+});
+
+describe('fitShapesToViewport', () => {
+    it('returns the same array when empty', () => {
+        const shapes: Shape[] = [];
+        expect(fitShapesToViewport(shapes, 800, 600)).toBe(shapes);
+    });
+
+    it('returns shapes unchanged when content has no extent', () => {
+        const point = createShape('p1', ShapeType.POINT, [{ x: 10, y: 10 }]);
+        expect(fitShapesToViewport([point], 800, 600)).toEqual([point]);
+    });
+
+    it('centers and scales content with 50px padding', () => {
+        const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 50 }], {
+            fontSize: 10, strokeWidth: 2
+        });
+        const result = fitShapesToViewport([rect], 800, 600);
+        // scale = min(700/100, 500/50) = 7; content center (50,25) -> (400,300)
+        expect(result[0].points[0]).toEqual({ x: 50, y: 125, p: undefined });
+        expect(result[0].points[1]).toEqual({ x: 750, y: 475, p: undefined });
+        expect(result[0].fontSize).toBe(70);
+        expect(result[0].strokeWidth).toBe(14);
+    });
+
+    it('uses the limiting axis for tall content', () => {
+        const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 50, y: 200 }]);
+        const result = fitShapesToViewport([rect], 800, 600);
+        // scale = min(700/50, 500/200) = 2.5
+        expect(result[0].points[0].x).toBeCloseTo(337.5);
+        expect(result[0].points[0].y).toBeCloseTo(50);
+    });
+
+    it('preserves pressure values', () => {
+        const freehand = createShape('f1', ShapeType.FREEHAND, [{ x: 0, y: 0, p: 0.3 }, { x: 100, y: 50, p: 0.9 }]);
+        const result = fitShapesToViewport([freehand], 800, 600);
+        expect(result[0].points[0].p).toBe(0.3);
+        expect(result[0].points[1].p).toBe(0.9);
     });
 });

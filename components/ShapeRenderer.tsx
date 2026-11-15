@@ -1,7 +1,8 @@
 import React from 'react';
 import katex from 'katex';
 import { Shape, ShapeType, Point, ToolType } from '../types';
-import { getShapeCenter, getSmoothSvgPath, getVariableWidthPath } from '../utils/mathUtils';
+import { getSmoothSvgPath, getVariableWidthPath } from '../utils/svgPaths';
+import { getShapeCenter } from '../utils/shapeGeometry';
 
 interface ShapeRendererProps {
   shape: Shape;

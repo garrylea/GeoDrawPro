@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { renderInSvg, makeShape } from '../test/componentHelpers';
 import { useTransientTransforms } from './useTransientTransforms';
-import { getShapeCenter } from '../utils/mathUtils';
+import { getShapeCenter } from '../utils/shapeGeometry';
 import { Shape, ShapeType, ToolType } from '../types';
 
 const setup = (shapes: Shape[], selectedIds: Set<string>, tool: ToolType = ToolType.SELECT) => {

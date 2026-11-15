@@ -1,5 +1,8 @@
 import { Shape, ShapeType, Point, Constraint } from '../types';
-import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners, getShapeCenter, rotatePoint } from './mathUtils';
+import { getRotatedCorners, getShapeCenter } from './shapeGeometry';
+import { lerp, rotatePoint } from './vectorMath';
+import { mathToScreen } from './coordinates';
+import { evaluateQuadratic } from './quadraticFunction';
 
 /**
  * Updates all shapes that depend on the modified shape.

@@ -1,6 +1,13 @@
 import React, { Dispatch, SetStateAction, MutableRefObject, RefObject } from 'react';
 import { Shape, ShapeType, ToolType, Point, Constraint, AxisConfig, TransientState } from '../types';
-import { getSnapPoint, distance, getRotatedCorners, getAngleDegrees, getAngleArcPath, recognizeFreehandShape, recalculateMarker, getClosestPointOnShape, evaluateQuadratic, mathToScreen, screenToMath, generateQuadraticPath, snapToRuler } from '../utils/mathUtils';
+import { recognizeFreehandShape } from '../utils/freehandRecognition';
+import { getSnapPoint, snapToRuler } from '../utils/snapping';
+import { recalculateMarker } from '../utils/markerEditing';
+import { getAngleArcPath } from '../utils/svgPaths';
+import { getRotatedCorners, getClosestPointOnShape } from '../utils/shapeGeometry';
+import { distance, getAngleDegrees } from '../utils/vectorMath';
+import { mathToScreen, screenToMath } from '../utils/coordinates';
+import { evaluateQuadratic, generateQuadraticPath } from '../utils/quadraticFunction';
 import { resolveConstraints, constrainPointToEdge, constrainPointToPath, buildLinePointsLink } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape, removeShapesWithDependents } from '../utils/shapeOperations';
 import { getNextLabels } from '../utils/labeling';

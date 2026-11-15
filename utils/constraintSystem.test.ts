@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveConstraints, constrainPointToEdge, constrainPointToPath, getDependents, buildLinePointsLink } from './constraintSystem';
-import { getSnapPoint, getRotatedCorners, isPointInShape } from './mathUtils';
+import { getSnapPoint } from './snapping';
+import { getRotatedCorners, isPointInShape } from './shapeGeometry';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
 

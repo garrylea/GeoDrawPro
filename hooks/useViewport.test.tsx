@@ -5,7 +5,8 @@ import type { MutableRefObject } from 'react';
 import { useViewport } from './useViewport';
 import { makeShape } from '../test/componentHelpers';
 import { Shape, ShapeType } from '../types';
-import { generateQuadraticPath, getPixelsPerUnit } from '../utils/mathUtils';
+import { getPixelsPerUnit } from '../utils/coordinates';
+import { generateQuadraticPath } from '../utils/quadraticFunction';
 
 const setup = (ticks = 5) => {
     const setShapes = vi.fn();

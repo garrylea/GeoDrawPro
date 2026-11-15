@@ -1,6 +1,6 @@
 import React from 'react';
 import { Shape, ShapeType, Point } from '../types';
-import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/mathUtils';
+import { getPolygonAngles, getShapeCenter, getRotatedCorners } from '../utils/shapeGeometry';
 import { Plus } from 'lucide-react';
 
 interface SelectionOverlayProps {
@@ -73,7 +73,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
   if (type === ShapeType.TEXT) {
       // For text, we can't just take min/max of 1 point. We need rough dims.
       const fs = shape.fontSize || 16;
-      // MATCHES mathUtils UPDATE: 0.8 factor
+      // MATCHES shapeGeometry UPDATE: 0.8 factor
       const w = Math.max(20, (shape.text || '').length * fs * 0.8);
       const h = fs * 1.2;
       minX = points[0].x;

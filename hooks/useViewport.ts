@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, Dispatch, SetStateAction } from 'react';
 import { Shape, ShapeType } from '../types';
-import { getPixelsPerUnit, generateQuadraticPath } from '../utils/mathUtils';
+import { getPixelsPerUnit } from '../utils/coordinates';
+import { generateQuadraticPath } from '../utils/quadraticFunction';
 
 interface UseViewportDeps {
     setShapes: Dispatch<SetStateAction<Shape[]>>;

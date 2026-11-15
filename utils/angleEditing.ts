@@ -1,5 +1,6 @@
 import { Shape, ShapeType, Point } from '../types';
-import { solveTriangleASA, getShapeCenter } from './mathUtils';
+import { crossProduct, rotateVector, getLineIntersection } from './vectorMath';
+import { getShapeCenter } from './shapeGeometry';
 
 /**
  * Applies a user-entered angle (degrees) to a polygon vertex.
@@ -65,4 +66,51 @@ export const getAngleEditAnchor = (shape: Shape, index: number): Point => {
     const dx = c.x - p.x, dy = c.y - p.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     return { x: p.x + (dx / len) * 25, y: p.y + (dy / len) * 25 };
+};
+
+/**
+ * Solves for the 3rd point of a triangle given two angles and the side between them (ASA).
+ * Used when a user edits an angle while another angle is already locked.
+ * 
+ * @param pFixed The vertex of the "Locked" angle (e.g., A)
+ * @param pCurrent The vertex of the angle currently being edited (e.g., B)
+ * @param angleFixedDeg The value of the locked angle (Angle A)
+ * @param angleCurrentDeg The new value of the current angle (Angle B)
+ * @param pThirdCurrent The current position of the 3rd point (C) - used for chirality/direction
+ */
+export const solveTriangleASA = (
+    pFixed: Point, 
+    pCurrent: Point, 
+    angleFixedDeg: number, 
+    angleCurrentDeg: number, 
+    pThirdCurrent: Point
+): Point | null => {
+    // 1. Base Vector (Fixed -> Current)
+    const vBase = { x: pCurrent.x - pFixed.x, y: pCurrent.y - pFixed.y };
+    
+    // 2. Determine Chirality (Handedness)
+    // Is the triangle constructed clockwise or counter-clockwise?
+    // Cross product of (Fixed->Current) x (Fixed->Third)
+    const vSideOld = { x: pThirdCurrent.x - pFixed.x, y: pThirdCurrent.y - pFixed.y };
+    const cross = crossProduct(vBase, vSideOld);
+    
+    // If cross > 0, Third is "Right/CCW" relative to Base (depending on coord system).
+    // SVG coords: Y down. 
+    // We use the sign to ensure we rotate the rays into the triangle's interior.
+    const sign = cross >= 0 ? 1 : -1;
+
+    // 3. Ray from Fixed Point (Angle A)
+    // We rotate the base vector by the fixed angle to get direction towards C
+    const radFixed = (angleFixedDeg * Math.PI / 180) * sign;
+    const dirFixed = rotateVector(vBase, radFixed);
+
+    // 4. Ray from Current Point (Angle B)
+    // We need vector Current->Fixed first (inverse of Base)
+    const vBaseInv = { x: -vBase.x, y: -vBase.y };
+    // Rotate by -sign (opposite direction)
+    const radCurrent = (angleCurrentDeg * Math.PI / 180) * (-sign);
+    const dirCurrent = rotateVector(vBaseInv, radCurrent);
+
+    // 5. Intersect the two rays
+    return getLineIntersection(pFixed, dirFixed, pCurrent, dirCurrent);
 };
