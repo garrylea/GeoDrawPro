@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { saveProject } from './exportUtils';
+import { saveProject, loadProject } from './exportUtils';
 import { Shape, ShapeType } from '../types';
 
 const invoke = vi.fn();
@@ -68,4 +68,24 @@ describe('saveProject', () => {
         expect(result.success).toBe(false);
         expect((globalThis as any).alert).toHaveBeenCalled();
     });
+});
+
+describe('loadProject', () => {
+    beforeEach(() => {
+        invoke.mockReset();
+        (globalThis as any).alert = vi.fn();
+        (globalThis as any).window = {
+            process: { type: 'renderer' },
+            require: (mod: string) => {
+                if (mod === 'electron') return { ipcRenderer: { invoke } };
+                throw new Error(`Unexpected require: ${mod}`);
+            }
+        };
+    });
+
+    it('rejects when the open dialog is canceled instead of hanging forever', async () => {
+        invoke.mockResolvedValue({ canceled: true });
+
+        await expect(loadProject()).rejects.toThrow('canceled');
+    }, 1500);
 });

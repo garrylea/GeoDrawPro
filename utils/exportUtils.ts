@@ -335,7 +335,7 @@ export const loadProject = (file?: File): Promise<Shape[]> => {
             try {
                 const { ipcRenderer } = (window as any).require('electron');
                 const result = await ipcRenderer.invoke('open-dialog');
-                if (result.canceled) return;
+                if (result.canceled) { reject(new Error('Open dialog canceled')); return; }
                 if (result.error) throw new Error(result.error);
                 const shapes = JSON.parse(result.data);
                 if (Array.isArray(shapes)) { resolve(shapes); } 
