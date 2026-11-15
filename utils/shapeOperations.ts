@@ -1,7 +1,7 @@
 
 import { Shape, ShapeType, Point } from '../types';
-import { 
-    isPointInShape, distance, getClosestPointOnShape, getRotatedCorners, 
+import {
+    isPointInShape, getRotatedCorners,
     rotatePoint, getShapeCenter, generateQuadraticPath,
     vertexToStandard
 } from './mathUtils';
@@ -64,42 +64,11 @@ export const getHitShape = (
     const hits = preFiltered.filter(s => isPointInShape(pos, s, canvasWidth, canvasHeight, pixelsPerUnit, originY, hitTolerance));
     if (hits.length === 0) return null;
 
-    return hits.sort((a, b) => {
-        const getPriority = (s: Shape) => {
-             if (s.type === ShapeType.POINT || s.type === ShapeType.MARKER) return 0;
-             if (s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR) return 1;
-             if (s.type === ShapeType.LINE || s.type === ShapeType.PATH || s.type === ShapeType.FUNCTION_GRAPH || s.type === ShapeType.FREEHAND) return 2;
-             if (s.type === ShapeType.TEXT) return 3;
-             if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.ELLIPSE, ShapeType.TRIANGLE, ShapeType.POLYGON].includes(s.type)) return 4;
-             if (s.type === ShapeType.IMAGE) return 5;
-             return 4;
-        };
-
-        const pa = getPriority(a);
-        const pb = getPriority(b);
-        if (pa !== pb) return pa - pb;
-
-        const getSize = (s: Shape) => {
-             const corners = getRotatedCorners(s);
-             if (corners.length === 0) return 0;
-             let minX = corners[0].x, maxX = corners[0].x, minY = corners[0].y, maxY = corners[0].y;
-             corners.forEach(p => {
-                 minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-                 minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-             });
-             const w = maxX - minX;
-             const h = maxY - minY;
-             return w * h;
-        };
-        
-        if (pa === 2) { 
-             const da = distance(pos, getClosestPointOnShape(pos, a));
-             const db = distance(pos, getClosestPointOnShape(pos, b));
-             return da - db;
-        }
-
-        return getSize(a) - getSize(b);
-    })[0];
+    // Strict z-order: the Editor paints non-tool shapes in array order, then rulers/protractors on top.
+    const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
+    const toolHits = hits.filter(isTool);
+    const topmost = toolHits.length > 0 ? toolHits : hits;
+    return topmost[topmost.length - 1];
 };
 
 /**

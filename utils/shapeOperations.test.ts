@@ -33,31 +33,31 @@ describe('getHitShape', () => {
         expect(getHitShape({ x: 50, y: 2 }, [rect], W, H, PPU)).toBe(rect);
     });
 
-    it('prefers a point over the rectangle containing it', () => {
+    it('selects a point painted over the rectangle containing it', () => {
         const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 100 }], { fill: 'blue' });
         const point = createShape('p1', ShapeType.POINT, [{ x: 50, y: 50 }], { fill: 'black' });
         expect(getHitShape({ x: 50, y: 50 }, [rect, point], W, H, PPU)).toBe(point);
     });
 
-    it('prefers a marker ring over the rectangle containing it', () => {
+    it('selects a marker ring painted over the rectangle containing it', () => {
         const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 300, y: 300 }], { fill: 'blue' });
         const marker = createShape('m1', ShapeType.MARKER, [{ x: 100, y: 100 }]);
         expect(getHitShape({ x: 125, y: 100 }, [rect, marker], W, H, PPU)).toBe(marker);
     });
 
-    it('prefers the smaller of two overlapping rectangles', () => {
+    it('selects a smaller rectangle painted over a bigger one', () => {
         const big = createShape('big', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 200, y: 200 }], { fill: 'blue' });
         const small = createShape('small', ShapeType.RECTANGLE, [{ x: 40, y: 40 }, { x: 80, y: 80 }], { fill: 'red' });
         expect(getHitShape({ x: 60, y: 60 }, [big, small], W, H, PPU)).toBe(small);
     });
 
-    it('prefers the closer of two lines', () => {
+    it('selects a closer line painted over a farther one', () => {
         const near = createShape('near', ShapeType.LINE, [{ x: 0, y: 100 }, { x: 200, y: 100 }]);
         const far = createShape('far', ShapeType.LINE, [{ x: 0, y: 108 }, { x: 200, y: 108 }]);
         expect(getHitShape({ x: 100, y: 103 }, [far, near], W, H, PPU)).toBe(near);
     });
 
-    it('prefers text over the rectangle behind it', () => {
+    it('selects text painted over the rectangle behind it', () => {
         const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 300, y: 300 }], { fill: 'blue' });
         const text = createShape('t1', ShapeType.TEXT, [{ x: 100, y: 100 }], { text: 'Hello', fontSize: 20 });
         expect(getHitShape({ x: 120, y: 110 }, [rect, text], W, H, PPU)).toBe(text);
@@ -84,6 +84,36 @@ describe('getHitShape', () => {
         const point = createShape('p1', ShapeType.POINT, [{ x: 100, y: 100 }], { strokeWidth: 1 });
         expect(getHitShape({ x: 115, y: 100 }, [point], W, H, PPU)).toBeNull();
         expect(getHitShape({ x: 115, y: 100 }, [point], W, H, PPU, undefined, 20)).toBe(point);
+    });
+
+    it('selects a rectangle painted over an earlier point', () => {
+        const point = createShape('p1', ShapeType.POINT, [{ x: 50, y: 50 }], { fill: 'black' });
+        const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 100 }], { fill: 'blue' });
+        expect(getHitShape({ x: 50, y: 50 }, [point, rect], W, H, PPU)).toBe(rect);
+    });
+
+    it('selects the later of two overlapping rectangles regardless of size', () => {
+        const small = createShape('small', ShapeType.RECTANGLE, [{ x: 40, y: 40 }, { x: 80, y: 80 }], { fill: 'red' });
+        const big = createShape('big', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 200, y: 200 }], { fill: 'blue' });
+        expect(getHitShape({ x: 60, y: 60 }, [small, big], W, H, PPU)).toBe(big);
+    });
+
+    it('selects the later of two overlapping lines regardless of distance', () => {
+        const near = createShape('near', ShapeType.LINE, [{ x: 0, y: 100 }, { x: 200, y: 100 }]);
+        const far = createShape('far', ShapeType.LINE, [{ x: 0, y: 108 }, { x: 200, y: 108 }]);
+        expect(getHitShape({ x: 100, y: 103 }, [near, far], W, H, PPU)).toBe(far);
+    });
+
+    it('selects a ruler over a point even when the point comes later', () => {
+        const ruler = createShape('ruler', ShapeType.RULER, [{ x: 0, y: 0 }, { x: 200, y: 40 }]);
+        const point = createShape('p1', ShapeType.POINT, [{ x: 50, y: 20 }], { fill: 'black' });
+        expect(getHitShape({ x: 50, y: 20 }, [ruler, point], W, H, PPU)).toBe(ruler);
+    });
+
+    it('selects the later of two overlapping rulers', () => {
+        const first = createShape('r1', ShapeType.RULER, [{ x: 0, y: 0 }, { x: 100, y: 40 }]);
+        const second = createShape('r2', ShapeType.RULER, [{ x: 0, y: 0 }, { x: 200, y: 80 }]);
+        expect(getHitShape({ x: 50, y: 20 }, [first, second], W, H, PPU)).toBe(second);
     });
 });
 
