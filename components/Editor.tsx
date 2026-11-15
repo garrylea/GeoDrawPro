@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
-import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint, TransientState } from '../types';
+import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint } from '../types';
 import { DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from '../constants';
 import { AxisLayer } from './AxisLayer';
 import { ShapeRenderer } from './ShapeRenderer';
@@ -10,7 +10,7 @@ import { Sidebar } from './Sidebar';
 import { PropertiesPanel } from './PropertiesPanel';
 import { loadProject, saveProject, getLocalFilePath, isElectron } from '../utils/exportUtils';
 import {
-  getSnapPoint, distance, getShapeCenter,
+  getSnapPoint, distance,
   getRotatedCorners,
   getAngleDegrees, getAngleArcPath, recognizeFreehandShape,
   recalculateMarker, getClosestPointOnShape, getPixelsPerUnit,
@@ -19,13 +19,14 @@ import {
   fitShapesToViewport, sanitizeLoadedShapes,
   snapToRuler
 } from '../utils/mathUtils';
-import { resolveConstraints, constrainPointToEdge, getDependents, constrainPointToPath, buildLinePointsLink } from '../utils/constraintSystem';
+import { resolveConstraints, constrainPointToEdge, constrainPointToPath, buildLinePointsLink } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape, removeShapesWithDependents } from '../utils/shapeOperations';
 import { getNextLabels } from '../utils/labeling';
 import { createToolShape, createTextShape, createRulerShape, createProtractorShape, createFunctionGraphShape, createArcShape, createImageShape, clickDefaultPoints } from '../utils/shapeFactory';
 import { applyAngleEdit, getAngleEditAnchor } from '../utils/angleEditing';
 import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType } from '../utils/markerEditing';
 import { reflectShapesAcrossLine } from '../utils/mirror';
+import { useTransientTransforms } from '../hooks/useTransientTransforms';
 import { Plus, Loader2 } from 'lucide-react';
 // Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
@@ -82,11 +83,6 @@ export function Editor() {
   const [cursorPos, setCursorPos] = useState<Point | null>(null); 
   const cursorPosRef = useRef<Point | null>(null);
   
-  // DIRECT DOM MANIPULATION REFS
-  const transientStateRef = useRef<TransientState | null>(null);
-  const domCacheRef = useRef<Map<string, Element>>(new Map());
-  const initialShapeStateRef = useRef<Map<string, Shape>>(new Map()); // Snapshot for resize math
-
   // PERFORMANCE: Hit test throttling
   const lastHitTestTime = useRef<number>(0);
 
@@ -137,6 +133,8 @@ export function Editor() {
   
   const lastRotationMouseAngle = useRef<number>(0);
   const svgRef = useRef<SVGSVGElement>(null);
+  const { transientStateRef, domCacheRef, initialShapeStateRef, updateTransientVisuals, refreshDomCache } =
+      useTransientTransforms({ shapesRef, selectedIds, svgRef, tool });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -507,143 +505,6 @@ export function Editor() {
     setActiveShapeId(null); setTextEditing(null); setAngleEditing(null); setPickingMirrorMode(false); setMarkingAnglesMode(false); setHoveredShapeId(null);
     setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null);
     transientStateRef.current = null;
-  };
-
-  const updateTransientVisuals = (state: TransientState | null) => {
-    let overlay = domCacheRef.current.get('selection-overlay-group');
-    if (!overlay || !overlay.isConnected) {
-        overlay = document.getElementById('selection-overlay-group') || undefined;
-        if (overlay) domCacheRef.current.set('selection-overlay-group', overlay);
-    }
-
-    if (!state) {
-        domCacheRef.current.forEach((el, id) => { 
-             const shape = shapesRef.current.find(s => s.id === id);
-             if (shape && shape.rotation) {
-                 const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
-                 el.setAttribute('transform', `rotate(${shape.rotation} ${center.x} ${center.y})`);
-             } else {
-                 el.setAttribute('transform', ''); 
-             }
-             // Reset elastic line changes
-             if (shape?.type === ShapeType.LINE) {
-                 const line = el.querySelector('line');
-                 if (line) {
-                     line.setAttribute('x1', shape.points[0].x.toString());
-                     line.setAttribute('y1', shape.points[0].y.toString());
-                     line.setAttribute('x2', shape.points[1].x.toString());
-                     line.setAttribute('y2', shape.points[1].y.toString());
-                 }
-             }
-        });
-        return;
-    }
-    const { dx, dy, rotation, rotationCenter: pivot, scale, scaleCenter } = state;
-    
-    domCacheRef.current.forEach((cachedEl, id) => {
-        const isTracked = initialShapeStateRef.current.has(id) || id === 'selection-overlay-group';
-        if (!isTracked) return;
-
-        let el = cachedEl;
-        if (!el.isConnected) {
-            const liveEl = id === 'selection-overlay-group' 
-                ? document.getElementById('selection-overlay-group') 
-                : svgRef.current?.querySelector(`g[data-shape-id="${id}"]`);
-            if (liveEl) {
-                domCacheRef.current.set(id, liveEl);
-                el = liveEl;
-            } else {
-                return;
-            }
-        }
-
-        const shape = shapesRef.current.find(s => s.id === id);
-        
-        // --- SELECTION OVERLAY SPECIAL HANDLING ---
-        // If it's the overlay and we have a single selection, we must include the target shape's persistent rotation
-        if (id === 'selection-overlay-group' && selectedIds.size === 1) {
-            const singleId = Array.from(selectedIds)[0];
-            const targetShape = shapesRef.current.find(s => s.id === singleId);
-            if (targetShape) {
-                let finalTransform = '';
-                if (rotation && pivot) { finalTransform += `rotate(${rotation} ${pivot.x} ${pivot.y}) `; }
-                if (dx || dy) { finalTransform += `translate(${dx || 0} ${dy || 0}) `; }
-                
-                const center = getShapeCenter(targetShape.points, targetShape.type, targetShape.fontSize, targetShape.text);
-                if (targetShape.rotation) { finalTransform += `rotate(${targetShape.rotation} ${center.x} ${center.y}) `; }
-                
-                if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
-                
-                el.setAttribute('transform', finalTransform.trim());
-                return;
-            }
-        }
-
-        // --- RIGID BODY SYNC LOGIC ---
-        // If we are moving a group (e.g. Triangle), and this shape is a dependent (Point/Line),
-        // we should just apply the SAME global translation.
-        // We only use 'Elastic' logic if the driver ITSELF is one of the linked parents.
-        const isDirectlySelected = selectedIds.has(id);
-        const isElasticTarget = shape?.type === ShapeType.LINE && 
-                               shape.constraint?.type === 'points_link' && 
-                               (shape.constraint.parents || [shape.constraint.parentId!]).some(pid => pid && selectedIds.has(pid));
-
-        if (isElasticTarget && !isDirectlySelected) {
-            const line = el.querySelector('line');
-            if (line) {
-                const pids = shape!.constraint!.parents || [shape!.constraint!.parentId!];
-                pids.forEach((pid, idx) => {
-                    if (!pid) return;
-                    if (selectedIds.has(pid)) {
-                        const originalPt = shape!.points[idx];
-                        line.setAttribute(`x${idx+1}`, (originalPt.x + (dx || 0)).toString());
-                        line.setAttribute(`y${idx+1}`, (originalPt.y + (dy || 0)).toString());
-                    }
-                });
-            }
-            return; 
-        }
-
-        // For everything else (Triangle, or Point/Line being moved AS A DEPENDENT), 
-        // use rigid translation.
-        let finalTransform = '';
-        if (rotation && pivot) { finalTransform += `rotate(${rotation} ${pivot.x} ${pivot.y}) `; }
-        if (dx || dy) { finalTransform += `translate(${dx || 0} ${dy || 0}) `; }
-        
-        if (shape) {
-             const center = getShapeCenter(shape.points, shape.type, shape.fontSize, shape.text);
-             if (shape.rotation) { finalTransform += `rotate(${shape.rotation} ${center.x} ${center.y}) `; }
-             if (scale && scaleCenter) { finalTransform += `translate(${scaleCenter.x} ${scaleCenter.y}) scale(${scale.x} ${scale.y}) translate(${-scaleCenter.x} ${-scaleCenter.y}) `; }
-        }
-        el.setAttribute('transform', finalTransform.trim());
-    });
-  };
-
-  const refreshDomCache = (idsOverride?: Set<string>) => {
-    domCacheRef.current.clear();
-    initialShapeStateRef.current.clear();
-    
-    const targetIds = idsOverride || selectedIds;
-    
-    // 1. Add target shapes
-    if (tool === ToolType.SELECT || tool === ToolType.RULER || tool === ToolType.PROTRACTOR) {
-        shapesRef.current.forEach(s => {
-            if (targetIds.has(s.id)) {
-                 const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
-                 if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }
-            }
-        });
-        
-        // 2. Add dependent shapes (recursive)
-        const dependents = getDependents(shapesRef.current, targetIds);
-        dependents.forEach(s => {
-             const el = svgRef.current?.querySelector(`g[data-shape-id="${s.id}"]`);
-             if (el) { domCacheRef.current.set(s.id, el); initialShapeStateRef.current.set(s.id, s); }
-        });
-
-        const overlay = document.getElementById('selection-overlay-group');
-        if (overlay) domCacheRef.current.set('selection-overlay-group', overlay);
-    }
   };
 
   // Unified logic to determine if a point should be bound to a shape's edge or another point
