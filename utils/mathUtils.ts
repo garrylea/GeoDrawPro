@@ -1083,6 +1083,10 @@ export const sanitizeLoadedShapes = (shapes: any[]): Shape[] => {
         strokeWidth: s.strokeWidth || 1,
         strokeType: s.strokeType || 'solid',
         rotation: s.rotation || 0,
-        points: s.points.map((p: any) => ({ x: Number(p.x), y: Number(p.y), p: p.p }))
+        points: s.points.map((p: any) => {
+            const x = Number(p.x);
+            const y = Number(p.y);
+            return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0, p: p.p };
+        })
     }));
 };

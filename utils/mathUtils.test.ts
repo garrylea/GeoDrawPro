@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recognizeFreehandShape, solveTriangleASA } from './mathUtils';
+import { recognizeFreehandShape, solveTriangleASA, sanitizeLoadedShapes } from './mathUtils';
 import { ShapeType, Point } from '../types';
 
 const sampleClosedPolygon = (vertices: Point[], perEdge: number): Point[] => {
@@ -144,5 +144,62 @@ describe('solveTriangleASA', () => {
 
     it('returns null when the two base vertices coincide', () => {
         expect(solveTriangleASA({ x: 50, y: 50 }, { x: 50, y: 50 }, 60, 60, { x: 50, y: 100 })).toBeNull();
+    });
+});
+
+describe('sanitizeLoadedShapes', () => {
+    it('fills in defaults and coerces string coordinates to numbers', () => {
+        const raw = [{ id: 'p1', type: 'POINT', points: [{ x: '10', y: '20', p: 0.7 }] }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result).toEqual([{
+            id: 'p1', type: 'POINT',
+            fill: 'transparent', stroke: '#000000', strokeWidth: 1, strokeType: 'solid', rotation: 0,
+            points: [{ x: 10, y: 20, p: 0.7 }]
+        }]);
+    });
+
+    it('preserves explicitly provided style values', () => {
+        const raw = [{
+            id: 'r1', type: 'RECTANGLE', points: [{ x: 0, y: 0 }],
+            fill: 'red', stroke: 'blue', strokeWidth: 3, strokeType: 'dashed', rotation: 45
+        }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].fill).toBe('red');
+        expect(result[0].stroke).toBe('blue');
+        expect(result[0].strokeWidth).toBe(3);
+        expect(result[0].strokeType).toBe('dashed');
+        expect(result[0].rotation).toBe(45);
+    });
+
+    it('keeps extra fields such as text and formula params', () => {
+        const raw = [{ id: 't1', type: 'TEXT', points: [{ x: 1, y: 2 }], text: 'hi', fontSize: 18 }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].text).toBe('hi');
+        expect(result[0].fontSize).toBe(18);
+    });
+
+    it('returns an empty array unchanged', () => {
+        expect(sanitizeLoadedShapes([])).toEqual([]);
+    });
+
+    it('coerces non-numeric coordinates to 0 instead of NaN', () => {
+        const invalidValues = ['abc', undefined, null, NaN, Infinity, -Infinity, {}];
+        for (const v of invalidValues) {
+            const raw = [{ id: 'p1', type: 'POINT', points: [{ x: v, y: v }] }];
+            const result = sanitizeLoadedShapes(raw);
+            expect(result[0].points[0]).toEqual({ x: 0, y: 0 });
+        }
+    });
+
+    it('keeps valid points and pressure when a sibling point is invalid', () => {
+        const raw = [{
+            id: 'l1', type: 'LINE',
+            points: [{ x: 10, y: 20, p: 0.5 }, { x: 'oops', y: 30, p: 0.9 }]
+        }];
+        const result = sanitizeLoadedShapes(raw);
+        expect(result[0].points).toEqual([
+            { x: 10, y: 20, p: 0.5 },
+            { x: 0, y: 30, p: 0.9 }
+        ]);
     });
 });
