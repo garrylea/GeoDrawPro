@@ -16,6 +16,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   test: {
+    setupFiles: ['./test/setup.ts'],
     coverage: {
       provider: 'v8',
       include: ['utils/**', 'components/**', 'electron/**', 'server/**', 'App.tsx', 'index.tsx', 'constants.ts'],
