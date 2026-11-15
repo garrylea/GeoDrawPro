@@ -219,13 +219,15 @@ describe('calculateResizedShape', () => {
         it('keeps the aspect ratio while shift is pressed', () => {
             const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 50 }]);
             const result = calculateResizedShape(rect, { x: 200, y: 120 }, 2, true);
-            expect(result.points).toEqual([{ x: 0, y: 0 }, { x: 240, y: 120 }]);
+            expect(result.points).toEqual([{ x: 0, y: 0 }, { x: 208, y: 104 }]);
         });
 
         it('forces a square aspect ratio even without shift', () => {
             const square = createShape('s1', ShapeType.SQUARE, [{ x: 0, y: 0 }, { x: 100, y: 100 }]);
             const result = calculateResizedShape(square, { x: 200, y: 150 }, 2, false);
-            expect(result.points).toEqual([{ x: 0, y: 0 }, { x: 200, y: 200 }]);
+            expect(result.points[0]).toEqual({ x: 0, y: 0 });
+            expect(result.points[1].x).toBeCloseTo(175);
+            expect(result.points[1].y).toBeCloseTo(175);
         });
 
         it('keeps the diagonal anchor pinned on a rotated rectangle', () => {
@@ -269,7 +271,16 @@ describe('calculateResizedShape', () => {
         it('keeps the group aspect ratio while shift is pressed', () => {
             const line = createShape('l1', ShapeType.LINE, [{ x: 20, y: 10 }, { x: 80, y: 40 }]);
             const result = calculateResizedShape(line, { x: 300, y: 100 }, 2, true, groupBounds);
-            expect(result.points).toEqual([{ x: 60, y: 30 }, { x: 240, y: 120 }]);
+            expect(result.points[0].x).toBeCloseTo(56);
+            expect(result.points[0].y).toBeCloseTo(28);
+            expect(result.points[1].x).toBeCloseTo(224);
+            expect(result.points[1].y).toBeCloseTo(112);
+        });
+
+        it('responds to single-axis inward drags while shift is pressed', () => {
+            const line = createShape('l1', ShapeType.LINE, [{ x: 20, y: 10 }, { x: 80, y: 40 }]);
+            const result = calculateResizedShape(line, { x: 100, y: 40 }, 2, true, groupBounds);
+            expect(result.points[1].y).toBeLessThan(40);
         });
 
         it('scales text font size with the group height', () => {
@@ -287,6 +298,64 @@ describe('calculateResizedShape', () => {
             expect(result.points[1].x).toBeCloseTo(0.08);
             expect(result.points[1].y).toBeCloseTo(0.08);
         });
+    });
+});
+
+describe('calculateResizedShape smoothness & sensitivity', () => {
+    const width = (s: Shape) => Math.abs(s.points[1].x - s.points[0].x);
+    const height = (s: Shape) => Math.abs(s.points[1].y - s.points[0].y);
+
+    it('circle: 1px diagonal handle steps grow the diameter smoothly without jumps', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        let prev = 100;
+        for (let d = 1; d <= 5; d++) {
+            const result = calculateResizedShape(circle, { x: 200 + d, y: 200 + d }, 2, false);
+            const size = width(result);
+            expect(size).toBeCloseTo(100 + d);
+            expect(size - prev).toBeLessThanOrEqual(1.5);
+            prev = size;
+        }
+    });
+
+    it('circle: dragging the BR handle straight up (inward) shrinks the circle', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const result = calculateResizedShape(circle, { x: 200, y: 190 }, 2, false);
+        expect(width(result)).toBeLessThan(100);
+    });
+
+    it('circle: dragging the BR handle straight left (inward) shrinks the circle', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const result = calculateResizedShape(circle, { x: 190, y: 200 }, 2, false);
+        expect(width(result)).toBeLessThan(100);
+    });
+
+    it('square: dragging the BR handle straight up (inward) shrinks the square', () => {
+        const square = createShape('s1', ShapeType.SQUARE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const result = calculateResizedShape(square, { x: 200, y: 190 }, 2, false);
+        expect(width(result)).toBeLessThan(100);
+    });
+
+    it('rectangle: 1px handle steps track the cursor 1:1 on both axes', () => {
+        const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 100, y: 100 }, { x: 200, y: 160 }]);
+        for (let d = 1; d <= 5; d++) {
+            const result = calculateResizedShape(rect, { x: 200 + d, y: 160 + d }, 2, false);
+            expect(result.points[1]).toEqual({ x: 200 + d, y: 160 + d });
+        }
+    });
+
+    it('rectangle: inward single-axis handle movement shrinks that axis immediately', () => {
+        const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 100, y: 100 }, { x: 200, y: 160 }]);
+        const result = calculateResizedShape(rect, { x: 200, y: 150 }, 2, false);
+        expect(height(result)).toBe(50);
+        expect(width(result)).toBe(100);
+    });
+
+    it('ellipse: 1px diagonal handle steps track the cursor 1:1', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 200, y: 160 }]);
+        for (let d = 1; d <= 5; d++) {
+            const result = calculateResizedShape(ellipse, { x: 200 + d, y: 160 + d }, 2, false);
+            expect(result.points[1]).toEqual({ x: 200 + d, y: 160 + d });
+        }
     });
 });
 

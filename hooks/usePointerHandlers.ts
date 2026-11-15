@@ -363,7 +363,8 @@ export const usePointerHandlers = ({
 
         if (singleShape) {
             const snapshotShape = initialShapesArray.find(s => s.id === singleShape.id) || singleShape;
-            const updatedShape = calculateResizedShape(snapshotShape, pos, dragHandleIndex, isShiftPressed);
+            // Resize tracks the raw cursor: snapped positions quantize the size and let nearby shapes hijack the handle.
+            const updatedShape = calculateResizedShape(snapshotShape, rawPos, dragHandleIndex, isShiftPressed);
             setShapes(prev => {
                 let nextShapes = prev.map(s => {
                     if (s.id === singleShape.id) return updatedShape;
@@ -380,7 +381,7 @@ export const usePointerHandlers = ({
         
         if (initialGroupBounds) {
              const dummyShape: Shape = { id: 'dummy', type: ShapeType.RECTANGLE, points: [{x: initialGroupBounds.minX, y: initialGroupBounds.minY}, {x: initialGroupBounds.maxX, y: initialGroupBounds.maxY}], fill: '', stroke: '', strokeWidth: 0, rotation: 0 };
-             const resizedDummy = calculateResizedShape(dummyShape, pos, dragHandleIndex, isShiftPressed);
+             const resizedDummy = calculateResizedShape(dummyShape, rawPos, dragHandleIndex, isShiftPressed);
              let newMinX = Infinity, newMaxX = -Infinity, newMinY = Infinity, newMaxY = -Infinity;
              resizedDummy.points.forEach(p => { newMinX = Math.min(newMinX, p.x); newMaxX = Math.max(newMaxX, p.x); newMinY = Math.min(newMinY, p.y); newMaxY = Math.max(newMaxY, p.y); });
              const oldW = initialGroupBounds.width; const oldH = initialGroupBounds.height; const newW = newMaxX - newMinX; const newH = newMaxY - newMinY;
@@ -498,7 +499,7 @@ export const usePointerHandlers = ({
       setIsDragging(false); setIsRotating(false); 
       
       if (dragHandleIndex !== null) {
-          const finalPos = getMousePos(e, true); 
+          const finalPos = getMousePos(e, false);
           saveHistory();
 
           setShapes((prev: Shape[]) => { 

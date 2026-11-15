@@ -186,13 +186,15 @@ export const calculateResizedShape = (
         // 3. Apply aspect ratio constraints (Shift key or fixed-aspect shapes)
         if (isShiftPressed || [ShapeType.SQUARE, ShapeType.CIRCLE].includes(shape.type)) {
             const ratio = oldW / oldH;
-            if (Math.abs(vectorLocal.x / vectorLocal.y) > ratio) {
-                const signY = vectorLocal.y >= 0 ? 1 : -1;
-                vectorLocal.y = signY * Math.abs(vectorLocal.x) / ratio;
-            } else {
-                const signX = vectorLocal.x >= 0 ? 1 : -1;
-                vectorLocal.x = signX * Math.abs(vectorLocal.y) * ratio;
-            }
+            // Project the cursor onto the anchor->handle diagonal so every drag
+            // direction responds (dominant-axis picking left single-axis dead zones).
+            const signX = handleIndex === 1 || handleIndex === 2 ? 1 : -1;
+            const signY = handleIndex === 2 || handleIndex === 3 ? 1 : -1;
+            const len = Math.hypot(ratio, 1);
+            const ux = (signX * ratio) / len;
+            const uy = signY / len;
+            const proj = vectorLocal.x * ux + vectorLocal.y * uy;
+            vectorLocal = { x: proj * ux, y: proj * uy };
         }
 
         // 4. Derive the new center point based on the constrained local vector
@@ -243,13 +245,16 @@ export const calculateResizedShape = (
 
         if (isShiftPressed) {
             const ratio = w / h;
+            // Same diagonal projection as Strategy B so group preview and commit agree.
+            const signX = handleIndex === 1 || handleIndex === 2 ? 1 : -1;
+            const signY = handleIndex === 2 || handleIndex === 3 ? 1 : -1;
+            const len = Math.hypot(ratio, 1);
+            const ux = (signX * ratio) / len;
+            const uy = signY / len;
             const dx = targetPos.x - fixedPoint.x;
-            const dy = targetPos.y - fixedPoint.y; 
-            if (Math.abs(dx) / (Math.abs(dy) || 0.001) > ratio) { 
-                targetPos.y = fixedPoint.y + (dy > 0 ? 1 : -1) * Math.abs(dx) / ratio; 
-            } else { 
-                targetPos.x = fixedPoint.x + (dx > 0 ? 1 : -1) * Math.abs(dy) * ratio; 
-            }
+            const dy = targetPos.y - fixedPoint.y;
+            const proj = dx * ux + dy * uy;
+            targetPos = { x: fixedPoint.x + proj * ux, y: fixedPoint.y + proj * uy };
         }
         
         let newLeft = minX, newRight = maxX, newTop = minY, newBottom = maxY;

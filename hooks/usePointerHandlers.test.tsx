@@ -362,3 +362,72 @@ describe('usePointerHandlers click-default', () => {
         expect(h.state.activeShapeId).toBeNull();
     });
 });
+
+describe('resize gesture smoothness & sensitivity', () => {
+    const circle = () => makeShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+    const diameter = (s: Shape) => Math.abs(s.points[1].x - s.points[0].x);
+
+    // Mirrors Editor.onResizeStart: snapshot the shape, grab handle 2 (BR), start dragging.
+    const setupResize = (extra: Partial<Deps> = {}, shapes: Shape[] = [circle()]) => {
+        const h = createHarness({
+            shapes,
+            selectedIds: new Set(['c1']),
+            dragHandleIndex: 2,
+            isDragging: true,
+            ...extra,
+        });
+        h.refs.initialShapeStateRef.current.set('c1', shapes[0]);
+        const hook = renderHarness(h);
+        return { h, hook };
+    };
+
+    it('isolated circle, grid off: 1px diagonal handle steps track the cursor', () => {
+        const { h, hook } = setupResize();
+        act(() => { hook.result.current.handlePointerMove(h.evt(201, 201)); });
+        expect(diameter(h.state.shapes[0])).toBeCloseTo(101);
+        hook.rerender(h.build());
+        act(() => { hook.result.current.handlePointerMove(h.evt(202, 202)); });
+        expect(diameter(h.state.shapes[0])).toBeCloseTo(102);
+    });
+
+    it('grid on: 1px handle steps still resize smoothly instead of quantizing to the grid', () => {
+        const { h, hook } = setupResize({ axisConfig: { visible: true, ticks: 5, color: '#94a3b8', showGrid: true } });
+        const sizes: number[] = [];
+        for (let d = 1; d <= 5; d++) {
+            act(() => { hook.result.current.handlePointerMove(h.evt(200 + d, 200 + d)); });
+            sizes.push(diameter(h.state.shapes[0]));
+            hook.rerender(h.build());
+        }
+        sizes.forEach((s, i) => expect(s).toBeCloseTo(101 + i));
+    });
+
+    it('nearby point: the handle tracks the cursor instead of sticking to the point', () => {
+        const pt = makeShape('p1', ShapeType.POINT, [{ x: 208, y: 200 }]);
+        const { h, hook } = setupResize({}, [circle(), pt]);
+        const sizes: number[] = [];
+        for (const x of [201, 202, 203]) {
+            act(() => { hook.result.current.handlePointerMove(h.evt(x, 200)); });
+            sizes.push(diameter(h.state.shapes[0]));
+            hook.rerender(h.build());
+        }
+        // Aspect-locked circle: horizontal drag projects onto the diagonal at half rate,
+        // but must keep responding instead of jumping to / sticking on the nearby point.
+        expect(sizes[0]).toBeCloseTo(100.5);
+        expect(sizes[1]).toBeCloseTo(101);
+        expect(sizes[2]).toBeCloseTo(101.5);
+    });
+
+    it('grid on: releasing the handle commits the raw cursor position, not a grid point', () => {
+        const { h, hook } = setupResize({ axisConfig: { visible: true, ticks: 5, color: '#94a3b8', showGrid: true } });
+        act(() => { hook.result.current.handlePointerMove(h.evt(203, 203)); });
+        hook.rerender(h.build());
+        act(() => { hook.result.current.handlePointerUp(h.evt(203, 203)); });
+        expect(diameter(h.state.shapes[0])).toBeCloseTo(103);
+    });
+
+    it('circle: dragging the BR handle straight up shrinks the circle during the gesture', () => {
+        const { h, hook } = setupResize();
+        act(() => { hook.result.current.handlePointerMove(h.evt(200, 190)); });
+        expect(diameter(h.state.shapes[0])).toBeLessThan(100);
+    });
+});
