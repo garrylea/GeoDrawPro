@@ -5,6 +5,10 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+// Dev server URL — keep in sync with vite.config.ts (server.port) and the
+// electron:dev wait-on target in package.json.
+const DEV_SERVER_URL = 'http://localhost:5273';
+
 // Global references
 let mainWindows = new Set(); // Support multiple windows
 let snippetWindow = null;
@@ -91,7 +95,7 @@ function createWindow(existingFilePath = null) {
   win.isCloseCheckPending = false;
 
   if (isDev) {
-    win.loadURL('http://localhost:5173');
+    win.loadURL(DEV_SERVER_URL);
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -173,7 +177,7 @@ function createSnippetWindow() {
 
   const isDev = !app.isPackaged;
   const url = isDev 
-      ? 'http://localhost:5173?mode=snippet' 
+      ? `${DEV_SERVER_URL}?mode=snippet`
       : `file://${path.join(__dirname, '../dist/index.html')}?mode=snippet`;
   
   snippetWindow.loadURL(url);
@@ -208,7 +212,7 @@ function createSolverWindow() {
 
     const isDev = !app.isPackaged;
     const url = isDev 
-        ? 'http://localhost:5173?mode=solver' 
+        ? `${DEV_SERVER_URL}?mode=solver`
         : `file://${path.join(__dirname, '../dist/index.html')}?mode=solver`;
     
     solverWindow.loadURL(url);

@@ -54,7 +54,7 @@ To run both the **Frontend** and **Backend** simultaneously:
 npm run dev:all
 ```
 
-*   **Frontend**: http://localhost:5173
+*   **Frontend**: http://localhost:5273
 *   **Backend**: http://localhost:3000
 
 ---
