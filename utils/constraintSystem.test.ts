@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveConstraints, constrainPointToEdge, getDependents } from './constraintSystem';
+import { resolveConstraints, constrainPointToEdge, constrainPointToPath, getDependents } from './constraintSystem';
 import { getSnapPoint, getRotatedCorners, isPointInShape } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
@@ -540,5 +540,175 @@ describe('Constraint System', () => {
         // 3. Verify it contains our numbers
         expect(html).toContain('1');
         expect(html).toContain('2');
+    });
+});
+
+describe('constrainPointToPath', () => {
+    const createShape = (id: string, type: ShapeType, points: Point[], overrides: Partial<Shape> = {}): Shape => ({
+        id, type, points, fill: 'transparent', stroke: 'black', strokeWidth: 2, rotation: 0, ...overrides
+    });
+
+    it('projects the cursor onto a circle perimeter and reports the world angle', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const result = constrainPointToPath({ x: 500, y: 150 }, circle);
+        expect(result.point.x).toBeCloseTo(200);
+        expect(result.point.y).toBeCloseTo(150);
+        expect(result.angle).toBeCloseTo(0);
+    });
+
+    it('reports the angle relative to the circle rotation', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }], { rotation: 90 });
+        const result = constrainPointToPath({ x: 150, y: 100 }, circle);
+        expect(result.point.x).toBeCloseTo(150);
+        expect(result.point.y).toBeCloseTo(100);
+        // World angle -90 minus the 90° rotation.
+        expect(result.angle).toBeCloseTo(-180);
+    });
+
+    it('projects onto an ellipse using rx and ry', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 300, y: 200 }]);
+        const result = constrainPointToPath({ x: 200, y: 100 }, ellipse);
+        expect(result.point.x).toBeCloseTo(200);
+        expect(result.point.y).toBeCloseTo(100);
+        expect(result.angle).toBeCloseTo(-90);
+    });
+
+    it('projects onto a rotated ellipse and returns the local angle', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 300, y: 200 }], { rotation: 90 });
+        const result = constrainPointToPath({ x: 200, y: 250 }, ellipse);
+        expect(result.point.x).toBeCloseTo(200);
+        expect(result.point.y).toBeCloseTo(250);
+        expect(result.angle).toBeCloseTo(0);
+    });
+
+    it('returns the cursor unchanged for non-circular parents', () => {
+        const line = createShape('l1', ShapeType.LINE, [{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+        const cursor = { x: 42, y: 99 };
+        expect(constrainPointToPath(cursor, line)).toEqual({ point: cursor, angle: 0 });
+    });
+});
+
+describe('constrainPointToEdge degenerate cases', () => {
+    const createShape = (id: string, type: ShapeType, points: Point[]): Shape => ({
+        id, type, points, fill: 'transparent', stroke: 'black', strokeWidth: 2, rotation: 0
+    });
+
+    it('returns the cursor when the edge index is out of range', () => {
+        const line = createShape('l1', ShapeType.LINE, [{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+        const cursor = { x: 42, y: 99 };
+        expect(constrainPointToEdge(cursor, line, 5)).toEqual({ point: cursor, t: 0 });
+    });
+
+    it('returns the first vertex for a zero-length edge', () => {
+        const line = createShape('l1', ShapeType.LINE, [{ x: 10, y: 20 }, { x: 10, y: 20 }]);
+        expect(constrainPointToEdge({ x: 99, y: 99 }, line, 0)).toEqual({ point: { x: 10, y: 20 }, t: 0 });
+    });
+});
+
+describe('snap → constraint round trip', () => {
+    const createShape = (id: string, type: ShapeType, points: Point[], overrides: Partial<Shape> = {}): Shape => ({
+        id, type, points, fill: 'transparent', stroke: 'black', strokeWidth: 2, rotation: 0, ...overrides
+    });
+    const createPoint = (id: string, at: Point, constraint: any): Shape => ({
+        id, type: ShapeType.POINT, points: [at], fill: 'black', stroke: 'none', strokeWidth: 1, rotation: 0, constraint
+    });
+    const W = 1000, H = 1000, PPU = 20;
+
+    it('keeps a snapped point on the circle when the circle rotates', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const snap = getSnapPoint({ x: 200, y: 150 }, [circle]);
+        expect(snap.snapped).toBe(true);
+        const point = createPoint('p1', snap.point, snap.constraint);
+
+        const rotated = { ...circle, rotation: 90 };
+        const resolved = resolveConstraints([rotated, point], 'c1', W, H, PPU);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+
+        expect(final.x).toBeCloseTo(150);
+        expect(final.y).toBeCloseTo(200);
+        // Still exactly on the perimeter.
+        expect(Math.hypot(final.x - 150, final.y - 150)).toBeCloseTo(50);
+    });
+
+    it('keeps a snapped point on the circle when the circle resizes', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }]);
+        const snap = getSnapPoint({ x: 200, y: 150 }, [circle]);
+        const point = createPoint('p1', snap.point, snap.constraint);
+
+        const resized = { ...circle, points: [{ x: 100, y: 100 }, { x: 300, y: 300 }] };
+        const resolved = resolveConstraints([resized, point], 'c1', W, H, PPU);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+
+        // New center (200,200), radius 100, angle 0.
+        expect(final.x).toBeCloseTo(300);
+        expect(final.y).toBeCloseTo(200);
+    });
+
+    it('keeps a snapped point on a rotated ellipse when the rotation changes', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 300, y: 200 }], { rotation: 90 });
+        const snap = getSnapPoint({ x: 200, y: 250 }, [ellipse]);
+        expect(snap.snapped).toBe(true);
+        const point = createPoint('p1', snap.point, snap.constraint);
+
+        const rotated = { ...ellipse, rotation: 180 };
+        const resolved = resolveConstraints([rotated, point], 'e1', W, H, PPU);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+
+        // Local angle 0 -> (300,150), rotated 180° about (200,150) -> (100,150).
+        expect(final.x).toBeCloseTo(100);
+        expect(final.y).toBeCloseTo(150);
+        const val = Math.pow((final.x - 200) / 100, 2) + Math.pow((final.y - 150) / 50, 2);
+        expect(val).toBeCloseTo(1);
+    });
+
+    it('resolves a dragged circle point back to the drag projection', () => {
+        const circle = createShape('c1', ShapeType.CIRCLE, [{ x: 100, y: 100 }, { x: 200, y: 200 }], { rotation: 45 });
+        const drag = constrainPointToPath({ x: 150, y: 100 }, circle);
+        const point = createPoint('p1', drag.point, { type: 'on_path', parentId: 'c1', paramAngle: drag.angle });
+
+        const resolved = resolveConstraints([circle, point], 'c1', W, H, PPU);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+        expect(final.x).toBeCloseTo(drag.point.x);
+        expect(final.y).toBeCloseTo(drag.point.y);
+    });
+
+    it('resolves a dragged rotated-ellipse point back to the drag projection', () => {
+        const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 300, y: 200 }], { rotation: 30 });
+        const drag = constrainPointToPath({ x: 250, y: 180 }, ellipse);
+        const point = createPoint('p1', drag.point, { type: 'on_path', parentId: 'e1', paramAngle: drag.angle });
+
+        const resolved = resolveConstraints([ellipse, point], 'e1', W, H, PPU);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+        expect(final.x).toBeCloseTo(drag.point.x);
+        expect(final.y).toBeCloseTo(drag.point.y);
+    });
+
+    it('moves a function-graph-bound point when the formula changes', () => {
+        const graph = createShape('g1', ShapeType.FUNCTION_GRAPH, [{ x: 0, y: 0 }], {
+            functionType: 'linear', formulaParams: { k: 1, b: 0 }
+        });
+        const grid = { width: 800, height: 600, ppu: 40, originY: 200 };
+        const snap = getSnapPoint({ x: 440, y: 160 }, [graph], [], grid);
+        expect(snap.snapped).toBe(true);
+        const point = createPoint('p1', snap.point, snap.constraint);
+
+        const updated = { ...graph, formulaParams: { k: 2, b: 0 } };
+        const resolved = resolveConstraints([updated, point], 'g1', 800, 600, 40, 200);
+        const final = resolved.find(s => s.id === 'p1')!.points[0];
+        // y = 2x at x = 1 -> screen (440, 120) with originY 200.
+        expect(final.x).toBeCloseTo(440);
+        expect(final.y).toBeCloseTo(120);
+    });
+
+    it('follows only the non-null parent in a points_link with a null slot', () => {
+        const p2 = createPoint('p2', { x: 10, y: 10 }, undefined);
+        const line = createShape('l1', ShapeType.LINE, [{ x: 0, y: 0 }, { x: 10, y: 10 }], {
+            constraint: { type: 'points_link', parents: [null, 'p2'] }
+        });
+        const movedP2 = { ...p2, points: [{ x: 20, y: 20 }] };
+        const resolved = resolveConstraints([movedP2, line], 'p2', W, H, PPU);
+        const final = resolved.find(s => s.id === 'l1')!;
+        expect(final.points[0]).toEqual({ x: 0, y: 0 });
+        expect(final.points[1]).toEqual({ x: 20, y: 20 });
     });
 });
