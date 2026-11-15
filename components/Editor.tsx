@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { ToolType, Shape, ShapeType, Point, AxisConfig, Constraint } from '../types';
 import { DEFAULT_SHAPE_PROPS, MATH_SYMBOLS } from '../constants';
 import { AxisLayer } from './AxisLayer';
@@ -23,7 +23,7 @@ import { resolveConstraints, constrainPointToEdge, constrainPointToPath, buildLi
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape, removeShapesWithDependents } from '../utils/shapeOperations';
 import { getNextLabels } from '../utils/labeling';
 import { createToolShape, createTextShape, createRulerShape, createProtractorShape, createFunctionGraphShape, createArcShape, clickDefaultPoints } from '../utils/shapeFactory';
-import { applyAngleEdit, getAngleEditAnchor } from '../utils/angleEditing';
+import { getAngleEditAnchor } from '../utils/angleEditing';
 import { getRotationPivot, planAngleMarkerToggle, toggleMarkerType } from '../utils/markerEditing';
 import { reflectShapesAcrossLine } from '../utils/mirror';
 import { useTransientTransforms } from '../hooks/useTransientTransforms';
@@ -31,6 +31,9 @@ import { useDocument } from '../hooks/useDocument';
 import { useViewport } from '../hooks/useViewport';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useElectronBridge } from '../hooks/useElectronBridge';
+import { useInteractionSession } from '../hooks/useInteractionSession';
+import { useInlineEditors } from '../hooks/useInlineEditors';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { Plus, Loader2 } from 'lucide-react';
 
 export function Editor() {
@@ -44,34 +47,17 @@ export function Editor() {
     visible: false, ticks: 5, color: '#94a3b8', showGrid: false,
   });
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [isRotating, setIsRotating] = useState(false);
-  const [dragStartPos, setDragStartPos] = useState<Point | null>(null); 
-  const [dragHandleIndex, setDragHandleIndex] = useState<number | null>(null); 
-  const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
-  const [activeLineConstraints, setActiveLineConstraints] = useState<(Constraint | undefined)[]>([]);
-  const [snapIndicator, setSnapIndicator] = useState<(Point & { type?: 'endpoint' | 'midpoint' | 'center' | 'on_edge' }) | null>(null);
-  const [cursorPos, setCursorPos] = useState<Point | null>(null); 
-  const cursorPosRef = useRef<Point | null>(null);
-  
-  // PERFORMANCE: Hit test throttling
-  const lastHitTestTime = useRef<number>(0);
-
-  const isScrollingRef = useRef(false);
-  const lastScrollPos = useRef<{x: number, y: number} | null>(null);
-  
-  const selectionRectRef = useRef<SVGRectElement>(null);
-  const selectionStartRef = useRef<Point | null>(null);
-  const shapeBoundsCache = useRef<Map<string, { minX: number, minY: number, maxX: number, maxY: number }>>(new Map());
-
-  const dragHistorySaved = useRef(false);
-
-  const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
-  
-  const [pivotIndex, setPivotIndex] = useState<number | 'center'>('center');
-  const [rotationCenter, setRotationCenter] = useState<Point | null>(null);
-  const [isAltPressed, setIsAltPressed] = useState(false);
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const {
+      isDragging, setIsDragging, isRotating, setIsRotating, dragStartPos, setDragStartPos,
+      dragHandleIndex, setDragHandleIndex, activeShapeId, setActiveShapeId,
+      activeLineConstraints, setActiveLineConstraints, snapIndicator, setSnapIndicator,
+      cursorPos, setCursorPos, cursorPosRef, lastHitTestTime, isScrollingRef, lastScrollPos,
+      selectionRectRef, selectionStartRef, shapeBoundsCache, dragHistorySaved,
+      hoveredShapeId, setHoveredShapeId, pivotIndex, setPivotIndex, rotationCenter, setRotationCenter,
+      isAltPressed, setIsAltPressed, isShiftPressed, setIsShiftPressed,
+      compassState, setCompassState, compassPreviewPath, setCompassPreviewPath,
+      lastRotationMouseAngle, resetSession
+  } = useInteractionSession();
 
   const {
       shapes, setShapes, shapesRef, saveHistory, undo, history, selectedIds, setSelectedIds,
@@ -96,21 +82,11 @@ export function Editor() {
       }
   };
 
-  const [compassState, setCompassState] = useState<{
-      center: Point | null; 
-      radiusPoint: Point | null; 
-      startAngle: number | null;
-      accumulatedRotation: number;
-      lastMouseAngle: number;
-  }>({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 });
-  const [compassPreviewPath, setCompassPreviewPath] = useState<string | null>(null);
+  const {
+      textEditing, setTextEditing, angleEditing, setAngleEditing,
+      inputRef, angleInputRef, finishTextEditing, cancelTextEditing, commitAngleEdit
+  } = useInlineEditors({ shapes, setShapes, setSelectedIds, saveHistory });
 
-  const [textEditing, setTextEditing] = useState<{ id: string; x: number; y: number; text: string } | null>(null);
-  const [angleEditing, setAngleEditing] = useState<{ id: string; index: number; x: number; y: number; value: string } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const angleInputRef = useRef<HTMLInputElement>(null);
-  
-  const lastRotationMouseAngle = useRef<number>(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const { transientStateRef, domCacheRef, initialShapeStateRef, updateTransientVisuals, refreshDomCache } =
       useTransientTransforms({ shapesRef, selectedIds, svgRef, tool });
@@ -139,26 +115,6 @@ export function Editor() {
       setShapes(prev => [...prev, ...newShapes]); setSelectedIds(new Set(newShapes.map(s => s.id))); setPickingMirrorMode(false);
   };
 
-  const finishTextEditing = () => {
-      if (textEditing) { 
-          if (!textEditing.text.trim()) { 
-              setShapes(prev => prev.filter(s => s.id !== textEditing.id)); 
-          } else { 
-              setShapes(prev => prev.map(s => s.id === textEditing.id ? { ...s, text: textEditing.text } : s)); 
-          } 
-          setTextEditing(null); 
-          setSelectedIds(new Set());
-      }
-  };
-
-  const cancelTextEditing = () => {
-      if (textEditing) {
-          const shape = shapes.find(s => s.id === textEditing.id);
-          if (shape && !shape.text) setShapes(prev => prev.filter(s => s.id !== textEditing.id));
-          setTextEditing(null);
-      }
-  };
-
   const handleDoubleClick = (e: React.MouseEvent) => {
       const pos = getMousePos(e, false);
       
@@ -178,46 +134,13 @@ export function Editor() {
       }
   };
 
-  useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-          if (e.key === 'Alt') setIsAltPressed(true); if (e.key === 'Shift') setIsShiftPressed(true);
-          const target = e.target as HTMLElement;
-          if (target.tagName === 'INPUT') return;
-          if (textEditing || angleEditing) return;
-          if (selectedIds.size > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-              e.preventDefault(); const step = 1;
-              const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0; const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-              saveHistory();
-              setShapes(prev => {
-                  const movedShapes = prev.map(s => { if (selectedIds.has(s.id)) { if (s.type === ShapeType.FUNCTION_GRAPH) return s; const newPoints = s.points.map(p => ({ x: p.x + dx, y: p.y + dy, p: p.p })); return { ...s, points: newPoints }; } return s; });
-                  return movedShapes.map(s => { if (s.type === ShapeType.MARKER && s.markerConfig) { const targetId = s.markerConfig.targets[0].shapeId; const updatedTarget = movedShapes.find(ms => ms.id === targetId); if (updatedTarget) return recalculateMarker(s, movedShapes) || s; } return s; });
-              }); return;
-          }
-          if (e.key === 'a' || e.key === 'A') { setTool(ToolType.SELECT); return; }
-          if (e.key === 'l' || e.key === 'L') { setTool(ToolType.LINE); return; }
-          if (e.key === 'p' || e.key === 'P') { setTool(ToolType.POINT); return; }
-          if (e.key === 'f' || e.key === 'F') { setTool(ToolType.FREEHAND); return; }
-          if (e.key === 'e' || e.key === 'E') { setTool(ToolType.ERASER); return; }
-          if (e.key === 'r' || e.key === 'R') { setTool(ToolType.RULER); return; }
-          if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { const selected = shapes.filter(s => selectedIds.has(s.id)); if (selected.length > 0) setClipboard(JSON.parse(JSON.stringify(selected))); return; }
-          if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
-          if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelectedIds(new Set(shapes.map(s => s.id))); return; }
-          if (e.key === 'Enter') { finishTextEditing(); return; }
-          if (e.key === 'Escape') {
-              if (textEditing) { cancelTextEditing(); return; }
-              if (pickingMirrorMode) { setPickingMirrorMode(false); return; }
-              if (markingAnglesMode) { setMarkingAnglesMode(false); return; }
-              if (activeShapeId) { setShapes(prev => prev.filter(s => s.id !== activeShapeId)); setActiveShapeId(null); setIsDragging(false); setTool(ToolType.SELECT); return; }
-              if (tool === ToolType.COMPASS && compassState.center) { setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null); return; }
-              if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
-              if (tool !== ToolType.SELECT) { setTool(ToolType.SELECT); return; }
-          }
-          if ((e.key === 'Delete' || e.key === 'Backspace')) { deleteSelected(); }
-      };
-      const handleKeyUp = (e: KeyboardEvent) => { if (e.key === 'Alt') setIsAltPressed(false); if (e.key === 'Shift') setIsShiftPressed(false); };
-      window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
-      return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedIds, textEditing, angleEditing, shapes, history, activeShapeId, pickingMirrorMode, markingAnglesMode, tool, compassState, clipboard, saveHistory]); 
+  useKeyboardShortcuts({
+      selectedIds, setSelectedIds, shapes, setShapes, saveHistory, undo, deleteSelected,
+      clipboard, setClipboard, history, tool, setTool, textEditing, angleEditing,
+      finishTextEditing, cancelTextEditing, activeShapeId, setActiveShapeId, setIsDragging,
+      pickingMirrorMode, setPickingMirrorMode, markingAnglesMode, setMarkingAnglesMode,
+      compassState, setCompassState, setCompassPreviewPath, setIsAltPressed, setIsShiftPressed
+  });
 
   const getMousePos = (e: React.PointerEvent | PointerEvent | React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0, p: 0.5 };
@@ -255,12 +178,7 @@ export function Editor() {
   };
 
   const handleToolChange = (newTool: ToolType) => {
-    setTool(newTool); setSelectedIds(new Set()); setSnapIndicator(null); setCursorPos(null);
-    if (selectionRectRef.current) { selectionRectRef.current.style.display = 'none'; selectionRectRef.current.setAttribute('width', '0'); selectionRectRef.current.setAttribute('height', '0'); }
-    selectionStartRef.current = null;
-    setActiveShapeId(null); setTextEditing(null); setAngleEditing(null); setPickingMirrorMode(false); setMarkingAnglesMode(false); setHoveredShapeId(null);
-    setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null);
-    transientStateRef.current = null;
+    setTool(newTool); setSelectedIds(new Set()); resetSession(); setTextEditing(null); setAngleEditing(null); setPickingMirrorMode(false); setMarkingAnglesMode(false); transientStateRef.current = null;
   };
 
   // Unified logic to determine if a point should be bound to a shape's edge or another point
@@ -821,15 +739,7 @@ export function Editor() {
                     {angleEditing && (
                         <div style={{ position: 'absolute', left: angleEditing.x, top: angleEditing.y, transform: 'translate(-50%, -50%)' }}>
                             <input ref={angleInputRef} type="number" value={angleEditing.value} onChange={(e) => setAngleEditing(prev => prev ? ({ ...prev, value: e.target.value }) : null)} onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    const newValue = parseFloat(angleEditing.value);
-                                    if (!isNaN(newValue) && newValue > 0 && newValue < 180) {
-                                        saveHistory();
-                                        const { id, index } = angleEditing;
-                                        setShapes(prev => prev.map(s => s.id !== id ? s : (applyAngleEdit(s, index, newValue) || s)));
-                                        setAngleEditing(null);
-                                    }
-                                }
+                                if (e.key === 'Enter') commitAngleEdit();
                                 if (e.key === 'Escape') setAngleEditing(null);
                             }} onBlur={() => setAngleEditing(null)} className="bg-white border border-blue-500 rounded px-1 py-0.5 text-sm font-sans shadow-lg outline-none w-20 text-center" autoFocus />
                         </div>
