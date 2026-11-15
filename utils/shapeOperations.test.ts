@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     getHitShape, getSelectionBounds, calculateResizedShape,
-    calculateMovedShape, calculateRotatedShape
+    calculateMovedShape, calculateRotatedShape, removeShapesWithDependents
 } from './shapeOperations';
 import { getRotatedCorners } from './mathUtils';
 import { Shape, ShapeType, Point } from '../types';
@@ -388,5 +388,44 @@ describe('calculateRotatedShape', () => {
         const point = createShape('p1', ShapeType.POINT, [{ x: 10, y: 0, p: 0.7 }]);
         const result = calculateRotatedShape(point, 90, { x: 0, y: 0 }, false);
         expect(result.points[0].p).toBe(0.7);
+    });
+});
+
+describe('removeShapesWithDependents', () => {
+    const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 100 }]);
+    const constrainedPoint = createShape('p1', ShapeType.POINT, [{ x: 50, y: 0 }], {
+        constraint: { type: 'on_edge', parentId: 'r1', edgeIndex: 0, paramT: 0.5 }
+    });
+    const marker = createShape('m1', ShapeType.MARKER, [{ x: 0, y: 0 }], {
+        markerConfig: { type: 'angle_arc', targets: [{ shapeId: 'r1', pointIndices: [0, 1, 2] }] }
+    });
+    const linkedLine = createShape('l1', ShapeType.LINE, [{ x: 0, y: 0 }, { x: 10, y: 10 }], {
+        constraint: { type: 'points_link', parents: ['p1', null] }
+    });
+    const freePoint = createShape('p2', ShapeType.POINT, [{ x: 200, y: 200 }]);
+
+    it('removes targeted shapes', () => {
+        const result = removeShapesWithDependents([rect, freePoint], new Set(['r1']));
+        expect(result.map(s => s.id)).toEqual(['p2']);
+    });
+
+    it('cascades to points constrained via parentId and attached markers', () => {
+        const result = removeShapesWithDependents([rect, constrainedPoint, marker, freePoint], new Set(['r1']));
+        expect(result.map(s => s.id)).toEqual(['p2']);
+    });
+
+    it('does not cascade through points_link parents[] (only parentId)', () => {
+        const result = removeShapesWithDependents([constrainedPoint, linkedLine], new Set(['p1']));
+        expect(result.map(s => s.id)).toEqual(['l1']);
+    });
+
+    it('keeps shapes whose parentId points to a surviving shape', () => {
+        const result = removeShapesWithDependents([rect, constrainedPoint, marker], new Set(['p2']));
+        expect(result.map(s => s.id)).toEqual(['r1', 'p1', 'm1']);
+    });
+
+    it('handles an empty id set and empty shapes', () => {
+        expect(removeShapesWithDependents([rect], new Set())).toEqual([rect]);
+        expect(removeShapesWithDependents([], new Set(['r1']))).toEqual([]);
     });
 });

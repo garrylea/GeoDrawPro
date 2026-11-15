@@ -370,9 +370,22 @@ export const calculateRotatedShape = (
     const dRx = newCenter.x - center.x;
     const dRy = newCenter.y - center.y;
     
-    return { 
-        ...shape, 
-        points: shape.points.map(p => ({ x: p.x + dRx, y: p.y + dRy, p: p.p })), 
-        rotation: newRotation 
+    return {
+        ...shape,
+        points: shape.points.map(p => ({ x: p.x + dRx, y: p.y + dRy, p: p.p })),
+        rotation: newRotation
     };
 };
+
+/**
+ * Removes the given shapes plus their direct dependents: points constrained
+ * via parentId and markers attached to a removed target. Note: only parentId
+ * is checked, not parents[] (points_link lines survive endpoint deletion).
+ */
+export const removeShapesWithDependents = (shapes: Shape[], ids: Set<string>): Shape[] =>
+    shapes.filter(s => {
+        if (ids.has(s.id)) return false;
+        if (s.constraint && ids.has(s.constraint.parentId || '')) return false;
+        if (s.type === ShapeType.MARKER && s.markerConfig && ids.has(s.markerConfig.targets[0].shapeId)) return false;
+        return true;
+    });

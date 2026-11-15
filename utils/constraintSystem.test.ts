@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveConstraints, constrainPointToEdge, constrainPointToPath, getDependents } from './constraintSystem';
+import { resolveConstraints, constrainPointToEdge, constrainPointToPath, getDependents, buildLinePointsLink } from './constraintSystem';
 import { getSnapPoint, getRotatedCorners, isPointInShape } from './mathUtils';
 import { calculateMovedShape } from './shapeOperations';
 import { Shape, ShapeType, Point } from '../types';
@@ -710,5 +710,32 @@ describe('snap → constraint round trip', () => {
         const final = resolved.find(s => s.id === 'l1')!;
         expect(final.points[0]).toEqual({ x: 0, y: 0 });
         expect(final.points[1]).toEqual({ x: 20, y: 20 });
+    });
+});
+
+describe('buildLinePointsLink', () => {
+    it('returns undefined when neither endpoint is linked', () => {
+        expect(buildLinePointsLink(undefined, undefined)).toBeUndefined();
+        expect(buildLinePointsLink({ type: 'on_edge', parentId: 'r1' }, { type: 'on_path', parentId: 'c1' })).toBeUndefined();
+    });
+
+    it('links the start endpoint only', () => {
+        expect(buildLinePointsLink({ type: 'points_link', parentId: 'p1' }, undefined))
+            .toEqual({ type: 'points_link', parents: ['p1', null] });
+    });
+
+    it('links the end endpoint only', () => {
+        expect(buildLinePointsLink(undefined, { type: 'points_link', parentId: 'p2' }))
+            .toEqual({ type: 'points_link', parents: [null, 'p2'] });
+    });
+
+    it('links both endpoints', () => {
+        expect(buildLinePointsLink({ type: 'points_link', parentId: 'p1' }, { type: 'points_link', parentId: 'p2' }))
+            .toEqual({ type: 'points_link', parents: ['p1', 'p2'] });
+    });
+
+    it('ignores non-points_link constraints even with a parentId', () => {
+        expect(buildLinePointsLink({ type: 'on_edge', parentId: 'p1' }, { type: 'points_link', parentId: 'p2' }))
+            .toEqual({ type: 'points_link', parents: [null, 'p2'] });
     });
 });

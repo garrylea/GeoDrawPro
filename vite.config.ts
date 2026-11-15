@@ -19,7 +19,7 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     coverage: {
       provider: 'v8',
-      include: ['utils/**', 'components/**', 'electron/**', 'server/**', 'App.tsx', 'index.tsx', 'constants.ts'],
+      include: ['utils/**', 'hooks/**', 'components/**', 'electron/**', 'server/**', 'App.tsx', 'index.tsx', 'constants.ts'],
       reporter: ['text', 'html'],
     }
   }

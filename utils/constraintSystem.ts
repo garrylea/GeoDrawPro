@@ -1,4 +1,4 @@
-import { Shape, ShapeType, Point } from '../types';
+import { Shape, ShapeType, Point, Constraint } from '../types';
 import { lerp, evaluateQuadratic, mathToScreen, getRotatedCorners, getShapeCenter, rotatePoint } from './mathUtils';
 
 /**
@@ -225,9 +225,20 @@ export const constrainPointToPath = (
         };
         
         if (parent.rotation) projected = rotatePoint(projected, center, parent.rotation);
-        
+
         return { point: projected, angle: relativeAngle };
     }
-    
+
     return { point: cursorPos, angle: 0 };
+};
+
+/**
+ * Builds the points_link constraint for a LINE from its two endpoint snap
+ * constraints. Returns undefined when neither endpoint is linked to a POINT.
+ */
+export const buildLinePointsLink = (startC?: Constraint, endC?: Constraint): Constraint | undefined => {
+    const startPointId = startC?.type === 'points_link' ? startC.parentId : null;
+    const endPointId = endC?.type === 'points_link' ? endC.parentId : null;
+    if (!startPointId && !endPointId) return undefined;
+    return { type: 'points_link', parents: [startPointId || null, endPointId || null] };
 };
