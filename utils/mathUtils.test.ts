@@ -364,8 +364,9 @@ describe('isPointInShape', () => {
         expect(isPointInShape({ x: 400, y: 150 }, ellipse)).toBe(false);
     });
 
-    it('hits a transparent ellipse only near its edge', () => {
+    it('hits a transparent ellipse by its interior and edge', () => {
         const ellipse = createShape('e1', ShapeType.ELLIPSE, [{ x: 100, y: 100 }, { x: 300, y: 200 }]);
+        expect(isPointInShape({ x: 200, y: 120 }, ellipse)).toBe(true);
         expect(isPointInShape({ x: 300, y: 150 }, ellipse)).toBe(true);
         expect(isPointInShape({ x: 320, y: 150 }, ellipse)).toBe(false);
     });
@@ -384,16 +385,16 @@ describe('isPointInShape', () => {
         expect(isPointInShape({ x: 100, y: 150 }, ellipse)).toBe(false);
     });
 
-    it('does not select a hollow polygon by its interior', () => {
+    it('selects a polygon by its interior regardless of fill', () => {
         const polygon = createShape('p1', ShapeType.POLYGON, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }]);
-        expect(isPointInShape({ x: 50, y: 50 }, polygon)).toBe(false);
+        expect(isPointInShape({ x: 50, y: 50 }, polygon)).toBe(true);
         expect(isPointInShape({ x: 50, y: 2 }, polygon)).toBe(true);
         expect(isPointInShape({ x: 50, y: 50 }, { ...polygon, fill: 'blue' })).toBe(true);
     });
 
-    it('does not select a hollow triangle by its interior', () => {
+    it('selects a triangle by its interior regardless of fill', () => {
         const triangle = createShape('t1', ShapeType.TRIANGLE, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }]);
-        expect(isPointInShape({ x: 20, y: 20 }, triangle)).toBe(false);
+        expect(isPointInShape({ x: 20, y: 20 }, triangle)).toBe(true);
         expect(isPointInShape({ x: 2, y: 20 }, triangle)).toBe(true);
         expect(isPointInShape({ x: 20, y: 20 }, { ...triangle, fill: 'blue' })).toBe(true);
     });

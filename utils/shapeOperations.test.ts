@@ -27,9 +27,9 @@ describe('getHitShape', () => {
         expect(getHitShape({ x: 50, y: 50 }, [rect], W, H, PPU)).toBe(rect);
     });
 
-    it('does not select a transparent rectangle by its interior, only near its edges', () => {
+    it('selects a transparent rectangle by its interior as well as its edges', () => {
         const rect = createShape('r1', ShapeType.RECTANGLE, [{ x: 0, y: 0 }, { x: 100, y: 100 }]);
-        expect(getHitShape({ x: 50, y: 50 }, [rect], W, H, PPU)).toBeNull();
+        expect(getHitShape({ x: 50, y: 50 }, [rect], W, H, PPU)).toBe(rect);
         expect(getHitShape({ x: 50, y: 2 }, [rect], W, H, PPU)).toBe(rect);
     });
 

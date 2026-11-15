@@ -472,7 +472,7 @@ describe('Constraint System', () => {
         expect(isPointInShape({x:150, y:150}, circle)).toBe(true);
         
         const transparentCircle = { ...circle, fill: 'transparent' };
-        expect(isPointInShape({x:150, y:150}, transparentCircle)).toBe(false);
+        expect(isPointInShape({x:150, y:150}, transparentCircle)).toBe(true);
         expect(isPointInShape({x:100, y:150}, transparentCircle)).toBe(true);
     });
 

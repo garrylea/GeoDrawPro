@@ -399,16 +399,9 @@ export const isPointInShape = (
     
     if ([ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.TEXT].includes(shape.type)) {
         const corners = getRotatedCorners(shape);
-        const isInside = isPointInPolygon(p, corners);
-        
-        // HOLLOW SELECTION: If it's a shape (not image/text/tool) and fill is transparent, 
-        // don't select by interior.
-        const isInteractiveTool = [ShapeType.IMAGE, ShapeType.RULER, ShapeType.PROTRACTOR, ShapeType.TEXT].includes(shape.type);
-        const hasFill = shape.fill && shape.fill !== 'transparent';
-        
-        if (isInside && (hasFill || isInteractiveTool)) return true;
-        
-        // Edge detection for transparent shapes or near misses
+        if (isPointInPolygon(p, corners)) return true;
+
+        // Edge detection for near misses just outside the shape
         const tempShape = { ...shape, points: corners, type: ShapeType.POLYGON };
         const closest = getClosestPointOnShape(p, tempShape);
         return distance(p, closest) < threshold;
@@ -419,9 +412,8 @@ export const isPointInShape = (
          // Visual radius is half of the width/height of the bounding box
          const radius = Math.abs(shape.points[1].x - shape.points[0].x) / 2;
          const d = distance(p, center);
-         const hasFill = shape.fill && shape.fill !== 'transparent';
-         
-         if (hasFill && d <= radius + threshold/2) return true;
+
+         if (d <= radius + threshold/2) return true;
          return Math.abs(d - radius) < threshold;
     }
     
@@ -431,11 +423,10 @@ export const isPointInShape = (
         if (shape.rotation) localP = rotatePoint(p, center, -shape.rotation);
         const rx = Math.abs(shape.points[0].x - shape.points[1].x) / 2;
         const ry = Math.abs(shape.points[0].y - shape.points[1].y) / 2;
-        const hasFill = shape.fill && shape.fill !== 'transparent';
 
         if (rx > 0 && ry > 0) {
             const val = Math.pow(localP.x - center.x, 2) / (rx * rx) + Math.pow(localP.y - center.y, 2) / (ry * ry);
-            if (hasFill && val <= 1) return true;
+            if (val <= 1) return true;
             // Edge check for ellipse
             const edgeThreshold = 0.15; // relative tolerance
             return Math.abs(val - 1) < edgeThreshold || distance(p, getClosestPointOnShape(p, shape)) < threshold;
@@ -445,11 +436,8 @@ export const isPointInShape = (
 
     if ((shape.type === ShapeType.POLYGON || shape.type === ShapeType.TRIANGLE) && shape.points.length >= 3) {
         const corners = getRotatedCorners(shape);
-        const isInside = isPointInPolygon(p, corners);
-        const hasFill = shape.fill && shape.fill !== 'transparent';
-        
-        if (hasFill && isInside) return true;
-        
+        if (isPointInPolygon(p, corners)) return true;
+
         const tempShape = { ...shape, points: corners, type: ShapeType.POLYGON };
         const closest = getClosestPointOnShape(p, tempShape);
         return distance(p, closest) < threshold;
