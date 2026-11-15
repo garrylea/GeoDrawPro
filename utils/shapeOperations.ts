@@ -157,7 +157,7 @@ export const calculateResizedShape = (
 
         // 1. Calculate World/Screen coordinates for ALL points
         // This effectively "applies" the rotation permanently to the points.
-        const screenPoints = shape.points.map(p => rotatePoint(p, center, rotation));
+        const screenPoints = shape.points.map(p => ({ ...rotatePoint(p, center, rotation), p: p.p }));
         
         // 2. Update the dragged point to the exact cursor position (World Space)
         // Accessing property 'p' safely in case element is undefined (though length check above handles most cases)
