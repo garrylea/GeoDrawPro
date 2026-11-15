@@ -9,8 +9,7 @@ interface UseDocumentDeps {
 
 /**
  * Document state: shapes, undo history, selection, clipboard and dirty tracking.
- * Moved verbatim from Editor.tsx (S4); setPivotIndex/setActiveShapeId remain
- * Editor-local state until S6.
+ * setPivotIndex/setActiveShapeId are supplied by useInteractionSession.
  */
 export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps) => {
     const [shapes, setShapes] = useState<Shape[]>([]);
@@ -60,7 +59,7 @@ export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps
 
     return {
         shapes, setShapes, shapesRef, saveHistory, undo,
-        history, // read-only: Editor's keyboard effect lists it in its deps (moves in S6)
+        history, // read-only: useKeyboardShortcuts lists it in its effect deps
         selectedIds, setSelectedIds, deleteSelected, clearAll,
         clipboard, setClipboard, isDirty, setIsDirty, isDirtyRef, currentFilePathRef
     };

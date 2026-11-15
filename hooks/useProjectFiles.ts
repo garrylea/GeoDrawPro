@@ -95,7 +95,7 @@ export const useProjectFiles = ({
                 generateId,
                 onProgress: (message) => setLoadingState({ active: true, message })
             });
-            // 0 means no page rendered; the original only set height inside the first-page branch
+            // 0 means the first page didn't render; the original only set height inside the first-page branch
             if (result.pageHeight > 0) setPageHeight(result.pageHeight);
             saveHistory();
             // Append new shapes (PDF pages) to existing shapes
