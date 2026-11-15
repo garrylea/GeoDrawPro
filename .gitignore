@@ -119,3 +119,9 @@ dist
 # Vite
 dist-electron
 release
+
+# macOS
+.DS_Store
+
+# Qoder
+.qoder/
