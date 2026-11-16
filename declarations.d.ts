@@ -1,4 +1,5 @@
 declare module 'pdfjs-dist/build/pdf.mjs';
+declare module 'katex/dist/katex.min.css';
 
 // Minimal Vite env typing (project does not reference vite/client types).
 interface ImportMetaEnv {

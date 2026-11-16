@@ -1,6 +1,6 @@
 import React from 'react';
-import katex from 'katex';
 import { Shape, ShapeType, Point, ToolType } from '../types';
+import { LatexText } from './editor/LatexText';
 import { getSmoothSvgPath, getVariableWidthPath } from '../utils/svgPaths';
 import { getShapeCenter } from '../utils/shapeGeometry';
 
@@ -209,47 +209,17 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
         if (isLatex) {
             let formula = text;
             if (hasLatexMarker) formula = text.slice(1, -1);
-            
-            try {
-                // Force HTML output only to prevent double rendering
-                const html = katex.renderToString(formula, { 
-                    throwOnError: false,
-                    output: 'html',
-                    displayMode: false
-                });
-                const fs = fontSize || 16;
-                // Generous width for formulas, height scales with content
-                const estWidth = Math.max(100, text.length * fs * 1.2);
-                const estHeight = fs * 4;
-                
-                element = (
-                    <foreignObject 
-                        x={p0.x} 
-                        y={p0.y - fs * 0.9} 
-                        width={estWidth} 
-                        height={estHeight}
-                        style={{ overflow: 'visible', pointerEvents: 'none' }}
-                    >
-                        <div 
-                            className="katex-render-container" 
-                            style={{ 
-                                color: stroke, 
-                                userSelect: 'none',
-                                display: 'inline-block',
-                                minWidth: '100px',
-                                minHeight: '50px'
-                            }}
-                        >
-                            {/* Force displayMode true for fractions to look better, but keep inline for normal text integration if needed */}
-                            <div className="katex">
-                                <span className="katex-html" dangerouslySetInnerHTML={{ __html: html }} />
-                            </div>
-                        </div>
-                    </foreignObject>
-                );
-            } catch (err) {
-                element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
-            }
+
+            element = (
+                <LatexText
+                    text={text}
+                    formula={formula}
+                    x={p0.x}
+                    y={p0.y}
+                    stroke={stroke}
+                    fontSize={fontSize}
+                />
+            );
         } else {
             element = <text x={p0.x} y={p0.y} fill={stroke} fontSize={fontSize || 16} fontFamily="sans-serif" dominantBaseline="hanging" style={{ userSelect: 'none' }}>{text}</text>;
         }
@@ -362,9 +332,11 @@ export const ShapeRenderer = React.memo(({ shape, isSelected, tool, pixelsPerUni
       return null;
   }
 
+  const isLatexElement = React.isValidElement(element) && element.type === LatexText;
+
   return (
     <g className="shape-group" transform={rotationTransform} style={{ cursor: tool !== ToolType.SELECT ? 'inherit' : (isSelected ? 'move' : 'pointer') }} data-shape-id={shape.id}>
-      {isSelected && type !== ShapeType.IMAGE && (
+      {isSelected && type !== ShapeType.IMAGE && !isLatexElement && (
           <g style={{ opacity: 0.3, pointerEvents: 'none' }}>
              {React.cloneElement(element as React.ReactElement<any>, { 
                  stroke: '#60a5fa', 

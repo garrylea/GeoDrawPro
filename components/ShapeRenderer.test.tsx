@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { ShapeRenderer } from './ShapeRenderer';
 import { ShapeType } from '../types';
 import { makeShape, renderInSvg } from '../test/componentHelpers';
@@ -333,29 +333,38 @@ describe('ShapeRenderer text', () => {
         expect(screen.getByText('Big').getAttribute('font-size')).toBe('32');
     });
 
-    it('renders dollar-wrapped latex through KaTeX', () => {
+    it('renders dollar-wrapped latex through KaTeX', async () => {
         const { container } = renderInSvg(
             <ShapeRenderer shape={makeShape('t', ShapeType.TEXT, [{ x: 0, y: 0 }], { text: '$x^2$' })} isSelected={false} />
         );
+        await waitFor(() => expect(container.querySelector('.katex-html')).toBeTruthy());
         expect(container.querySelector('foreignObject')).toBeTruthy();
         expect(container.querySelector('.katex-render-container')).toBeTruthy();
         expect(container.querySelector('.katex-html')!.innerHTML).toContain('katex');
         expect(container.querySelector('text')).toBeNull();
     });
 
-    it('renders backslash commands as latex without dollar markers', () => {
+    it('renders backslash commands as latex without dollar markers', async () => {
         const { container } = renderInSvg(
             <ShapeRenderer shape={makeShape('t', ShapeType.TEXT, [{ x: 0, y: 0 }], { text: '\\frac{1}{2}' })} isSelected={false} />
         );
-        expect(container.querySelector('foreignObject')).toBeTruthy();
+        await waitFor(() => expect(container.querySelector('foreignObject')).toBeTruthy());
     });
 
-    it('falls back to plain text for invalid latex', () => {
+    it('falls back to plain text for invalid latex', async () => {
         const { container } = renderInSvg(
             <ShapeRenderer shape={makeShape('t', ShapeType.TEXT, [{ x: 0, y: 0 }], { text: '$\\frac{$' })} isSelected={false} />
         );
         // throwOnError:false means KaTeX still renders an error span, not a crash
-        expect(container.querySelector('foreignObject')).toBeTruthy();
+        await waitFor(() => expect(container.querySelector('foreignObject')).toBeTruthy());
+    });
+
+    it('renders selected latex without crashing and keeps the KaTeX markup', async () => {
+        const { container } = renderInSvg(
+            <ShapeRenderer shape={makeShape('t', ShapeType.TEXT, [{ x: 0, y: 0 }], { text: '$x^2$' })} isSelected={true} />
+        );
+        await waitFor(() => expect(container.querySelector('.katex-html')).toBeTruthy());
+        expect(container.querySelectorAll('foreignObject')).toHaveLength(1);
     });
 });
 
