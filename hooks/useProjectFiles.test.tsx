@@ -81,9 +81,9 @@ afterEach(() => {
 });
 
 describe('useProjectFiles mount effects', () => {
-    it('initializes the PDF worker and exposes a file input ref', () => {
+    it('does not initialize the PDF worker on mount and exposes a file input ref', () => {
         const { hook } = setup();
-        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
+        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeNull();
         expect(hook.result.current.fileInputRef.current).toBeNull();
         expect(hook.result.current.loadingState).toEqual({ active: false, message: '' });
         expect(hook.result.current.saveMessage).toBeNull();
@@ -356,6 +356,13 @@ describe('useProjectFiles.processPdfFile', () => {
         expect(params.saveHistory).toHaveBeenCalled();
         expect(params.setLockBackground).toHaveBeenCalledWith(true);
         expect(hook.result.current.loadingState).toEqual({ active: false, message: '' });
+    });
+
+    it('initializes the PDF worker lazily during import', async () => {
+        mockPdfPages(1);
+        const { hook } = setup();
+        await act(async () => { await hook.result.current.processPdfFile(pdfFile()); });
+        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
     });
 
     it('alerts and clears the overlay when the PDF fails to load', async () => {

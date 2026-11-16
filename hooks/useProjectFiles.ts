@@ -4,7 +4,6 @@ import { saveProject } from '../utils/exportUtils';
 import { createImageShape } from '../utils/shapeFactory';
 import { sanitizeLoadedShapes } from '../utils/shapeOperations';
 import { LOGICAL_CANVAS_WIDTH } from './useViewport';
-import { initPdfWorker, renderPdfToShapes } from '../utils/pdfImport';
 
 interface UseProjectFilesDeps {
     shapes: Shape[];
@@ -40,11 +39,6 @@ export const useProjectFiles = ({
     const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // Initialize PDF worker locally for offline/Electron support
-    useEffect(() => {
-        initPdfWorker();
-    }, []);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -90,6 +84,7 @@ export const useProjectFiles = ({
 
     const processPdfFile = useCallback(async (file: File) => {
         try {
+            const { renderPdfToShapes } = await import('../utils/pdfImport');
             const result = await renderPdfToShapes(file, {
                 logicalCanvasWidth: LOGICAL_CANVAS_WIDTH,
                 generateId,

@@ -1,23 +1,29 @@
 import { Shape } from '../types';
 import { createImageShape } from './shapeFactory';
-// Use explicit paths for pdfjs-dist to ensure Vite resolves them correctly
-import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
-// @ts-ignore
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker';
 
-/**
- * PDF import pipeline moved verbatim from Editor.tsx (S5).
- * The two pdfjs import specifiers above must stay byte-identical:
- * Editor.test.tsx mocks these exact modules.
- */
+// pdfjs is loaded lazily so the worker chunk stays out of the initial bundle.
+// The two dynamic import specifiers below must stay byte-identical:
+// Editor.test.tsx / Editor.transient.test.tsx / useProjectFiles.test.tsx mock these exact modules.
 
-// Initialize PDF worker locally for offline/Electron support
-export const initPdfWorker = () => {
-    try {
-        pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
-    } catch (e) {
-        console.error("Failed to initialize PDF worker:", e);
+type PdfjsModule = typeof import('pdfjs-dist/build/pdf.mjs');
+
+let readyPromise: Promise<PdfjsModule> | null = null;
+
+export const ensurePdfReady = (): Promise<PdfjsModule> => {
+    if (!readyPromise) {
+        readyPromise = (async () => {
+            const pdfjsLib = await import('pdfjs-dist/build/pdf.mjs');
+            try {
+                // @ts-ignore
+                const { default: PdfWorker } = await import('pdfjs-dist/build/pdf.worker.mjs?worker');
+                pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+            } catch (e) {
+                console.error('Failed to initialize PDF worker:', e);
+            }
+            return pdfjsLib;
+        })();
     }
+    return readyPromise;
 };
 
 export const renderPdfToShapes = async (
@@ -25,8 +31,8 @@ export const renderPdfToShapes = async (
     opts: { logicalCanvasWidth: number; generateId: () => string; onProgress: (message: string) => void }
 ): Promise<{ shapes: Shape[]; pageHeight: number; pageCount: number }> => {
     opts.onProgress('Loading PDF...');
+    const pdfjsLib = await ensurePdfReady();
     const arrayBuffer = await file.arrayBuffer();
-    // Use the explicitly imported pdfjsLib
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages;

@@ -1,12 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
-// @ts-ignore
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker';
-import { initPdfWorker, renderPdfToShapes } from './pdfImport';
 import { ShapeType } from '../types';
 
-// Exact specifiers — must match Editor.test.tsx's mocks byte-for-byte.
+// Exact specifiers — must match Editor.test.tsx / Editor.transient.test.tsx / useProjectFiles.test.tsx.
 vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
     GlobalWorkerOptions: { workerPort: null },
     getDocument: vi.fn(),
@@ -22,6 +18,11 @@ vi.mock('pdfjs-dist/build/pdf.worker.mjs?worker', () => ({
         }
     },
 }));
+
+let pdfjsLib: typeof import('pdfjs-dist/build/pdf.mjs');
+let PdfWorker: any;
+let ensurePdfReady: typeof import('./pdfImport').ensurePdfReady;
+let renderPdfToShapes: typeof import('./pdfImport').renderPdfToShapes;
 
 const pdfFile = () => new File(['%PDF-1.4 test'], 'doc.pdf', { type: 'application/pdf' });
 
@@ -48,8 +49,14 @@ const makeOpts = () => {
     };
 };
 
-beforeEach(() => {
-    vi.mocked(pdfjsLib.getDocument).mockReset();
+// resetModules 让 pdfImport 的模块级 readyPromise 每个测试重新初始化；
+// mock 工厂随之重新执行，GlobalWorkerOptions 与 failNext 也是全新状态。
+beforeEach(async () => {
+    vi.resetModules();
+    pdfjsLib = await import('pdfjs-dist/build/pdf.mjs');
+    // @ts-ignore
+    PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default;
+    ({ ensurePdfReady, renderPdfToShapes } = await import('./pdfImport'));
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as any);
     vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,page');
 });
@@ -57,16 +64,22 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('initPdfWorker', () => {
-    it('assigns a fresh worker instance to GlobalWorkerOptions.workerPort', () => {
-        initPdfWorker();
+describe('ensurePdfReady', () => {
+    it('assigns workerPort and resolves the pdfjs module', async () => {
+        const mod = await ensurePdfReady();
         expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
+        expect(mod.getDocument).toBe(pdfjsLib.getDocument);
     });
-
-    it('logs and swallows worker construction errors', () => {
-        (PdfWorker as any).failNext = true;
+    it('constructs the worker once across repeated calls', async () => {
+        await ensurePdfReady();
+        const first = pdfjsLib.GlobalWorkerOptions.workerPort;
+        await ensurePdfReady();
+        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBe(first);
+    });
+    it('logs and swallows worker construction errors', async () => {
+        PdfWorker.failNext = true;
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        expect(() => initPdfWorker()).not.toThrow();
+        await expect(ensurePdfReady()).resolves.toBeDefined();
         expect(errSpy).toHaveBeenCalledWith('Failed to initialize PDF worker:', expect.any(Error));
     });
 });
