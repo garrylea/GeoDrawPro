@@ -33,6 +33,23 @@ describe('StatusToasts', () => {
         expect(screen.getByText('Importing PDF')).toBeTruthy();
         expect(screen.getByText('Saved')).toBeTruthy();
     });
+
+    it('uses a custom loading title when provided', () => {
+        render(<StatusToasts loadingState={{ active: true, title: 'Importing Image', message: '正在转换 HEIC 图片…' }} saveMessage={null} />);
+        expect(screen.getByText('Importing Image')).toBeTruthy();
+        expect(screen.queryByText('Importing PDF')).toBeNull();
+        expect(screen.getByText('正在转换 HEIC 图片…')).toBeTruthy();
+    });
+
+    it('renders an error toast when errorMessage is set', () => {
+        render(<StatusToasts loadingState={{ active: false, message: '' }} saveMessage={null} errorMessage="转换失败" />);
+        expect(screen.getByText('转换失败')).toBeTruthy();
+    });
+
+    it('renders no error toast when errorMessage is null', () => {
+        const { container } = render(<StatusToasts loadingState={{ active: false, message: '' }} saveMessage={null} errorMessage={null} />);
+        expect(container.childElementCount).toBe(0);
+    });
 });
 
 describe('AddPageButton', () => {

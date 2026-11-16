@@ -26,11 +26,12 @@ export const AddPageButton: React.FC<AddPageButtonProps> = ({ pageCount, onAdd }
 };
 
 interface StatusToastsProps {
-    loadingState: { active: boolean; message: string };
+    loadingState: { active: boolean; message: string; title?: string };
     saveMessage: string | null;
+    errorMessage?: string | null;
 }
 
-export const StatusToasts: React.FC<StatusToastsProps> = ({ loadingState, saveMessage }) => {
+export const StatusToasts: React.FC<StatusToastsProps> = ({ loadingState, saveMessage, errorMessage }) => {
     return (
         <>
             {loadingState.active && (
@@ -38,7 +39,7 @@ export const StatusToasts: React.FC<StatusToastsProps> = ({ loadingState, saveMe
                     <div className="bg-white p-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 min-w-[300px]">
                         <Loader2 size={40} className="text-blue-600 animate-spin" />
                         <div className="flex flex-col items-center gap-1">
-                            <h3 className="font-bold text-lg text-slate-800">Importing PDF</h3>
+                            <h3 className="font-bold text-lg text-slate-800">{loadingState.title ?? 'Importing PDF'}</h3>
                             <p className="text-slate-500 text-sm">{loadingState.message}</p>
                         </div>
                     </div>
@@ -50,6 +51,14 @@ export const StatusToasts: React.FC<StatusToastsProps> = ({ loadingState, saveMe
                     <div className="bg-emerald-500 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2 border border-emerald-400">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         {saveMessage}
+                    </div>
+                </div>
+            )}
+            {errorMessage && (
+                <div className="fixed top-32 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="bg-red-500 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2 border border-red-400">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        {errorMessage}
                     </div>
                 </div>
             )}
