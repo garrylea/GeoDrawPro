@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, desktopCapturer, screen, protocol, Menu } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -487,4 +491,37 @@ ipcMain.handle('open-dialog', async (event) => {
   } catch (e) {
     return { canceled: false, error: e.message };
   }
+});
+
+ipcMain.handle('CONVERT_HEIC', async (event, { filePath } = {}) => {
+    if (process.platform !== 'darwin') {
+        return { success: false, code: 'UNSUPPORTED_PLATFORM' };
+    }
+    if (typeof filePath !== 'string' || !/\.(heic|heif)$/i.test(filePath) || !fs.existsSync(filePath)) {
+        return { success: false, code: 'NOT_FOUND' };
+    }
+
+    let tmpDir = null;
+    try {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geodraw-heic-'));
+        const outPath = path.join(tmpDir, 'converted.png');
+        await execFileAsync(
+            '/usr/bin/sips',
+            ['-s', 'format', 'png', '-Z', '2048', '--out', outPath, filePath],
+            { timeout: 30000 },
+        );
+        const buf = fs.readFileSync(outPath);
+        return { success: true, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
+    } catch (error) {
+        console.error('HEIC conversion failed:', error);
+        return { success: false, code: 'CONVERT_FAILED' };
+    } finally {
+        if (tmpDir) {
+            try {
+                await fs.promises.rm(tmpDir, { recursive: true, force: true });
+            } catch (cleanupError) {
+                console.error('Failed to remove HEIC temp dir:', cleanupError);
+            }
+        }
+    }
 });
