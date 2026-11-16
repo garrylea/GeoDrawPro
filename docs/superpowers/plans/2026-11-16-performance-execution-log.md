@@ -46,7 +46,7 @@ memo 有效性：`test/memoEffectiveness.test.tsx` 断言 LINE 空闲态 20 次 
 ## 最终（Task 7 填写）
 
 执行环境：main 分支，HEAD=8bad69e（`perf: lazy-load solver and snippet mode windows`），工作树干净，无源码改动（本任务只跑验证 + 写日志）。
-headless 部分由 subagent 执行；浏览器复核与手动回归为 **PENDING HANDOFF**（subagent 无浏览器工具，交回主会话/人工）。
+headless 部分由 subagent 执行；浏览器复核由主会话驱动 headless Chromium 完成（见下），手动回归清单留待人工。
 
 ### 体积指标（headless，全部 PASS）
 
@@ -86,13 +86,22 @@ headless 部分由 subagent 执行；浏览器复核与手动回归为 **PENDING
 - 覆盖率（v8，All files）：**statements 83.16% / branches 77.95%** / functions 83.98% / lines 84.3%
 - 门槛：statements ≥ 81% ✓、branches ≥ 76% ✓（不低于基线）。
 
-### PENDING HANDOFF — 浏览器复核（Step 5 items 1–3，需人工或 run skill 驱动）
+### 浏览器复核（Step 5 items 1–3，已执行，全部 PASS）
 
-1. `npm run dev`，打开 `http://localhost:5273/?profile=1&stress=200`
-2. 控制台执行 `await __runSweep()`，记录 console.table 的 avgMs（真实浏览器阈值 ≤ 2ms 在此复核）
-3. Network 面板确认启动未请求 pdf.worker；打开一个 PDF 后才请求
+执行方式：主会话驱动 headless Chromium（Playwright），dev server 因 5273 被占用自动落到 **5274**（`http://localhost:5274/?profile=1&stress=200`）。
 
-浏览器实测 avgMs：（待填）
+1. **avgMs ≤ 2ms 复核**：`await __runSweep()` 共两轮 × 3 次，全部 commits=100：
+   - verify run A: avgMs 1.6150 / 1.7880 / 1.5900 → 中位数 **1.6150**
+   - verify run B: avgMs 1.2970 / 1.5420 / 1.3620 → 中位数 **1.3620**
+   - 两轮中位数均 ≤ 2ms → **PASS**，Task 4 SKIP 判定最终确认（jsdom 暂定达标升级为浏览器实测达标）。
+2. **启动不请求 pdf.worker**：以 `performance.getEntriesByType('resource')` + `page.on("worker")` 为准（page.on("request") 捕获不到 worker 内部 fetch）。启动至 sweep 完成：pdf 相关资源请求 **0 条**、worker 事件 **0 次** → **PASS**。
+3. **首次导入 PDF 才请求 worker**：上传一个 3 对象最小 PDF 后新增资源链：
+   `utils/pdfImport.ts → node_modules/.vite/deps/pdfjs-dist_build_pdf__mjs.js → pdf.worker.mjs?worker → pdf.worker.mjs?worker_file&type=module`，
+   worker 事件恰好 1 次（module worker），PDF 图像渲染成功（shapes 200 → 201），console 无错误（仅 vite connect 与 React DevTools 提示）→ **PASS**。
+
+注：初版验证脚本用纯 Python sleep 轮询，Playwright sync API 事件只在 API 调用期间派发，导致 worker 事件漏记（脚本工件，非应用缺陷）；改用 resource timing + wait_for_function 期间冲刷事件后取得上述确证。
+
+浏览器实测 avgMs：**1.6150 / 1.3620（两轮中位数，均 ≤ 2ms）**
 
 ### PENDING HANDOFF — 手动回归清单（Step 6，浏览器 + Electron 冒烟，spec §3）
 
@@ -111,4 +120,5 @@ headless 部分由 subagent 执行；浏览器复核与手动回归为 **PENDING
 ### 验收结论
 
 - **headless 验收：PASS。** 构建成功；主 chunk 538,042 bytes（535.15 kB）≤ 600KB；worker/pdfjs 静态验证不在首屏 chunk（index 中 GlobalWorkerOptions=0）；732 tests / 47 files 全绿，覆盖率 83.16% / 77.95% 不低于基线；perfSweep 中位数 avgMs 1.3269（对配对基线降幅 ≈49.7%，commits=100）。
-- **最终验收：待定（PENDING HANDOFF）。** 浏览器 avgMs ≤ 2ms 复核、运行态 pdf.worker 请求时机、手动回归清单（浏览器 + Electron）尚未执行，需主会话/人工完成后回填并给出最终结论。
+- **浏览器复核：PASS。** 两轮 × 3 次 sweep 全部 commits=100，avgMs 中位数 1.6150 / 1.3620，均 ≤ 2ms → Task 4 SKIP 最终确认；启动零 pdf 资源请求/worker 事件，首次导入 PDF 才加载 pdfjs 与 module worker，PDF 渲染成功，console 无错误。
+- **最终验收：仅剩手动回归清单（浏览器 + Electron，上节 11 项）待人工执行。** 全部量化指标（渲染 + 体积 + 运行态懒加载）已达标。
