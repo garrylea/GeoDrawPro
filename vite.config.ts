@@ -20,6 +20,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Keep rarely-changing vendor code in its own chunks so app edits don't
+        // invalidate the whole bundle. KaTeX is dynamic-only, so this chunk is
+        // still requested on demand; pdfjs already splits itself.
+        manualChunks(id) {
+          const p = id.replace(/\\/g, '/');
+          if (!p.includes('/node_modules/')) return;
+          if (p.includes('/node_modules/katex/')) return 'vendor-katex';
+          if (p.includes('/node_modules/lucide-react/')) return 'vendor-icons';
+          if (/\/node_modules\/(react|react-dom|scheduler)\//.test(p)) return 'vendor-react';
+        },
+      },
+    },
   },
   test: {
     setupFiles: ['./test/setup.ts'],
