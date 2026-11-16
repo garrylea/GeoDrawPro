@@ -21,7 +21,7 @@ interface TopBarProps {
   onZoomChange: (newZoom: number) => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({
+export const TopBar: React.FC<TopBarProps> = React.memo(({
   svgRef,
   fileInputRef,
   undo,
@@ -176,4 +176,4 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
     </div>
   );
-};
+});

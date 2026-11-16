@@ -8,7 +8,7 @@ interface SidebarProps {
   onToolChange: (tool: ToolType) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTool, onToolChange }) => {
+export const Sidebar: React.FC<SidebarProps> = React.memo(({ activeTool, onToolChange }) => {
   const standardTools = TOOL_CONFIG.filter(t => 
     ![ToolType.RULER, ToolType.COMPASS, ToolType.PROTRACTOR].includes(t.id)
   );
@@ -41,4 +41,4 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTool, onToolChange }) =>
       {constructionTools.map(renderToolButton)}
     </div>
   );
-};
+});

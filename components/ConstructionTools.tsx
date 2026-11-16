@@ -10,7 +10,7 @@ interface CompassOverlayProps {
     isDrawing: boolean;
 }
 
-export const CompassOverlay: React.FC<CompassOverlayProps> = ({ center, cursor, radiusPoint, isDrawing }) => {
+export const CompassOverlay: React.FC<CompassOverlayProps> = React.memo(({ center, cursor, radiusPoint, isDrawing }) => {
     // 1. INITIAL STATE: "Just a point"
     // The user hasn't clicked anywhere yet. Rely on the crosshair cursor.
     if (!center) {
@@ -94,7 +94,7 @@ export const CompassOverlay: React.FC<CompassOverlayProps> = ({ center, cursor, 
             </g>
         </g>
     );
-};
+});
 
 interface RulerOverlayProps {
     start: Point | null;

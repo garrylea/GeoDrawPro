@@ -18,7 +18,7 @@ interface SelectionOverlayProps {
   onAngleDoubleClick?: (index: number, e: React.MouseEvent) => void; 
 }
 
-export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({ 
+export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(({ 
   shape, 
   pivotIndex, 
   isAltPressed, 
@@ -327,4 +327,4 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = ({
         {pivotTargets}
     </g>
   );
-};
+});

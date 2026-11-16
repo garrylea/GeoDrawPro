@@ -11,7 +11,7 @@ interface AxisLayerProps {
   pageHeight?: number; // New prop to handle multi-page rendering
 }
 
-export const AxisLayer: React.FC<AxisLayerProps> = ({ config, width, height, pixelsPerUnit, overrideOrigin, pageCount = 1, pageHeight }) => {
+export const AxisLayer: React.FC<AxisLayerProps> = React.memo(({ config, width, height, pixelsPerUnit, overrideOrigin, pageCount = 1, pageHeight }) => {
   const { color, showGrid, visible } = config;
   
   // If pageHeight isn't provided, treat the whole height as one page
@@ -119,4 +119,4 @@ export const AxisLayer: React.FC<AxisLayerProps> = ({ config, width, height, pix
       )}
     </g>
   );
-};
+});

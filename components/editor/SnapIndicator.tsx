@@ -6,7 +6,7 @@ interface SnapIndicatorProps {
 }
 
 /** Snap marker SVG; JSX moved verbatim from Editor.tsx (S8), snapIndicator→indicator. */
-export const SnapIndicator: React.FC<SnapIndicatorProps> = ({ indicator }) => {
+export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ indicator }) => {
     return (
         <g transform={`translate(${indicator.x}, ${indicator.y})`}>
             {indicator.type === 'midpoint' ? (
@@ -22,4 +22,4 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = ({ indicator }) => {
             )}
         </g>
     );
-};
+});
