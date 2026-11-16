@@ -20,7 +20,7 @@
    （`components/ShapeRenderer.tsx:229`）都没有 HEIC 解码器，`onload` 永不触发，而代码没有
    `onerror`，因此完全静默。
 
-HEIC 必须在前端看不到的阶段完成解码。
+HEIC 必须在进入渲染层之前完成解码。
 
 ## 目标
 
@@ -81,10 +81,11 @@ export const convertHeicToPngDataUrl = async (file: File): Promise<string>;
 
 新增 `ipcMain.handle('CONVERT_HEIC', ...)`：
 
-1. 入参 `{ filePath }`；校验扩展名 `.heic/.heif` 且 `fs.existsSync`，不在校验范围直接返回
+1. `process.platform !== 'darwin'` → 立即返回 `UNSUPPORTED_PLATFORM`，不做任何文件操作
+2. 入参 `{ filePath }`；校验扩展名 `.heic/.heif`（忽略大小写）且 `fs.existsSync`，不满足直接返回
    `NOT_FOUND`，避免把任意路径交给 sips
-2. `fs.mkdtempSync(path.join(os.tmpdir(), 'geodraw-heic-'))` 创建独立临时目录
-3. 执行：
+3. `fs.mkdtempSync(path.join(os.tmpdir(), 'geodraw-heic-'))` 创建独立临时目录
+4. 执行：
 
    ```js
    execFile('/usr/bin/sips',
@@ -95,9 +96,9 @@ export const convertHeicToPngDataUrl = async (file: File): Promise<string>;
    - `-Z 2048`：只缩不放，长边不超过 2048
    - 输出固定 PNG，保留透明通道（用户已确认此规格）
    - 使用参数数组而非 shell 字符串，避免注入
-4. 读取 `outPath` → `data:image/png;base64,${buf.toString('base64')}`
-5. `finally` 中 `fs.promises.rm(tmpDir, { recursive: true, force: true })`，成功失败都清理
-6. 返回 `{ success: true, dataUrl }` 或 `{ success: false, code }`
+5. 读取 `outPath` → `data:image/png;base64,${buf.toString('base64')}`
+6. `finally` 中 `fs.promises.rm(tmpDir, { recursive: true, force: true })`，成功失败都清理
+7. 返回 `{ success: true, dataUrl }` 或 `{ success: false, code }`
 
 错误码：
 
@@ -122,7 +123,7 @@ export const convertHeicToPngDataUrl = async (file: File): Promise<string>;
   if (isHeicFile(file)) {
       setLoadingState({ active: true, title: 'Importing Image', message: '正在转换 HEIC 图片…' });
       try { await addImageShapeFromUrl(await convertHeicToPngDataUrl(file), position); }
-      catch (e) { setImportError(...); }
+      catch (e) { setImportError(e instanceof HeicImportError ? e.message : 'HEIC 转换失败，文件可能已损坏'); }
       finally { setLoadingState({ active: false, message: '' }); }
       return;
   }
@@ -131,13 +132,15 @@ export const convertHeicToPngDataUrl = async (file: File): Promise<string>;
 
   普通图片路径行为保持不变。
 - `loadingState` 类型增加可选 `title?: string`
-- 新增 `importError: string | null`，设置后 4 秒自动清空；新错误覆盖旧错误并重置计时器
+- 新增 `importError: string | null`，设置后 4 秒自动清空；新错误覆盖旧错误并重置计时器；
+  计时器存入 ref，卸载时清理，避免卸载后 setState
 - 返回值增加 `importError`
 
 ### `components/editor/StatusToasts.tsx`
 
 - `loadingState` 增加可选 `title`，渲染 `title ?? 'Importing PDF'`，现有 PDF 行为与测试不变
-- 新增 `errorMessage` prop：红色 toast，位置与样式对齐现有 `saveMessage`（顶部居中、圆角、阴影）
+- 新增 `errorMessage` prop：红色 toast，位置与样式对齐现有 `saveMessage`，但下移一档
+  （`top-32`），避免与保存成功提示同时出现时重叠
 
 ### `components/Editor.tsx`
 
