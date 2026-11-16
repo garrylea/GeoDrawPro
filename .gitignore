@@ -125,3 +125,6 @@ release
 
 # Qoder
 .qoder/
+
+# Superpowers SDD scratch workspaces
+.superpowers/
