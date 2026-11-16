@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react';
 import { Editor } from './components/Editor';
+import { ProfilingHarness } from './components/editor/ProfilingHarness';
 import { SnippetOverlay } from './components/SnippetOverlay';
 import { SolverWindow } from './components/SolverWindow';
 import { isElectron } from './utils/exportUtils';
@@ -9,6 +10,7 @@ export default function App() {
   const mode = params.get('mode');
   const isSnippetMode = mode === 'snippet';
   const isSolverMode = mode === 'solver';
+  const profileEnabled = import.meta.env.DEV && params.get('profile') === '1';
 
   useLayoutEffect(() => {
     if (isSnippetMode) {
@@ -42,5 +44,5 @@ export default function App() {
   if (isSnippetMode) return <SnippetOverlay />;
   if (isSolverMode) return <SolverWindow />;
 
-  return <Editor />;
+  return profileEnabled ? <ProfilingHarness><Editor /></ProfilingHarness> : <Editor />;
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { ToolType, Shape, ShapeType, AxisConfig } from '../types';
 import { DEFAULT_SHAPE_PROPS } from '../constants';
 import { AxisLayer } from './AxisLayer';
@@ -9,6 +9,7 @@ import { TopBar } from './TopBar';
 import { Sidebar } from './Sidebar';
 import { PropertiesPanel } from './PropertiesPanel';
 import { loadProject, getLocalFilePath } from '../utils/exportUtils';
+import { generateStressShapes } from '../utils/devFixtures';
 import { getPolygonAngles } from '../utils/shapeGeometry';
 import { getSelectionBounds, fitShapesToViewport } from '../utils/shapeOperations';
 import { createRulerShape } from '../utils/shapeFactory';
@@ -57,6 +58,14 @@ export function Editor() {
       shapes, setShapes, shapesRef, saveHistory, undo, history, selectedIds, setSelectedIds,
       deleteSelected, clearAll, clipboard, setClipboard, isDirty, setIsDirty, isDirtyRef, currentFilePathRef
   } = useDocument({ setPivotIndex, setActiveShapeId });
+
+  useEffect(() => {
+      if (!import.meta.env.DEV) return;
+      const stress = new URLSearchParams(window.location.search).get('stress');
+      if (!stress) return;
+      const n = parseInt(stress, 10);
+      if (Number.isFinite(n) && n > 0) setShapes(generateStressShapes(Math.min(n, 2000)));
+  }, []);
 
   const {
       zoom, handleZoomChange, canvasSize, pageHeight, setPageHeight, pageCount, setPageCount,
