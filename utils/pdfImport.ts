@@ -21,7 +21,12 @@ export const ensurePdfReady = (): Promise<PdfjsModule> => {
                 console.error('Failed to initialize PDF worker:', e);
             }
             return pdfjsLib;
-        })();
+        })().catch(e => {
+            // Module import failed (e.g. flaky network / stale chunk): reset the
+            // cache so the next call retries instead of replaying the rejection.
+            readyPromise = null;
+            throw e;
+        });
     }
     return readyPromise;
 };

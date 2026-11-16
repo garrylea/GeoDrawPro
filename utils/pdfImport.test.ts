@@ -82,6 +82,26 @@ describe('ensurePdfReady', () => {
         await expect(ensurePdfReady()).resolves.toBeDefined();
         expect(errSpy).toHaveBeenCalledWith('Failed to initialize PDF worker:', expect.any(Error));
     });
+    it('retries after a pdfjs module import failure instead of caching the rejection', async () => {
+        // Make the pdf.mjs module import itself fail (flaky network / stale chunk).
+        vi.doMock('pdfjs-dist/build/pdf.mjs', () => { throw new Error('chunk load failed'); });
+        vi.resetModules();
+        ({ ensurePdfReady } = await import('./pdfImport'));
+        await expect(ensurePdfReady()).rejects.toThrow();
+
+        // Restore the normal mock but keep the SAME pdfImport instance, so the
+        // retry exercises the cached readyPromise rather than a fresh module.
+        vi.doMock('pdfjs-dist/build/pdf.mjs', () => ({
+            GlobalWorkerOptions: { workerPort: null },
+            getDocument: vi.fn(),
+        }));
+        pdfjsLib = await import('pdfjs-dist/build/pdf.mjs');
+        // @ts-ignore
+        PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default;
+        const mod = await ensurePdfReady();
+        expect(mod).toBe(pdfjsLib);
+        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
+    });
 });
 
 describe('renderPdfToShapes', () => {
