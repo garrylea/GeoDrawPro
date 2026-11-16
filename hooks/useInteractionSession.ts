@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Point, Constraint } from '../types';
 
 export interface CompassState {
@@ -48,13 +48,13 @@ export const useInteractionSession = () => {
 
     const lastRotationMouseAngle = useRef<number>(0);
 
-    const resetSession = () => {
+    const resetSession = useCallback(() => {
         setSnapIndicator(null); setCursorPos(null);
         if (selectionRectRef.current) { selectionRectRef.current.style.display = 'none'; selectionRectRef.current.setAttribute('width', '0'); selectionRectRef.current.setAttribute('height', '0'); }
         selectionStartRef.current = null;
         setActiveShapeId(null); setHoveredShapeId(null);
         setCompassState({ center: null, radiusPoint: null, startAngle: null, accumulatedRotation: 0, lastMouseAngle: 0 }); setCompassPreviewPath(null);
-    };
+    }, []);
 
     return {
         isDragging, setIsDragging, isRotating, setIsRotating,

@@ -66,8 +66,8 @@ export const useProjectFiles = ({
         return success;
     }, []);
 
-    const handleSave = () => persistProject(shapes);
-    const handleSaveAs = () => persistProject(shapes, true);
+    const handleSave = useCallback(() => persistProject(shapes), [persistProject, shapes]);
+    const handleSaveAs = useCallback(() => persistProject(shapes, true), [persistProject, shapes]);
 
     const processImageFile = useCallback((file: File, position?: Point) => {
         const reader = new FileReader();

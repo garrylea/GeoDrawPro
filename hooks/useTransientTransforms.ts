@@ -1,4 +1,4 @@
-import { useRef, MutableRefObject, RefObject } from 'react';
+import { useRef, useCallback, MutableRefObject, RefObject } from 'react';
 import { Shape, ShapeType, ToolType, TransientState } from '../types';
 import { getDependents } from '../utils/constraintSystem';
 import {
@@ -96,7 +96,7 @@ export const useTransientTransforms = ({ shapesRef, selectedIds, svgRef, tool }:
         });
     };
 
-    const refreshDomCache = (idsOverride?: Set<string>) => {
+    const refreshDomCache = useCallback((idsOverride?: Set<string>) => {
         domCacheRef.current.clear();
         initialShapeStateRef.current.clear();
 
@@ -121,7 +121,7 @@ export const useTransientTransforms = ({ shapesRef, selectedIds, svgRef, tool }:
             const overlay = document.getElementById('selection-overlay-group');
             if (overlay) domCacheRef.current.set('selection-overlay-group', overlay);
         }
-    };
+    }, [selectedIds, tool]);
 
     return { transientStateRef, domCacheRef, initialShapeStateRef, updateTransientVisuals, refreshDomCache };
 };

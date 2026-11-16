@@ -100,3 +100,12 @@ describe('useViewport FUNCTION_GRAPH regeneration', () => {
         expect(next[1]).toBe(other);
     });
 });
+
+describe('useViewport callback stability', () => {
+    it('keeps handleZoomChange stable across rerenders', () => {
+        const { hook } = setup();
+        const first = hook.result.current.handleZoomChange;
+        hook.rerender({ ticks: 5 });
+        expect(hook.result.current.handleZoomChange).toBe(first);
+    });
+});

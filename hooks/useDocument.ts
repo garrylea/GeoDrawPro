@@ -16,7 +16,7 @@ export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps
     const [history, setHistory] = useState<Shape[][]>([]);
     const [selectedIds, _setSelectedIds] = useState<Set<string>>(new Set<string>());
     // Intentional side effect inside the updater: selection drives the rotation pivot (kept verbatim).
-    const setSelectedIds = (ids: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    const setSelectedIds = useCallback((ids: Set<string> | ((prev: Set<string>) => Set<string>)) => {
         _setSelectedIds(prev => {
             const next = typeof ids === 'function' ? ids(prev) : ids;
             if (next.size === 1) {
@@ -32,7 +32,7 @@ export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps
             }
             return next;
         });
-    };
+    }, [setPivotIndex]);
     const [clipboard, setClipboard] = useState<Shape[]>([]);
 
     const [isDirty, setIsDirty] = useState(false);
@@ -48,14 +48,14 @@ export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps
         setIsDirty(true);
     }, [shapes]);
 
-    const undo = () => { if (history.length === 0) return; const previousState = history[history.length - 1]; setHistory(prev => prev.slice(0, -1)); setShapes(previousState); setSelectedIds(new Set<string>()); setActiveShapeId(null); setIsDirty(true); };
+    const undo = useCallback(() => { if (history.length === 0) return; const previousState = history[history.length - 1]; setHistory(prev => prev.slice(0, -1)); setShapes(previousState); setSelectedIds(new Set<string>()); setActiveShapeId(null); setIsDirty(true); }, [history, setSelectedIds]);
 
-    const deleteSelected = () => {
+    const deleteSelected = useCallback(() => {
         if (selectedIds.size === 0) return; saveHistory(); const idsToDelete = new Set<string>(Array.from(selectedIds) as string[]);
         setShapes(prev => removeShapesWithDependents(prev, idsToDelete)); setSelectedIds(new Set<string>());
-    };
+    }, [selectedIds, saveHistory, setSelectedIds]);
 
-    const clearAll = () => { saveHistory(); setShapes([]); setHistory([]); setSelectedIds(new Set()); };
+    const clearAll = useCallback(() => { saveHistory(); setShapes([]); setHistory([]); setSelectedIds(new Set()); }, [saveHistory, setSelectedIds]);
 
     return {
         shapes, setShapes, shapesRef, saveHistory, undo,

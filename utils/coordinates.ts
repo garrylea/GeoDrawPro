@@ -27,3 +27,8 @@ export const mathToScreen = (p: Point, width: number, height: number, ppu: numbe
         y: centerY - p.y * ppu
     };
 };
+
+export const clientToCanvas = (e: { clientX: number; clientY: number }, svg: SVGSVGElement, zoom: number): Point => {
+    const rect = svg.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
+};

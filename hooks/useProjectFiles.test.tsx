@@ -371,3 +371,13 @@ describe('useProjectFiles.processPdfFile', () => {
         expect(hook.result.current.loadingState).toEqual({ active: false, message: '' });
     });
 });
+
+describe('useProjectFiles callback stability', () => {
+    it('keeps save handlers stable across rerenders with unchanged shapes', () => {
+        const { hook } = setup();
+        const first = hook.result.current;
+        hook.rerender();
+        expect(hook.result.current.handleSave).toBe(first.handleSave);
+        expect(hook.result.current.handleSaveAs).toBe(first.handleSaveAs);
+    });
+});

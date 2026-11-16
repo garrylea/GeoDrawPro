@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, Dispatch, SetStateAction } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, Dispatch, SetStateAction } from 'react';
 import { Shape, ShapeType } from '../types';
 import { getPixelsPerUnit } from '../utils/coordinates';
 import { generateQuadraticPath } from '../utils/quadraticFunction';
@@ -42,7 +42,7 @@ export const useViewport = ({ setShapes, ticks }: UseViewportDeps) => {
         }
     }, [zoom]);
 
-    const handleZoomChange = (newZoom: number) => {
+    const handleZoomChange = useCallback((newZoom: number) => {
         if (Math.abs(newZoom - zoom) < 0.001) return;
         const container = containerRef.current;
         if (container) {
@@ -53,7 +53,7 @@ export const useViewport = ({ setShapes, ticks }: UseViewportDeps) => {
             zoomFocusPointRef.current = { x: centerX, y: centerY };
         }
         setZoom(newZoom);
-    };
+    }, [zoom]);
 
     useEffect(() => {
         const updateCanvasHeight = () => {

@@ -6,7 +6,7 @@ import { recalculateMarker } from '../utils/markerEditing';
 import { getAngleArcPath } from '../utils/svgPaths';
 import { getRotatedCorners, getClosestPointOnShape } from '../utils/shapeGeometry';
 import { distance, getAngleDegrees } from '../utils/vectorMath';
-import { mathToScreen, screenToMath } from '../utils/coordinates';
+import { mathToScreen, screenToMath, clientToCanvas } from '../utils/coordinates';
 import { evaluateQuadratic, generateQuadraticPath } from '../utils/quadraticFunction';
 import { resolveConstraints, constrainPointToEdge, constrainPointToPath, buildLinePointsLink } from '../utils/constraintSystem';
 import { getHitShape, calculateMovedShape, calculateResizedShape, getSelectionBounds, calculateRotatedShape, removeShapesWithDependents } from '../utils/shapeOperations';
@@ -112,14 +112,10 @@ export const usePointerHandlers = ({
 }: UsePointerHandlersDeps) => {
   const getMousePos = (e: React.PointerEvent | PointerEvent | React.MouseEvent | MouseEvent, snap: boolean = true): Point => {
     if (!svgRef.current) return { x: 0, y: 0, p: 0.5 };
-    const rect = svgRef.current.getBoundingClientRect();
     let pressure = (e as PointerEvent).pressure;
     if (pressure === undefined || (e as any).pointerType === 'mouse') pressure = 0.5;
-    const raw = { 
-        x: ((e as any).clientX - rect.left) / zoom, 
-        y: ((e as any).clientY - rect.top) / zoom, 
-        p: pressure 
-    };
+    const base = clientToCanvas(e as { clientX: number; clientY: number }, svgRef.current, zoom);
+    const raw = { ...base, p: pressure };
     if (tool === ToolType.FREEHAND) { setSnapIndicator(null); return raw; }
     if (snap && !isShiftPressed && !isAltPressed) { 
         // FIX: Exclude selected shapes from snapping when dragging handles to prevent jitter

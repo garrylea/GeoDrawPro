@@ -144,3 +144,15 @@ describe('useDocument ref synchronization', () => {
         expect(hook.result.current.isDirtyRef.current).toBe(true);
     });
 });
+
+describe('useDocument callback stability', () => {
+    it('keeps action references stable across rerenders without state changes', () => {
+        const { hook } = setup();
+        const first = hook.result.current;
+        hook.rerender();
+        expect(hook.result.current.undo).toBe(first.undo);
+        expect(hook.result.current.deleteSelected).toBe(first.deleteSelected);
+        expect(hook.result.current.clearAll).toBe(first.clearAll);
+        expect(hook.result.current.setSelectedIds).toBe(first.setSelectedIds);
+    });
+});

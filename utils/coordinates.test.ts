@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getPixelsPerUnit, screenToMath, mathToScreen } from './coordinates';
+import { getPixelsPerUnit, screenToMath, mathToScreen, clientToCanvas } from './coordinates';
 
 describe('getPixelsPerUnit', () => {
     it('falls back to 40 for non-positive dimensions', () => {
@@ -28,5 +28,12 @@ describe('screenToMath / mathToScreen', () => {
         const math = screenToMath(screen, 800, 600, 40, 200);
         expect(math).toEqual({ x: 1, y: 1 });
         expect(mathToScreen(math, 800, 600, 40, 200)).toEqual(screen);
+    });
+});
+
+describe('clientToCanvas', () => {
+    it('maps client coordinates through the svg rect and zoom', () => {
+        const svg = { getBoundingClientRect: () => ({ left: 100, top: 50 }) } as unknown as SVGSVGElement;
+        expect(clientToCanvas({ clientX: 300, clientY: 250 }, svg, 2)).toEqual({ x: 100, y: 100 });
     });
 });
