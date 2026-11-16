@@ -3,6 +3,7 @@ import { Shape, Point, ToolType } from '../types';
 import { saveProject } from '../utils/exportUtils';
 import { createImageShape } from '../utils/shapeFactory';
 import { sanitizeLoadedShapes } from '../utils/shapeOperations';
+import { isHeicFile, convertHeicToPngDataUrl, HeicImportError } from '../utils/heicImport';
 import { LOGICAL_CANVAS_WIDTH } from './useViewport';
 
 interface UseProjectFilesDeps {
@@ -36,9 +37,21 @@ export const useProjectFiles = ({
     currentFilePathRef, canvasWidth, originY, pageHeight, setPageHeight, setPageCount,
     setLockBackground, cursorPosRef, generateId
 }: UseProjectFilesDeps) => {
-    const [loadingState, setLoadingState] = useState<{ active: boolean; message: string }>({ active: false, message: '' });
+    const [loadingState, setLoadingState] = useState<{ active: boolean; message: string; title?: string }>({ active: false, message: '' });
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [importError, setImportError] = useState<string | null>(null);
+    const importErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const showImportError = useCallback((message: string) => {
+        if (importErrorTimerRef.current) clearTimeout(importErrorTimerRef.current);
+        setImportError(message);
+        importErrorTimerRef.current = setTimeout(() => setImportError(null), 4000);
+    }, []);
+
+    useEffect(() => () => {
+        if (importErrorTimerRef.current) clearTimeout(importErrorTimerRef.current);
+    }, []);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -63,24 +76,39 @@ export const useProjectFiles = ({
     const handleSave = useCallback(() => persistProject(shapes), [persistProject, shapes]);
     const handleSaveAs = useCallback(() => persistProject(shapes, true), [persistProject, shapes]);
 
-    const processImageFile = useCallback((file: File, position?: Point) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const url = event.target?.result as string;
-            const img = new Image();
-            img.onload = () => {
-                saveHistory();
-                const id = generateId();
-                const width = img.width; const height = img.height; const maxDim = 300; let finalW = width; let finalH = height;
-                if (width > maxDim || height > maxDim) { const ratio = width / height; if (width > height) { finalW = maxDim; finalH = maxDim / ratio; } else { finalH = maxDim; finalW = maxDim * ratio; } }
-                const centerX = position ? position.x : canvasWidth / 2; const centerY = position ? position.y : originY;
-                const newShape = createImageShape(id, [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}], url);
-                setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT);
-            }
-            img.src = url;
+    const addImageShapeFromUrl = useCallback((url: string, position?: Point) => new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            saveHistory();
+            const id = generateId();
+            const width = img.width; const height = img.height; const maxDim = 300; let finalW = width; let finalH = height;
+            if (width > maxDim || height > maxDim) { const ratio = width / height; if (width > height) { finalW = maxDim; finalH = maxDim / ratio; } else { finalH = maxDim; finalW = maxDim * ratio; } }
+            const centerX = position ? position.x : canvasWidth / 2; const centerY = position ? position.y : originY;
+            const newShape = createImageShape(id, [{x: centerX - finalW/2, y: centerY - finalH/2}, {x: centerX + finalW/2, y: centerY + finalH/2}], url);
+            setShapes(prev => [...prev, newShape]); setSelectedIds(new Set([id])); setTool(ToolType.SELECT);
+            resolve();
         };
+        img.onerror = () => { showImportError('无法解码转换后的图片'); resolve(); };
+        img.src = url;
+    }), [canvasWidth, originY, saveHistory, generateId, setShapes, setSelectedIds, setTool, showImportError]);
+
+    const processImageFile = useCallback(async (file: File, position?: Point) => {
+        if (isHeicFile(file)) {
+            setLoadingState({ active: true, title: 'Importing Image', message: '正在转换 HEIC 图片…' });
+            try {
+                await addImageShapeFromUrl(await convertHeicToPngDataUrl(file), position);
+            } catch (e) {
+                showImportError(e instanceof HeicImportError ? e.message : 'HEIC 转换失败，文件可能已损坏');
+            } finally {
+                setLoadingState({ active: false, message: '' });
+            }
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => { void addImageShapeFromUrl(event.target?.result as string, position); };
         reader.readAsDataURL(file);
-    }, [canvasWidth, originY, saveHistory]);
+    }, [addImageShapeFromUrl, showImportError]);
 
     const processPdfFile = useCallback(async (file: File) => {
         try {
@@ -144,5 +172,5 @@ export const useProjectFiles = ({
         } catch(e) { console.error("Load Failed", e); }
     }, [saveHistory, pageHeight]);
 
-    return { loadingState, saveMessage, fileInputRef, persistProject, handleSave, handleSaveAs, processImageFile, processPdfFile, handleFileLoad };
+    return { loadingState, saveMessage, importError, fileInputRef, persistProject, handleSave, handleSaveAs, processImageFile, processPdfFile, handleFileLoad };
 };

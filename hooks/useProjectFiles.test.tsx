@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, fireEvent, waitFor } from '@testing-library/react';
 import { useProjectFiles } from './useProjectFiles';
 import { saveProject } from '../utils/exportUtils';
+import { convertHeicToPngDataUrl, HeicImportError } from '../utils/heicImport';
 import { makeShape } from '../test/componentHelpers';
 import { Shape, ShapeType, ToolType } from '../types';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
@@ -20,6 +21,10 @@ vi.mock('pdfjs-dist/build/pdf.worker.mjs?worker', () => ({
 vi.mock('../utils/exportUtils', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../utils/exportUtils')>();
     return { ...actual, saveProject: vi.fn() };
+});
+vi.mock('../utils/heicImport', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../utils/heicImport')>();
+    return { ...actual, convertHeicToPngDataUrl: vi.fn() };
 });
 
 type Deps = Parameters<typeof useProjectFiles>[0];
@@ -286,6 +291,82 @@ describe('useProjectFiles.processImageFile', () => {
         await waitFor(() => expect(params.setShapes).toHaveBeenCalled());
         const next = appliedShapes(params.setShapes, []);
         expect(next[0].points).toEqual([{ x: 160, y: 270 }, { x: 240, y: 330 }]);
+    });
+});
+
+describe('useProjectFiles.processImageFile (HEIC)', () => {
+    const heicFile = () => new File(['heic'], 'photo.heic', { type: '' });
+
+    it('converts HEIC to PNG and inserts the image at the drop point', async () => {
+        stubImage(400, 200);
+        vi.mocked(convertHeicToPngDataUrl).mockResolvedValue('data:image/png;base64,AAA');
+        const { hook, params } = setup({ canvasWidth: 1600, originY: 700 });
+
+        await act(async () => {
+            await hook.result.current.processImageFile(heicFile(), { x: 200, y: 300 });
+        });
+
+        expect(convertHeicToPngDataUrl).toHaveBeenCalledTimes(1);
+        const next = appliedShapes(params.setShapes, []);
+        expect(next).toHaveLength(1);
+        expect(next[0].type).toBe(ShapeType.IMAGE);
+        expect(next[0].imageUrl).toBe('data:image/png;base64,AAA');
+        // 400x200 → 300x150, centered at (200, 300)
+        expect(next[0].points).toEqual([{ x: 50, y: 225 }, { x: 350, y: 375 }]);
+    });
+
+    it('shows the loading overlay while converting and hides it afterwards', async () => {
+        stubImage(100, 100);
+        let resolveConvert!: (value: string) => void;
+        vi.mocked(convertHeicToPngDataUrl).mockReturnValue(
+            new Promise<string>((resolve) => { resolveConvert = resolve; }),
+        );
+        const { hook } = setup();
+
+        let pending: Promise<void> | undefined;
+        act(() => { pending = hook.result.current.processImageFile(heicFile()); });
+        expect(hook.result.current.loadingState.active).toBe(true);
+        expect(hook.result.current.loadingState.title).toBe('Importing Image');
+
+        await act(async () => {
+            resolveConvert('data:image/png;base64,BBB');
+            await pending;
+        });
+        expect(hook.result.current.loadingState.active).toBe(false);
+        expect(hook.result.current.loadingState.message).toBe('');
+    });
+
+    it('reports a conversion failure without touching shapes or history', async () => {
+        vi.mocked(convertHeicToPngDataUrl).mockRejectedValue(
+            new HeicImportError('当前平台暂不支持 HEIC 转换（仅 macOS）'),
+        );
+        const { hook, params } = setup();
+
+        await act(async () => {
+            await hook.result.current.processImageFile(heicFile());
+        });
+
+        expect(params.setShapes).not.toHaveBeenCalled();
+        expect(params.saveHistory).not.toHaveBeenCalled();
+        expect(hook.result.current.importError).toBe('当前平台暂不支持 HEIC 转换（仅 macOS）');
+        expect(hook.result.current.loadingState.active).toBe(false);
+    });
+
+    it('reports a decode failure instead of failing silently', async () => {
+        vi.stubGlobal('Image', class {
+            width = 0; height = 0;
+            onload: (() => void) | null = null;
+            onerror: (() => void) | null = null;
+            set src(_value: string) { this.onerror?.(); }
+        });
+        const { hook, params } = setup();
+
+        await act(async () => {
+            await hook.result.current.processImageFile(new File(['x'], 'broken.png', { type: 'image/png' }));
+        });
+
+        await waitFor(() => expect(hook.result.current.importError).toBe('无法解码转换后的图片'));
+        expect(params.setShapes).not.toHaveBeenCalled();
     });
 });
 
