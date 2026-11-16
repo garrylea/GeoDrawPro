@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { Editor } from './components/Editor';
 import { ProfilingHarness } from './components/editor/ProfilingHarness';
-import { SnippetOverlay } from './components/SnippetOverlay';
-import { SolverWindow } from './components/SolverWindow';
 import { isElectron } from './utils/exportUtils';
+
+const SolverWindow = lazy(() => import('./components/SolverWindow').then(m => ({ default: m.SolverWindow })));
+const SnippetOverlay = lazy(() => import('./components/SnippetOverlay').then(m => ({ default: m.SnippetOverlay })));
 
 export default function App() {
   const params = new URLSearchParams(window.location.search);
@@ -41,8 +42,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleSecretKey);
   }, [isSnippetMode, isSolverMode]);
 
-  if (isSnippetMode) return <SnippetOverlay />;
-  if (isSolverMode) return <SolverWindow />;
+  if (isSnippetMode) return <Suspense fallback={null}><SnippetOverlay /></Suspense>;
+  if (isSolverMode) return <Suspense fallback={null}><SolverWindow /></Suspense>;
 
   return profileEnabled ? <ProfilingHarness><Editor /></ProfilingHarness> : <Editor />;
 }
