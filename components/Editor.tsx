@@ -21,6 +21,7 @@ import { useTransientTransforms } from '../hooks/useTransientTransforms';
 import { useDocument } from '../hooks/useDocument';
 import { useViewport } from '../hooks/useViewport';
 import { useProjectFiles } from '../hooks/useProjectFiles';
+import { isImageFile } from '../utils/heicImport';
 import { useElectronBridge } from '../hooks/useElectronBridge';
 import { useInteractionSession } from '../hooks/useInteractionSession';
 import { useInlineEditors } from '../hooks/useInlineEditors';
@@ -102,7 +103,7 @@ export function Editor() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const {
-      loadingState, saveMessage, fileInputRef, persistProject, handleSave, handleSaveAs,
+      loadingState, saveMessage, importError, fileInputRef, persistProject, handleSave, handleSaveAs,
       processImageFile, processPdfFile, handleFileLoad
   } = useProjectFiles({
       shapes, setShapes, setSelectedIds, setTool, saveHistory, clipboard, isDirty, setIsDirty,
@@ -205,7 +206,7 @@ export function Editor() {
       const file = e.dataTransfer.files?.[0];
       if (!file) return;
       if (file.type === 'application/pdf') { processPdfFile(file); }
-      else if (file.type.startsWith('image/')) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); }
+      else if (isImageFile(file)) { processImageFile(file, { x: e.clientX - svgRef.current!.getBoundingClientRect().left, y: e.clientY - svgRef.current!.getBoundingClientRect().top }); }
       else if (file.name.endsWith('.geo') || file.name.endsWith('.json')) { const reader = new FileReader(); reader.onload = (event) => { handleFileLoad(event.target?.result as string); }; reader.readAsText(file); }
   }, [processPdfFile, processImageFile, handleFileLoad]);
 
@@ -213,7 +214,7 @@ export function Editor() {
       if (e.target.files?.[0]) {
           const file = e.target.files[0];
           if (file.type === 'application/pdf') { await processPdfFile(file); }
-          else if (file.type.startsWith('image/')) { processImageFile(file); }
+          else if (isImageFile(file)) { processImageFile(file); }
           else { const loaded = await loadProject(file); handleFileLoad(JSON.stringify(loaded), getLocalFilePath(file)); }
           e.target.value = '';
       }
@@ -271,9 +272,9 @@ export function Editor() {
                 </div>
             </div>
         </div>
-        <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept=".geo,.json,.pdf,image/*" className="hidden" />
+        <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept=".geo,.json,.pdf,image/*,.heic,.heif" className="hidden" />
         
-        <StatusToasts loadingState={loadingState} saveMessage={saveMessage} />
+        <StatusToasts loadingState={loadingState} saveMessage={saveMessage} errorMessage={importError} />
     </div>
   );
 }

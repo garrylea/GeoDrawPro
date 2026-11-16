@@ -98,6 +98,25 @@ describe('Editor rendering and tool switching', () => {
         key('Escape');
         expect(cursorClass(container)).toContain('cursor-default');
     });
+
+    it('accepts HEIC files in the hidden file picker', () => {
+        const { container } = renderEditor();
+        const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+        expect(input.accept).toContain('.heic');
+        expect(input.accept).toContain('.heif');
+    });
+
+    it('routes a dropped HEIC file (empty MIME type) to the image import path', async () => {
+        const { container } = renderEditor();
+        const target = container.querySelector('div.overflow-x-auto') as HTMLElement;
+        const file = new File(['heic'], 'photo.heic', { type: '' });
+
+        fireEvent.drop(target, { dataTransfer: { files: [file] }, clientX: 400, clientY: 300 });
+
+        await waitFor(() =>
+            expect(screen.getByText('HEIC 图片仅支持在桌面版导入，请先转换为 PNG/JPEG')).toBeTruthy(),
+        );
+    });
 });
 
 describe('Editor drawing shapes', () => {
