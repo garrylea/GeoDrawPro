@@ -82,6 +82,13 @@ describe('convertHeicToPngDataUrl', () => {
         await expect(convertHeicToPngDataUrl(fileWithPath())).rejects.toThrow(message);
     });
 
+    it('maps a rejected IPC call to user-facing copy', async () => {
+        stubElectron(vi.fn().mockRejectedValue(new Error("Error invoking remote method 'CONVERT_HEIC'")));
+        const error = await convertHeicToPngDataUrl(fileWithPath()).catch((e) => e);
+        expect(error).toBeInstanceOf(HeicImportError);
+        expect(error.message).toBe('HEIC 转换失败，文件可能已损坏');
+    });
+
     it('throws HeicImportError so callers can distinguish user-facing failures', async () => {
         stubElectron(vi.fn().mockResolvedValue({ success: false, code: 'CONVERT_FAILED' }));
         await expect(convertHeicToPngDataUrl(fileWithPath())).rejects.toBeInstanceOf(HeicImportError);

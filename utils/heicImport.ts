@@ -28,7 +28,12 @@ export const convertHeicToPngDataUrl = async (file: File): Promise<string> => {
     const filePath = (file as any).path;
     if (!filePath) throw new HeicImportError('无法读取文件路径，请改用“打开文件”按钮导入');
 
-    const result = await electron.ipcRenderer.invoke('CONVERT_HEIC', { filePath });
+    let result: any;
+    try {
+        result = await electron.ipcRenderer.invoke('CONVERT_HEIC', { filePath });
+    } catch {
+        throw new HeicImportError(FALLBACK_ERROR);
+    }
     if (!result?.success) {
         throw new HeicImportError(ERROR_MESSAGES[result?.code] ?? FALLBACK_ERROR);
     }
