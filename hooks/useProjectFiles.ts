@@ -42,6 +42,8 @@ export const useProjectFiles = ({
     const [importError, setImportError] = useState<string | null>(null);
     const importErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Number of HEIC conversions in flight; the overlay hides only when it drops to 0.
+    const heicImportsInFlightRef = useRef(0);
 
     const showImportError = useCallback((message: string) => {
         if (importErrorTimerRef.current) clearTimeout(importErrorTimerRef.current);
@@ -94,13 +96,17 @@ export const useProjectFiles = ({
 
     const processImageFile = useCallback(async (file: File, position?: Point) => {
         if (isHeicFile(file)) {
+            heicImportsInFlightRef.current += 1;
             setLoadingState({ active: true, title: 'Importing Image', message: '正在转换 HEIC 图片…' });
             try {
                 await addImageShapeFromUrl(await convertHeicToPngDataUrl(file), position);
             } catch (e) {
                 showImportError(e instanceof HeicImportError ? e.message : 'HEIC 转换失败，文件可能已损坏');
             } finally {
-                setLoadingState({ active: false, message: '' });
+                heicImportsInFlightRef.current -= 1;
+                if (heicImportsInFlightRef.current === 0) {
+                    setLoadingState({ active: false, message: '' });
+                }
             }
             return;
         }

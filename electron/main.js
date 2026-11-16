@@ -503,13 +503,25 @@ ipcMain.handle('CONVERT_HEIC', async (event, { filePath } = {}) => {
 
     let tmpDir = null;
     try {
+        // Probe first: `sips -Z` resamples to exactly the max dimension, which
+        // would upscale small inputs. Only downscale when the long edge exceeds 2048.
+        const { stdout } = await execFileAsync(
+            '/usr/bin/sips',
+            ['-g', 'pixelWidth', '-g', 'pixelHeight', filePath],
+            { timeout: 10000 },
+        );
+        const width = Number((stdout.match(/pixelWidth:\s*(\d+)/) || [])[1]);
+        const height = Number((stdout.match(/pixelHeight:\s*(\d+)/) || [])[1]);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            throw new Error(`Unable to read source dimensions: ${stdout}`);
+        }
+
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geodraw-heic-'));
         const outPath = path.join(tmpDir, 'converted.png');
-        await execFileAsync(
-            '/usr/bin/sips',
-            ['-s', 'format', 'png', '-Z', '2048', '--out', outPath, filePath],
-            { timeout: 30000 },
-        );
+        const args = ['-s', 'format', 'png'];
+        if (Math.max(width, height) > 2048) args.push('-Z', '2048');
+        args.push('--out', outPath, filePath);
+        await execFileAsync('/usr/bin/sips', args, { timeout: 30000 });
         const buf = fs.readFileSync(outPath);
         return { success: true, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
     } catch (error) {

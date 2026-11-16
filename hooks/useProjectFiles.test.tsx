@@ -336,6 +336,36 @@ describe('useProjectFiles.processImageFile (HEIC)', () => {
         expect(hook.result.current.loadingState.message).toBe('');
     });
 
+    it('keeps the overlay active until every concurrent HEIC conversion finishes', async () => {
+        stubImage(100, 100);
+        const resolvers: Array<(value: string) => void> = [];
+        vi.mocked(convertHeicToPngDataUrl).mockImplementation(
+            () => new Promise<string>((resolve) => { resolvers.push(resolve); }),
+        );
+        const { hook } = setup();
+
+        let first!: Promise<void>;
+        let second!: Promise<void>;
+        act(() => { first = hook.result.current.processImageFile(heicFile()); });
+        act(() => { second = hook.result.current.processImageFile(heicFile()); });
+        expect(resolvers).toHaveLength(2);
+        expect(hook.result.current.loadingState.active).toBe(true);
+
+        await act(async () => {
+            resolvers[0]('data:image/png;base64,ONE');
+            await first;
+        });
+        // The second conversion is still in flight, so the overlay must stay up.
+        expect(hook.result.current.loadingState.active).toBe(true);
+
+        await act(async () => {
+            resolvers[1]('data:image/png;base64,TWO');
+            await second;
+        });
+        expect(hook.result.current.loadingState.active).toBe(false);
+        expect(hook.result.current.loadingState.message).toBe('');
+    });
+
     it('reports a conversion failure without touching shapes or history', async () => {
         vi.mocked(convertHeicToPngDataUrl).mockRejectedValue(
             new HeicImportError('当前平台暂不支持 HEIC 转换（仅 macOS）'),
