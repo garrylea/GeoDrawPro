@@ -35,6 +35,7 @@ import { MirrorBanner, AddPageButton, StatusToasts } from './editor/StatusToasts
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const isTool = (s: Shape) => s.type === ShapeType.RULER || s.type === ShapeType.PROTRACTOR;
 const NOOP = () => {};
+const ORIGIN = { x: 0, y: 0 };
 
 export function Editor() {
   const [tool, setTool] = useState<ToolType>(ToolType.SELECT);
@@ -233,8 +234,8 @@ export function Editor() {
                         <AxisLayer config={axisConfig} width={canvasSize.width} height={svgHeight} pixelsPerUnit={pixelsPerUnit} overrideOrigin={overrideOrigin} pageCount={pageCount} pageHeight={pageHeight} />
                         <PageBreaks pageCount={pageCount} pageHeight={pageHeight} width={canvasSize.width} />
                                   {shapes.filter(s => !isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={(textEditing?.id === shape.id) ? { ...shape, text: '' } : shape} isSelected={selectedIds.has(shape.id)} tool={tool} pixelsPerUnit={pixelsPerUnit} /> ))}
-                                  {shapes.filter(s => isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} tool={tool} pixelsPerUnit={pixelsPerUnit} /> ))}                        {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || {x:0, y:0}} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
-                        {tool === ToolType.RULER && selectedIds.size === 0 && ( <g style={{ opacity: 0.35, pointerEvents: 'none' }}> <ShapeRenderer shape={createRulerShape('ghost-ruler', cursorPos || {x:0, y:0})} isSelected={false} tool={tool} pixelsPerUnit={pixelsPerUnit} /> </g> )}
+                                  {shapes.filter(s => isTool(s)).map(shape => ( <ShapeRenderer key={shape.id} shape={shape} isSelected={selectedIds.has(shape.id)} tool={tool} pixelsPerUnit={pixelsPerUnit} /> ))}                        {tool === ToolType.COMPASS && <CompassOverlay center={compassState.center} cursor={cursorPos || ORIGIN} radiusPoint={compassState.radiusPoint} isDrawing={!!compassState.startAngle} />}
+                        {tool === ToolType.RULER && selectedIds.size === 0 && ( <g style={{ opacity: 0.35, pointerEvents: 'none' }}> <ShapeRenderer shape={createRulerShape('ghost-ruler', cursorPos || ORIGIN)} isSelected={false} tool={tool} pixelsPerUnit={pixelsPerUnit} /> </g> )}
                         {compassPreviewPath && <path d={compassPreviewPath} fill="none" stroke={currentStyle.stroke} strokeWidth={currentStyle.strokeWidth} strokeDasharray="4,4" opacity={0.6} />}
                         {selectedIds.size === 1 && shapes.filter(s => selectedIds.has(s.id)).map(s => (!textEditing || textEditing.id !== s.id) && (
                             <SelectionOverlay 

@@ -50,6 +50,8 @@ describe('perf sweep', () => {
             g.IS_REACT_ACT_ENVIRONMENT = prevActEnv;
         }
         console.info('[perfSweep]', JSON.stringify(stats));
+        // Commit band reflects the Phase-A architecture (one commit per move). If Task 4
+        // (high-frequency state isolation) is ever executed, revise this band explicitly.
         expect(stats.commits).toBeGreaterThanOrEqual(90);
         expect(stats.commits).toBeLessThanOrEqual(120);
         expect(stats.avgMs).toBeGreaterThan(0);

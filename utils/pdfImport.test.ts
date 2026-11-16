@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShapeType } from '../types';
 
 // Exact specifiers — must match Editor.test.tsx / Editor.transient.test.tsx / useProjectFiles.test.tsx.
-vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
+// Shared so the retry test can restore the canonical mock without duplicating the factory.
+const pdfjsMockFactory = vi.hoisted(() => () => ({
     GlobalWorkerOptions: { workerPort: null },
     getDocument: vi.fn(),
 }));
+vi.mock('pdfjs-dist/build/pdf.mjs', pdfjsMockFactory);
 vi.mock('pdfjs-dist/build/pdf.worker.mjs?worker', () => ({
     default: class MockPdfWorker {
         static failNext = false;
@@ -83,24 +85,27 @@ describe('ensurePdfReady', () => {
         expect(errSpy).toHaveBeenCalledWith('Failed to initialize PDF worker:', expect.any(Error));
     });
     it('retries after a pdfjs module import failure instead of caching the rejection', async () => {
-        // Make the pdf.mjs module import itself fail (flaky network / stale chunk).
-        vi.doMock('pdfjs-dist/build/pdf.mjs', () => { throw new Error('chunk load failed'); });
-        vi.resetModules();
-        ({ ensurePdfReady } = await import('./pdfImport'));
-        await expect(ensurePdfReady()).rejects.toThrow();
+        try {
+            // Make the pdf.mjs module import itself fail (flaky network / stale chunk).
+            vi.doMock('pdfjs-dist/build/pdf.mjs', () => { throw new Error('chunk load failed'); });
+            vi.resetModules();
+            ({ ensurePdfReady } = await import('./pdfImport'));
+            await expect(ensurePdfReady()).rejects.toThrow();
 
-        // Restore the normal mock but keep the SAME pdfImport instance, so the
-        // retry exercises the cached readyPromise rather than a fresh module.
-        vi.doMock('pdfjs-dist/build/pdf.mjs', () => ({
-            GlobalWorkerOptions: { workerPort: null },
-            getDocument: vi.fn(),
-        }));
-        pdfjsLib = await import('pdfjs-dist/build/pdf.mjs');
-        // @ts-ignore
-        PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default;
-        const mod = await ensurePdfReady();
-        expect(mod).toBe(pdfjsLib);
-        expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
+            // Restore the normal mock but keep the SAME pdfImport instance, so the
+            // retry exercises the cached readyPromise rather than a fresh module.
+            vi.doMock('pdfjs-dist/build/pdf.mjs', pdfjsMockFactory);
+            pdfjsLib = await import('pdfjs-dist/build/pdf.mjs');
+            // @ts-ignore
+            PdfWorker = (await import('pdfjs-dist/build/pdf.worker.mjs?worker')).default;
+            const mod = await ensurePdfReady();
+            expect(mod).toBe(pdfjsLib);
+            expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeInstanceOf(PdfWorker);
+        } finally {
+            // Restore the canonical mock even if the retry fails; doUnmock would drop the
+            // hoisted registration and leak real pdfjs into the renderPdfToShapes suite.
+            vi.doMock('pdfjs-dist/build/pdf.mjs', pdfjsMockFactory);
+        }
     });
 });
 

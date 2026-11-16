@@ -103,22 +103,34 @@ headless 部分由 subagent 执行；浏览器复核由主会话驱动 headless 
 
 浏览器实测 avgMs：**1.6150 / 1.3620（两轮中位数，均 ≤ 2ms）**
 
-### PENDING HANDOFF — 手动回归清单（Step 6，浏览器 + Electron 冒烟，spec §3）
+### 手动回归清单（Step 6，浏览器 + Electron 冒烟，spec §3）
 
-- [ ] 各工具绘制（点/线/矩形/正方形/三角/圆/椭圆/文本/自由笔/函数）
-- [ ] 拖拽/缩放/旋转：拖拽中 overlay 跟随、松手精确归位
-- [ ] 约束联动：点在线上、圆 paramAngle 旋转后不跳回
+#### 2026-11-16 收尾：自动化部分已执行（Playwright headless，dev server 5273，无 profile 参数）
+
+全部 PASS，console 零错误：
+
+- 启动零 pdf 资源请求 / 零 worker 事件
+- 矩形、圆、线段绘制（shape 计数 1→2→3）
+- 选择并拖拽（dx≈49 / dy≈34）、undo 精确归位
+- zoom in/out（scale 1 → 1.1 → 1）
+- 文本 + LaTeX 编辑（`x^2+\sqrt{y}`，KaTeX 渲染、无残留输入框）
+- 橡皮擦删除（4→3）
+- PDF 导入：仅此时加载 pdfjs + module worker（恰好 1 次），图像渲染成功（3→4）
+- `?mode=solver` 渲染 Math Solver，SolverWindow chunk 按需加载
+
+#### 仍需人工确认（视觉/交互细节 + 桌面端）
+
+- [ ] 其余工具绘制（点/正方形/三角/椭圆/自由笔/函数）
+- [ ] 拖拽中 overlay 跟随、旋转、约束联动（点在线上、圆 paramAngle）
 - [ ] 吸附指示器（端点/中点/圆心）
-- [ ] 橡皮擦、自由笔压感开关
-- [ ] 文本/LaTeX 编辑（KaTeX 渲染无回归）
+- [ ] 自由笔压感开关
 - [ ] PDF 导入：进度提示、多页、Lock BG 默认开启、穿透选择
-- [ ] undo、.geo 保存/加载、zoom、多选组变换
+- [ ] .geo 保存/加载、多选组变换
 - [ ] 圆规画弧、直尺 pivot（Alt）、镜像、角标记
-- [ ] `?mode=solver` 打开 MathSolver
 - [ ] Electron：`npm run electron:dev`，文件打开/保存、Ctrl/Cmd+Alt+C snippet
 
 ### 验收结论
 
 - **headless 验收：PASS。** 构建成功；主 chunk 538,042 bytes（535.15 kB）≤ 600KB；worker/pdfjs 静态验证不在首屏 chunk（index 中 GlobalWorkerOptions=0）；732 tests / 47 files 全绿，覆盖率 83.16% / 77.95% 不低于基线；perfSweep 中位数 avgMs 1.3269（对配对基线降幅 ≈49.7%，commits=100）。
 - **浏览器复核：PASS。** 两轮 × 3 次 sweep 全部 commits=100，avgMs 中位数 1.6150 / 1.3620，均 ≤ 2ms → Task 4 SKIP 最终确认；启动零 pdf 资源请求/worker 事件，首次导入 PDF 才加载 pdfjs 与 module worker，PDF 渲染成功，console 无错误。
-- **最终验收：仅剩手动回归清单（浏览器 + Electron，上节 11 项）待人工执行。** 全部量化指标（渲染 + 体积 + 运行态懒加载）已达标。
+- **最终验收：自动化部分全部完成。** 收尾轮已处理 review 遗留的 M1/M2、失效 CSS link、EOF 换行、displayName、pdfImport 测试 mock 恢复；复跑 732 tests 全绿，主 chunk 538,278 bytes，Playwright 回归 PASS。仅剩上节列出的视觉/交互细节与 Electron `file://` 冒烟需人工确认。

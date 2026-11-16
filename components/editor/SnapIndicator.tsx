@@ -23,3 +23,4 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ indicat
         </g>
     );
 });
+SnapIndicator.displayName = 'SnapIndicator';

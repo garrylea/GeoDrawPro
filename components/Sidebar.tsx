@@ -42,3 +42,4 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({ activeTool, onToolC
     </div>
   );
 });
+Sidebar.displayName = 'Sidebar';

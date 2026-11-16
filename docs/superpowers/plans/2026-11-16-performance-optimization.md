@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-16-performance-optimization-design.md`
 
+> **Status (2026-11-16 wrap-up):** Tasks 1/2/3/5/6/7 executed and verified; Task 4 skipped by the acceptance rule (avgMs ≤ 2ms, browser-confirmed). Automated regression is green (732 tests, build 538,278-byte main chunk, Playwright smoke on draw/drag/undo/zoom/text/eraser/PDF/solver). Remaining acceptance is the user-owned manual checklist (browser visual checks + Electron `file://` smoke). The unchecked boxes below preserve the original plan text.
+
 ## Global Constraints
 
 - 每个 Task 结束后 `npm test` 全绿；覆盖率不低于基线（statements ~82%，branches ~77%）。

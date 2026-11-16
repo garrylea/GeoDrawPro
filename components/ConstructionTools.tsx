@@ -96,6 +96,8 @@ export const CompassOverlay: React.FC<CompassOverlayProps> = React.memo(({ cente
     );
 });
 
+CompassOverlay.displayName = 'CompassOverlay';
+
 interface RulerOverlayProps {
     start: Point | null;
     cursor: Point;

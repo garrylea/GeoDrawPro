@@ -328,3 +328,4 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(({
     </g>
   );
 });
+SelectionOverlay.displayName = 'SelectionOverlay';

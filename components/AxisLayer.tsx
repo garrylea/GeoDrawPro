@@ -120,3 +120,4 @@ export const AxisLayer: React.FC<AxisLayerProps> = React.memo(({ config, width, 
     </g>
   );
 });
+AxisLayer.displayName = 'AxisLayer';

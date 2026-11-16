@@ -177,3 +177,4 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
     </div>
   );
 });
+TopBar.displayName = 'TopBar';
