@@ -83,6 +83,7 @@ app.whenReady().then(() => {
 
     // Create Dock Menu for macOS
     if (process.platform === 'darwin') {
+        // Runs after app.on('ready') → app.dock.show(); setIcon must follow the policy promotion.
         applyDockIcon();
 
         const dockMenu = Menu.buildFromTemplate([
@@ -248,7 +249,7 @@ app.on('ready', () => {
     createSnippetWindow();
 
     if (process.platform === 'darwin') {
-        app.dock.show();
+        app.dock.show().catch((error) => log(`dock.show() failed: ${error && error.message}`));
         app.focus({ steal: true });
     } else {
         app.focus();

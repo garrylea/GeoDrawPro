@@ -1,5 +1,7 @@
 # macOS Dock 图标修复实施计划
 
+> **执行状态（2026-11-17）：** 两个 Task 已执行完毕，见 `.superpowers/sdd/2026-11-17-dock-icon-fix/progress.md`。Step 8 的"删除"决定已被 A/B 实测推翻，最终保留 `app.dock.show()`，详见设计文档 §4。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 GeoDraw Pro 在 macOS 启动时显式设置自己的 Dock 图标，使 Dock 条目不再因 LaunchServices/IconServices 解析失败而渲染成 0 宽度（图标不可见）。
@@ -187,7 +189,7 @@ function createWindow(existingFilePath = null) {
 cd /Users/lichao/Downloads/GeoDrawPro && node --check electron/main.js && grep -n "dock.show\|APP_ICON_PATH\|applyDockIcon" electron/main.js
 ```
 
-预期：`node --check` 无输出（退出码 0）；`grep` 结果里 `APP_ICON_PATH` 4 处（定义 + `applyDockIcon` 内 2 处 + `createWindow`）、`applyDockIcon` 2 处（定义 + 调用）、`dock.show` **恰好 1 处**（`app.on('ready')` 内），`ready-to-show` 里那处必须已删除。
+预期：`node --check` 无输出（退出码 0）；`grep` 结果里 `APP_ICON_PATH` 4 处（定义 + `applyDockIcon` 内 2 处 + `createWindow`）、`applyDockIcon` 2 处（定义 + 调用）、`dock.show` 的**实际调用恰好 1 处**（`app.on('ready')` 内；另一处只出现在 `whenReady` 的顺序注释里），`ready-to-show` 里那处必须已删除。
 
 - [ ] **Step 10: 跑既有单测确认无连带破坏**
 
