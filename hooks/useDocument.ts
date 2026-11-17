@@ -43,6 +43,14 @@ export const useDocument = ({ setPivotIndex, setActiveShapeId }: UseDocumentDeps
     useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
     useEffect(() => { shapesRef.current = shapes; }, [shapes]);
 
+    // The in-app shape clipboard only makes sense while this window keeps focus. Leaving the app
+    // to copy something else must not let stale shapes beat the system clipboard on the next paste.
+    useEffect(() => {
+        const clearClipboard = () => setClipboard(prev => (prev.length > 0 ? [] : prev));
+        window.addEventListener('blur', clearClipboard);
+        return () => window.removeEventListener('blur', clearClipboard);
+    }, []);
+
     const saveHistory = useCallback(() => {
         setHistory(prev => [...prev, shapes]);
         setIsDirty(true);

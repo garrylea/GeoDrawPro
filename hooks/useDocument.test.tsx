@@ -156,3 +156,20 @@ describe('useDocument callback stability', () => {
         expect(hook.result.current.setSelectedIds).toBe(first.setSelectedIds);
     });
 });
+describe('useDocument.clipboard invalidation', () => {
+    it('drops the internal shape clipboard when the window loses focus', () => {
+        const { hook } = setup();
+        act(() => { hook.result.current.setClipboard([rect]); });
+        expect(hook.result.current.clipboard).toEqual([rect]);
+        // Leaving the app to copy something else must not let the old shapes win the next paste.
+        act(() => { window.dispatchEvent(new Event('blur')); });
+        expect(hook.result.current.clipboard).toEqual([]);
+    });
+
+    it('keeps the clipboard while the window stays focused', () => {
+        const { hook } = setup();
+        act(() => { hook.result.current.setClipboard([rect, point]); });
+        act(() => { window.dispatchEvent(new Event('focus')); });
+        expect(hook.result.current.clipboard).toEqual([rect, point]);
+    });
+});
