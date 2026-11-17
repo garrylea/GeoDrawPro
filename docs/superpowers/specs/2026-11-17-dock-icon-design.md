@@ -84,7 +84,7 @@
 const APP_ICON_PATH = path.join(__dirname, '..', 'public', 'icon.png');
 ```
 
-`createWindow()` 的 `icon` 选项改为直接使用该常量（`electron/main.js:105`），避免路径重复定义。作用不变：仍只对 Windows/Linux 生效。
+`createWindow()` 的 `icon` 选项改为直接使用该常量（`electron/main.js:106`），避免路径重复定义。作用不变：仍只对 Windows/Linux 生效。
 
 ### 2. 新增 `applyDockIcon()`
 
@@ -121,11 +121,11 @@ if (process.platform === 'darwin') {
 }
 ```
 
-执行顺序（已核实）：`app.on('ready')` 的监听器在事件上同步执行——`createWindow()`、`createSnippetWindow()`、`app.dock.show()`、`app.focus({ steal: true })` 都在这里；`app.whenReady().then` 的回调随后作为微任务运行，才轮到 `applyDockIcon()` 与 `app.dock.setMenu()`。因此 `setIcon` 必然落在激活策略被提升为 regular **之后**。这个顺序是必需的，不能交换：若在 `app.dock.show()` 之前设置图标，Dock 条目重建时可能丢掉显式图标。不需要等到 `ready-to-show`。
+执行顺序（已核实）：`app.on('ready')` 的监听器在事件上同步执行——`createWindow()`、`createSnippetWindow()`、`app.dock.show()`、`app.focus({ steal: true })` 都在这里；`app.whenReady().then` 的回调随后作为微任务运行，才轮到 `applyDockIcon()` 与 `app.dock.setMenu()`。因此 `setIcon` 落在激活策略被提升为 regular **之后**。实测只证明 `app.dock.show()` 本身是必需的（删掉后应用以 accessory 启动、Dock 无条目）；把 `setIcon` 调到 `show()` 之前的效果未单独 A/B 验证，但条目重建有丢图标的先例，因此不要调换这个顺序。不需要等到 `ready-to-show`。
 
 ### 4. 保留 `app.on('ready')` 内的 `app.dock.show()`
 
-- `electron/main.js:250-252`（`app.on('ready')` 内）**保留** `app.dock.show()`，并挂上失败日志：`app.dock.show().catch((error) => log(...))`（不 await、不阻塞启动），其后仍是 `app.focus({ steal: true })`
+- `electron/main.js:251-253`（`app.on('ready')` 内）**保留** `app.dock.show()`，并挂上失败日志：`app.dock.show().catch((error) => log(...))`（不 await、不阻塞启动），其后仍是 `app.focus({ steal: true })`
 - `ready-to-show` 内那处重复的 `if (process.platform === 'darwin') { app.dock.show(); }` 已删除，当前代码中不存在
 
 > **2026-11-17 计划执行期的修订（A/B 实测证伪了初稿判断）**
@@ -192,7 +192,7 @@ app 'ready' 事件 —— 监听器在事件上同步执行
 |---|---|
 | 显式图标与系统从 icns 派生的图标外观略有差异 | 两者同源（同一份 PNG 生成 icns），512px 覆盖 Retina Dock 需求；如需完全一致，改为导出 1024 PNG 即可，属参数级调整 |
 | asar 内读取 PNG 失败 | 已用 `isEmpty()` 兜底并记日志，行为退回现状（即仍可能不可见，但不会引入新故障） |
-| 保留 `app.dock.show()` 与 `setIcon` 的顺序问题 | `show()` 负责把激活策略提到 regular，`setIcon` 负责图标内容。实际顺序：`app.on('ready')` 的监听器（含 `app.dock.show()`）先同步执行，`whenReady().then` 回调作为微任务紧随其后，所以 `setIcon` 落在策略提升**之后**——这个顺序是必需的，不能交换，反过来 Dock 重建条目会丢掉显式图标。若未来顺序调整导致 Dock 无条目，先查激活策略再看图标 |
+| 保留 `app.dock.show()` 与 `setIcon` 的顺序问题 | `show()` 负责把激活策略提到 regular，`setIcon` 负责图标内容。实际顺序：`app.on('ready')` 的监听器（含 `app.dock.show()`）先同步执行，`whenReady().then` 回调作为微任务紧随其后，所以 `setIcon` 落在策略提升**之后**。不要调换（反序未做 A/B，但条目重建可能丢显式图标）。若未来顺序调整导致 Dock 无条目，先查激活策略再看图标 |
 | 多实例仍会产生多个 Dock 图标 | 既有行为，本次不改；如需收敛再单独讨论单实例锁（会改变"允许开多个实例"的现状） |
 | LaunchServices 脏记录仍会存在 | 属用户环境；本次让应用不再依赖它。若图标异常复发，临时办法仍是 `killall Dock`（可写入 README 排障一节，是否写入待定） |
 
