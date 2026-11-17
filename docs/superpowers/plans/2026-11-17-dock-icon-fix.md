@@ -4,7 +4,7 @@
 
 **Goal:** 让 GeoDraw Pro 在 macOS 启动时显式设置自己的 Dock 图标，使 Dock 条目不再因 LaunchServices/IconServices 解析失败而渲染成 0 宽度（图标不可见）。
 
-**Architecture:** 全部改动集中在主进程 `electron/main.js`：新增统一的图标路径常量与 `applyDockIcon()`，在 `app.whenReady()` 的 darwin 分支调用 `app.dock.setIcon(nativeImage.createFromPath(...))`；同时删除两处无效的 `app.dock.show()`。`nativeImage` 为空时只记日志并退回系统默认解析，不阻塞启动。
+**Architecture:** 全部改动集中在主进程 `electron/main.js`：新增统一的图标路径常量与 `applyDockIcon()`，在 `app.whenReady()` 的 darwin 分支调用 `app.dock.setIcon(nativeImage.createFromPath(...))`；保留 `app.on('ready')` 内把激活策略提升为 regular 的 `app.dock.show()`，只删除 `ready-to-show` 内重复的那一处。`nativeImage` 为空时只记日志并退回系统默认解析，不阻塞启动。
 
 **Tech Stack:** Electron 31（主进程 CommonJS）、electron-builder（dmg）、macOS LaunchServices/IconServices。
 
@@ -26,7 +26,7 @@
 
 | 文件 | 职责 | 本次改动 |
 |---|---|---|
-| `electron/main.js` | Electron 主进程：窗口、Dock、IPC、协议 | 新增 `APP_ICON_PATH`、解构 `nativeImage`、新增 `applyDockIcon()`、`whenReady` 调用、`createWindow` 复用常量、删除两处 `app.dock.show()` |
+| `electron/main.js` | Electron 主进程：窗口、Dock、IPC、协议 | 新增 `APP_ICON_PATH`、解构 `nativeImage`、新增 `applyDockIcon()`、`whenReady` 调用、`createWindow` 复用常量、删除 `ready-to-show` 内重复的 `app.dock.show()`（保留 `ready` 内那处） |
 
 不新增文件、不新增测试文件（主进程无测试基建）。`release/` 产物不提交。
 
@@ -41,7 +41,7 @@
 - Modify: `electron/main.js:77-93`（`createWindow` 的 icon 选项）
 - Modify: `electron/main.js:107-113`（`ready-to-show` 内删除 `dock.show()`）
 - Modify: `electron/main.js:52-77`（在 `log()` 与 `createWindow` 之间新增 `applyDockIcon`）
-- Modify: `electron/main.js:233-238`（`app.on('ready')` 内删除 `dock.show()`）
+- 不修改: `electron/main.js:233-238`（`app.on('ready')` 内的 `dock.show()` 必须保留，见 Step 8）
 
 **Interfaces:**
 - Consumes: 无（本任务是最底层改动）
@@ -166,9 +166,9 @@ function createWindow(existingFilePath = null) {
     win.focus();
 ```
 
-- [ ] **Step 8: 删除 `app.on('ready')` 内的 `dock.show()`**
+- [ ] **Step 8: 保留 `app.on('ready')` 内的 `dock.show()`（不修改）**
 
-把：
+确认这段保持原样（`git show HEAD~1:electron/main.js | grep -n "dock.show"` 里 `app.on('ready')` 那处仍在）：
 
 ```js
     if (process.platform === 'darwin') {
@@ -177,13 +177,7 @@ function createWindow(existingFilePath = null) {
     } else {
 ```
 
-改成：
-
-```js
-    if (process.platform === 'darwin') {
-        app.focus({ steal: true });
-    } else {
-```
+> Task 2 的 A/B 实测证明这处调用是必需的：删掉后应用以 accessory（`type="UIElement"`）启动，Dock 完全没有条目。详见设计文档 §4 的修订记录。
 
 - [ ] **Step 9: 语法检查**
 
@@ -193,7 +187,7 @@ function createWindow(existingFilePath = null) {
 cd /Users/lichao/Downloads/GeoDrawPro && node --check electron/main.js && grep -n "dock.show\|APP_ICON_PATH\|applyDockIcon" electron/main.js
 ```
 
-预期：`node --check` 无输出（退出码 0）；`grep` 只剩 `APP_ICON_PATH`（2 处：定义 + `createWindow`）、`applyDockIcon`（2 处：定义 + 调用），**不再出现 `dock.show`**。
+预期：`node --check` 无输出（退出码 0）；`grep` 结果里 `APP_ICON_PATH` 4 处（定义 + `applyDockIcon` 内 2 处 + `createWindow`）、`applyDockIcon` 2 处（定义 + 调用）、`dock.show` **恰好 1 处**（`app.on('ready')` 内），`ready-to-show` 里那处必须已删除。
 
 - [ ] **Step 10: 跑既有单测确认无连带破坏**
 
@@ -248,8 +242,9 @@ git commit -m "fix: set an explicit dock icon on macOS
 The Dock tile could render with zero width (invisible icon) when
 LaunchServices resolved com.geodraw.pro to a stale bundle record.
 Set the icon from app.asar/public/icon.png at startup so the tile no
-longer depends on bundle icon resolution, and drop the redundant
-app.dock.show() calls that re-create the activation policy."
+longer depends on bundle icon resolution, and drop the duplicated
+app.dock.show() call in ready-to-show while keeping the one in ready
+that promotes the activation policy to regular."
 ```
 
 预期：提交成功，`git status` 干净。
@@ -397,7 +392,7 @@ cd /Users/lichao/Downloads/GeoDrawPro && git status --short
 | 统一 `APP_ICON_PATH` 常量，`createWindow` 复用 | Task 1 Step 3、6 |
 | 新增 `applyDockIcon()`（`isEmpty` 兜底 + try/catch） | Task 1 Step 4 |
 | `whenReady` darwin 分支调用 | Task 1 Step 5 |
-| 删除两处 `app.dock.show()` | Task 1 Step 7、8 |
+| 删除 `ready-to-show` 内重复的 `app.dock.show()`，保留 `ready` 内那处 | Task 1 Step 7、8 |
 | 不改 package.json / 打包配置 / 依赖 / 单实例策略 | Global Constraints（无对应任务，符合非目标） |
 | 图标清晰度（512px 覆盖 Retina Dock） | Task 1 Step 11 肉眼确认；无需额外资源 |
 | 失败可观测、可降级 | Task 2 Step 6 |

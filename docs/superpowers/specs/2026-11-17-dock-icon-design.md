@@ -123,14 +123,20 @@ if (process.platform === 'darwin') {
 
 此时 `app` 已 ready、Dock 条目尚未被用户操作重建，是最早且安全的时机；不需要等到 `ready-to-show`。
 
-### 4. 删除冗余的 `app.dock.show()`
+### 4. 保留 `app.on('ready')` 内的 `app.dock.show()`
 
-- `electron/main.js:110-112`（`ready-to-show` 内）删除 `if (process.platform === 'darwin') { app.dock.show(); }`
-- `electron/main.js:233-235`（`app.on('ready')` 内）删除 `app.dock.show();`，保留 `app.focus({ steal: true })`
+- `electron/main.js:233-235`（`app.on('ready')` 内）**保留** `app.dock.show();`，其后仍是 `app.focus({ steal: true })`
+- `electron/main.js:110-112`（`ready-to-show` 内）删除重复的 `if (process.platform === 'darwin') { app.dock.show(); }`
 
-理由：应用从未调用 `app.dock.hide()`，`show()` 是无效调用；而 `show()` 走的是 `setActivationPolicy(Regular)`，在部分 macOS 版本上会触发 Dock 条目重建，是与"条目重建后丢图标"最接近的可疑调用。删除后启动路径不再触碰激活策略，只保留一次显式 `setIcon`。
-
-> 说明：这条属于"降低复发概率 + 去噪"，并非已证实的根因；即使它无害，删除也不改变可见行为。
+> **2026-11-17 计划执行期的修订（A/B 实测证伪了初稿判断）**
+>
+> 初稿曾决定把两处 `app.dock.show()` 都删掉，理由是"应用从未 hide，`show()` 冗余"。Task 2 打包验收否证了这条假设：
+>
+> - 只删掉 `show()` 的新构建启动后 `lsappinfo` 报 `type="UIElement"`（accessory），Dock 里**连条目都不存在**（`osascript` 取 `AXDockItem` 报 -1719），比原 bug 更糟
+> - 同一份代码在 darwin 分支加回 `await app.dock.show()` 后立刻变为 `type="Foreground"`，Dock 条目 60×76、图标正常显示
+> - `Info.plist` 无 `LSUIElement`，同机 VS Code（Electron）为 `Foreground`，故不是系统或 Electron 通病，而是本应用需要这次调用把激活策略提到 regular
+>
+> 结论：`show()` 在本应用里**是必要的**，不能当作冗余删除。`ready-to-show` 里的那处仍是重复调用（`ready` 时已执行过），删除它不影响策略。
 
 ## 启动时序
 
@@ -143,6 +149,7 @@ app ready
   └─ createWindow()
        └─ ready-to-show → maximize / show / focus   // 不再调用 dock.show()
   └─ createSnippetWindow()        // skipTaskbar 仅影响 Windows 任务栏，macOS 无感
+  └─ darwin: app.dock.show() → app.focus({ steal: true })   // 保留：确保 regular 激活策略
 ```
 
 ## 错误处理
@@ -183,7 +190,7 @@ app ready
 |---|---|
 | 显式图标与系统从 icns 派生的图标外观略有差异 | 两者同源（同一份 PNG 生成 icns），512px 覆盖 Retina Dock 需求；如需完全一致，改为导出 1024 PNG 即可，属参数级调整 |
 | asar 内读取 PNG 失败 | 已用 `isEmpty()` 兜底并记日志，行为退回现状（即仍可能不可见，但不会引入新故障） |
-| 删除 `app.dock.show()` 导致某些环境图标不显示 | 应用从不 hide，`show()` 无正向作用；且 `setIcon` 是显式兜底，风险低于保留一个会触发条目重建的调用 |
+| 保留 `app.dock.show()` 与 `setIcon` 的顺序问题 | `show()` 负责把激活策略提到 regular，`setIcon` 负责图标内容；两者都在 `ready` 之后执行，先在 whenReady 设图标、再在 ready 提升策略，实测正常。若未来顺序调整导致 Dock 无条目，先查激活策略再看图标 |
 | 多实例仍会产生多个 Dock 图标 | 既有行为，本次不改；如需收敛再单独讨论单实例锁（会改变"允许开多个实例"的现状） |
 | LaunchServices 脏记录仍会存在 | 属用户环境；本次让应用不再依赖它。若图标异常复发，临时办法仍是 `killall Dock`（可写入 README 排障一节，是否写入待定） |
 
@@ -191,6 +198,6 @@ app ready
 
 | 文件 | 改动 |
 |---|---|
-| `electron/main.js` | 新增 `APP_ICON_PATH` 常量、`nativeImage` 解构、`applyDockIcon()`；`whenReady` darwin 分支调用；`createWindow` 复用常量；删除两处 `app.dock.show()` |
+| `electron/main.js` | 新增 `APP_ICON_PATH` 常量、`nativeImage` 解构、`applyDockIcon()`；`whenReady` darwin 分支调用；`createWindow` 复用常量；删除 `ready-to-show` 内重复的 `app.dock.show()`（保留 `app.on('ready')` 内那处） |
 
 预估净增约 20 行、删除 6 行；不涉及渲染层、打包配置与依赖。
