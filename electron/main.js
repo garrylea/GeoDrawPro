@@ -248,6 +248,7 @@ app.on('ready', () => {
     createSnippetWindow();
 
     if (process.platform === 'darwin') {
+        app.dock.show();
         app.focus({ steal: true });
     } else {
         app.focus();
