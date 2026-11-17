@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, desktopCapturer, screen, protocol, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, desktopCapturer, screen, protocol, Menu, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -12,6 +12,10 @@ dotenv.config();
 // Dev server URL — keep in sync with vite.config.ts (server.port) and the
 // electron:dev wait-on target in package.json.
 const DEV_SERVER_URL = 'http://localhost:5273';
+
+// App icon for the window (Windows/Linux) and the macOS Dock tile.
+// public/icon.png ships inside app.asar, so this resolves in dev and packaged builds.
+const APP_ICON_PATH = path.join(__dirname, '..', 'public', 'icon.png');
 
 // Global references
 let mainWindows = new Set(); // Support multiple windows
@@ -49,6 +53,21 @@ function log(msg, window) {
     }
 }
 
+function applyDockIcon() {
+    if (process.platform !== 'darwin' || !app.dock) return;
+    try {
+        const image = nativeImage.createFromPath(APP_ICON_PATH);
+        if (image.isEmpty()) {
+            log(`Dock icon not found at ${APP_ICON_PATH}, falling back to bundle icon`);
+            return;
+        }
+        app.dock.setIcon(image);
+        log('Dock icon applied');
+    } catch (error) {
+        log(`Failed to apply dock icon: ${error && error.message}`);
+    }
+}
+
 app.whenReady().then(() => {
     protocol.handle('app-screenshot', (request) => {
         if (currentScreenshotBuffer) {
@@ -64,6 +83,8 @@ app.whenReady().then(() => {
 
     // Create Dock Menu for macOS
     if (process.platform === 'darwin') {
+        applyDockIcon();
+
         const dockMenu = Menu.buildFromTemplate([
             {
                 label: 'New Window',
@@ -76,13 +97,12 @@ app.whenReady().then(() => {
 
 function createWindow(existingFilePath = null) {
   const isDev = !app.isPackaged;
-  const iconPath = path.join(__dirname, '..', 'public', 'icon.png');
 
   let win = new BrowserWindow({
     width: 1400,
     height: 1000,
     title: "GeoDraw Pro",
-    icon: iconPath, 
+    icon: APP_ICON_PATH,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -107,9 +127,6 @@ function createWindow(existingFilePath = null) {
   win.once('ready-to-show', () => {
     win.maximize(); // Fill the screen (excluding OS bars)
     win.show();
-    if (process.platform === 'darwin') {
-      app.dock.show();
-    }
     win.focus();
 
     const fileToUse = existingFilePath || fileToOpen;
@@ -231,7 +248,6 @@ app.on('ready', () => {
     createSnippetWindow();
 
     if (process.platform === 'darwin') {
-        app.dock.show();
         app.focus({ steal: true });
     } else {
         app.focus();
